@@ -1,10 +1,32 @@
 /* RGBTv — M3U / M3U8 playlist provider with XMLTV EPG support.
  * XMLTV is loaded in the background so a slow guide never blocks opening the playlist. */
 function M3UProvider(acc) {
-  this.acc = acc; this.type = 'm3u'; this.url = (acc.url || '').trim();
+  this.acc = acc; this.type = 'm3u'; this.url = U.normUrl((acc.url || '').trim());
   this.items = null; this.epg = {}; this.epgUrl = (acc.epg || '').trim(); this._epgPending = null; this._epgTimer = null;
 }
+/* HTTP 444 is commonly an nginx rule that deliberately drops an IPTV request. The
+   same list may accept a TV/VLC-shaped request, so retry those immediately. */
+var M3U_CLIENTS = [
+  null,
+  { 'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20', 'Accept': '*/*' },
+  { 'User-Agent': 'Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) WebAppManager', 'Accept': '*/*' }
+];
 M3UProvider.prototype = {
+  _fetch: function (target, timeout) {
+    var attempt = 0, last;
+    function next() {
+      var headers = M3U_CLIENTS[attempt], opt = { timeout: timeout || 18000, proxy: true };
+      if (headers) opt.headers = headers;
+      return U.http(target, opt).catch(function (err) {
+        last = err;
+        /* 444/403/406 are normally immediate server-side client filtering, not slow network failures. */
+        if (attempt < M3U_CLIENTS.length - 1 && /HTTP (?:403|406|429|444)|Network error/i.test(String(err && err.message))) { attempt++; return next(); }
+        if (/HTTP 444/.test(String(last && last.message))) throw new Error(I18n.t('provider.http444'));
+        throw last;
+      });
+    }
+    return next();
+  },
   login: function () {
     var self = this, cached = Store.cacheGet(this.acc.id, 'm3u_items', 6 * 3600e3), cachedEpg = Store.cacheGet(this.acc.id, 'm3u_epg', 12 * 3600e3);
     if (cachedEpg) this.epg = cachedEpg;
@@ -14,7 +36,7 @@ M3UProvider.prototype = {
     }
     /* Luna proxy avoids CORS failures on playlists hosted by IPTV panels. A short timeout
        fails a dead source quickly instead of leaving the profile on the connecting screen. */
-    return U.http(this.url, { timeout: 18000, proxy: true }).then(function (txt) {
+    return this._fetch(this.url, 18000).then(function (txt) {
       if (!/#EXTM3U/i.test(txt) && !/#EXTINF/i.test(txt)) throw new Error('Not a valid M3U playlist');
       self.epgUrl = self.epgUrl || self._findEpgUrl(txt);
       self.items = self._parse(txt);
@@ -108,7 +130,7 @@ M3UProvider.prototype = {
   _loadEpg: function (epgUrl) {
     var self = this;
     if (!epgUrl || this._epgPending) return this._epgPending || Promise.resolve(this.epg);
-    this._epgPending = U.http(epgUrl, { timeout: 25000, proxy: true }).then(function (xml) {
+    this._epgPending = this._fetch(epgUrl, 25000).then(function (xml) {
       self.epg = self._parseXmltv(xml); Store.cacheSet(self.acc.id, 'm3u_epg', self.epg); return self.epg;
     }).catch(function () { return self.epg; });
     this._epgPending.then(function () { self._epgPending = null; }, function () { self._epgPending = null; });
