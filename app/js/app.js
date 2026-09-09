@@ -1,7 +1,7 @@
 /* RGBTv — application controller (v1.1) */
 var App = (function () {
   var screen = 'splash', section = 'home', account = null, provider = null;
-  var live = { cats: [], catId: null, list: [], selected: null, previewTimer: null, epgTimer: null, previewVideo: null, previewHls: null };
+  var live = { cats: [], catId: null, list: [], selected: null, previewTimer: null, epgTimer: null, previewVideo: null, previewHls: null, previewGeneration: 0 };
   var movies = { cats: [], catId: null, list: [] }, series = { cats: [], catId: null, list: [] };
   var details = { base: null, info: null, season: null, list: null };
   var editingId = null, addType = 'xtream', addAvatar = 'red', playerReturn = null, manageMode = false;
@@ -69,6 +69,13 @@ var App = (function () {
     applyLang(); applyTheme(); applyUi(); Player.init();
     /* Player zapping has its own entry points, so centralize the live-channel lock gate. */
     Player.setCanPlay(function (ch) { return needsUnlock(ch) ? askUnlock(ch) : true; });
+    /* Dual View can browse every live channel, rather than only the category that opened the player. */
+    Player.setLiveChannels(function () {
+      if (!provider) return Promise.resolve([]);
+      return provider.liveStreams(null).then(function (list) {
+        return (list || []).filter(function (ch) { return !(parentalOn() && (U.isAdult(ch.name) || U.isAdult(ch.catName))); });
+      });
+    });
     setInterval(tickClock, 1000); tickClock(); setTimeout(function () { Weather.refresh(); }, 2500); Adhan.start();
     var spot = U.el('div'); spot.id = 'spot'; U.$('#screen-home').insertBefore(spot, U.$('#screen-home .topbar'));
     initAmbient();
@@ -554,20 +561,24 @@ var App = (function () {
     live.selected = ch; clearTimeout(live.previewTimer); clearTimeout(live.epgTimer);
     if (live.vl) live.vl.setSelected(ch.id);
     live.epgTimer = setTimeout(function () { provider.shortEPG(ch.id, 12).then(function (l) { if (live.selected === ch) UI.renderEpg(l); }); }, 600);
-    if (Store.settings().preview && !needsUnlock(ch) && !Nav.byPointer()) live.previewTimer = setTimeout(function () { startPreview(ch); }, 1200);
+    /* M3U browsing stays decoder-free: on many TVs an invisible preview competes with the
+       requested channel and is the main cause of a long first-buffer delay. */
+    if (Store.settings().preview && App.provider && App.provider.type !== 'm3u' && !needsUnlock(ch) && !Nav.byPointer()) live.previewTimer = setTimeout(function () { startPreview(ch); }, 1200);
   }
   function startPreview(ch) {
-    stopPreview(); var box = U.$('#live-preview'); box.innerHTML = '';
+    stopPreview(); var generation = ++live.previewGeneration, box = U.$('#live-preview'); box.innerHTML = '';
     var v = document.createElement('video'); v.autoplay = true; v.setAttribute('disableRemotePlayback', ''); box.appendChild(v); live.previewVideo = v;
     provider.streamUrl(ch).then(function (url) {
-      if (live.selected !== ch) return;
+      if (live.selected !== ch || generation !== live.previewGeneration || live.previewVideo !== v) return;
       var eng = Store.settings().engine;
       if (/\.m3u8(\?|$)/i.test(url) && window.Hls && Hls.isSupported() && (eng === 'hlsjs' || (eng === 'auto' && !v.canPlayType('application/vnd.apple.mpegurl')))) { live.previewHls = new Hls({ enableWorker: false, maxBufferLength: 15 }); live.previewHls.loadSource(url); live.previewHls.attachMedia(v); }
       else { v.src = url; v.play().catch(function () { }); }
-      v.onerror = function () { if (live.selected === ch && !v._retried) { v._retried = true; setTimeout(function () { if (live.selected === ch) { v.src = url; v.play().catch(function () { }); } }, 3000); } };
+      v.onerror = function () { if (live.selected === ch && generation === live.previewGeneration && live.previewVideo === v && !v._retried) { v._retried = true; setTimeout(function () { if (live.selected === ch && generation === live.previewGeneration && live.previewVideo === v) { v.src = url; v.play().catch(function () { }); } }, 3000); } };
     }).catch(function () { });
   }
   function stopPreview() {
+    /* Invalidate an outstanding streamUrl promise before tearing down this decoder. */
+    live.previewGeneration++;
     clearTimeout(live.previewTimer);
     if (live.previewHls) { try { live.previewHls.destroy(); } catch (e) { } live.previewHls = null; }
     if (live.previewVideo) { try { live.previewVideo.pause(); live.previewVideo.removeAttribute('src'); live.previewVideo.load(); } catch (e) { } live.previewVideo = null; }
@@ -690,7 +701,7 @@ var App = (function () {
     var s = Store.settings();
     if (k === 'lang') { Store.setSetting(k, I18n.next()); applyLang(); updateExpiry(null); live.cats = []; movies.cats = []; series.cats = []; if (section === 'home') renderHome(); }
     else if (k === 'refresh') { var steps = [0, 3, 6, 12, 24], i = steps.indexOf(s.refreshHours); Store.setSetting('refreshHours', steps[(i + 1) % steps.length]); scheduleRefresh(); }
-    else if (k === 'theme') { var th = ['aurora', 'midnight', 'oled', 'ocean', 'crimson', 'emerald', 'sunset', 'royal', 'ramadan']; Store.setSetting(k, th[(th.indexOf(s.theme) + 1) % th.length]); applyTheme(); }
+    else if (k === 'theme') { var th = ['aurora', 'midnight', 'oled', 'ocean', 'crimson', 'emerald', 'sunset', 'royal', 'ramadan', 'cinema', 'glass', 'arcade', 'mono', 'majlis']; Store.setSetting(k, th[(th.indexOf(s.theme) + 1) % th.length]); applyTheme(); if (section === 'home') renderHome(); }
     else if (k === 'liveFormat') Store.setSetting(k, s.liveFormat === 'ts' ? 'm3u8' : 'ts');
     else if (k === 'engine') Store.setSetting(k, { auto: 'native', native: 'hlsjs', hlsjs: 'auto' }[s.engine]);
     else if (k === 'parental') { if (account.kids) { UI.toast(T('kids.locked'), 2500, '🔒'); return; } Store.setSetting(k, !s[k]); }
@@ -896,7 +907,7 @@ var App = (function () {
       if (sec) { showSection(sec); if ((t.classList.contains('tile') || t.classList.contains('util')) && !document.body.classList.contains('hubmode')) Nav.focus(U.$('.nav-item[data-section="' + sec + '"]')); else if (t.id === 'hub-home') Nav.focus(U.$('#hub .tile')); return; }
       if (typ && t.classList.contains('tab')) { setAddType(typ); return; }
       if (set) { toggleSetting(set); return; }
-      var tp = t.getAttribute('data-theme-pick'); if (tp) { Store.setSetting('theme', tp); if (tp === 'ramadan') Store.setSetting('accent', 'auto'); applyTheme(); renderSettings(); return; }
+      var tp = t.getAttribute('data-theme-pick'); if (tp) { Store.setSetting('theme', tp); if (tp === 'ramadan') Store.setSetting('accent', 'auto'); applyTheme(); renderSettings(); if (section === 'home') renderHome(); return; }
       var lp = t.getAttribute('data-layout-pick'); if (lp) { Store.setSetting('layout', lp); applyUi(); renderSettings(); UI.toast(T('lay.' + lp), 2000, '✓'); return; }
       var ap = t.getAttribute('data-accent-pick'); if (ap) { Store.setSetting('accent', ap); applyTheme(); renderSettings(); return; }
       switch (a) {

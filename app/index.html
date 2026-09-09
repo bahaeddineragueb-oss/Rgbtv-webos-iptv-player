@@ -250,6 +250,11 @@
             <button class="swatch focusable" data-nav="settings" data-theme-pick="sunset" data-theme="sunset"><i></i><span class="nm" data-i18n="theme.sunset">Sunset</span></button>
             <button class="swatch focusable" data-nav="settings" data-theme-pick="royal" data-theme="royal"><i></i><span class="nm" data-i18n="theme.royal">Royal</span></button>
             <button class="swatch focusable" data-nav="settings" data-theme-pick="ramadan" data-theme="ramadan"><i></i><span class="nm" data-i18n="theme.ramadan">Ramadan</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="cinema" data-theme="cinema"><i></i><span class="nm" data-i18n="theme.cinema">Cinema</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="glass" data-theme="glass"><i></i><span class="nm" data-i18n="theme.glass">Glass</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="arcade" data-theme="arcade"><i></i><span class="nm" data-i18n="theme.arcade">Arcade</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="mono" data-theme="mono"><i></i><span class="nm" data-i18n="theme.mono">Mono</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="majlis" data-theme="majlis"><i></i><span class="nm" data-i18n="theme.majlis">Majlis</span></button>
           </div></div>
         <div class="setting-row"><div><b data-i18n="set.accent">Accent color</b><p class="muted" data-i18n="set.accent.d">Color of highlights, buttons and progress bars. Auto follows the theme.</p></div>
           <div class="theme-swatches accents" id="accent-swatches">
@@ -357,6 +362,7 @@
         <button class="osd-btn focusable" data-nav="osd" data-action="p-subs" id="osd-subs" data-i18n="p.subs">Subtitles</button>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-ratio" id="osd-ratio">Fit</button>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-dual" id="osd-dual" data-i18n="p.dual">Dual</button>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-dual-select" id="osd-dual-select" data-i18n="p.dualSelect">Choose 2nd</button>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-dual-next" id="osd-dual-next" data-i18n="p.dualNext">2nd +</button>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-dual-audio" id="osd-dual-audio" data-i18n="p.dualAudio">Audio 1</button>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-fav" id="osd-fav">☆</button>
@@ -369,6 +375,7 @@
   <div class="channel-number" id="channel-number"></div>
   <div class="zap-preview" id="zap-preview"></div>
   <div class="stats-box" id="stats-box"></div>
+  <div class="dual-picker" id="dual-picker"><div class="dual-picker-head"><div><b data-i18n="p.dualPickTitle">Choose the second channel</b><small id="dual-picker-count"></small></div><button class="osd-btn focusable" data-nav="dual-picker" data-action="p-dual-close" data-i18n="close">Close</button></div><div class="dual-picker-list" id="dual-picker-list"></div><p class="dual-picker-hint" data-i18n="p.dualPickHint">OK selects · BACK cancels</p></div>
   <div class="locked-overlay" id="locked-overlay"><div class="lo-ico">🔒</div><h3 data-i18n="lockedChannel">Locked channel</h3><p data-i18n="enterPin">Enter PIN to unlock</p><div class="pin-dots" id="lock-dots"><i></i><i></i><i></i><i></i></div></div>
   <div class="track-menu" id="track-menu"></div>
   <div class="autonext" id="autonext">

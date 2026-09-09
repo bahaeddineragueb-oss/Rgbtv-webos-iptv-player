@@ -2,24 +2,27 @@
  * XMLTV is loaded in the background so a slow guide never blocks opening the playlist. */
 function M3UProvider(acc) {
   this.acc = acc; this.type = 'm3u'; this.url = (acc.url || '').trim();
-  this.items = null; this.epg = {}; this.epgUrl = (acc.epg || '').trim(); this._epgPending = null;
+  this.items = null; this.epg = {}; this.epgUrl = (acc.epg || '').trim(); this._epgPending = null; this._epgTimer = null;
 }
 M3UProvider.prototype = {
   login: function () {
     var self = this, cached = Store.cacheGet(this.acc.id, 'm3u_items', 6 * 3600e3), cachedEpg = Store.cacheGet(this.acc.id, 'm3u_epg', 12 * 3600e3);
     if (cachedEpg) this.epg = cachedEpg;
     if (cached) {
-      this.items = cached; this._loadEpg(this.epgUrl);
+      this.items = cached; this._scheduleEpg(this.epgUrl);
       return Promise.resolve({ status: 'Loaded (cache)', expires: null, count: cached.length });
     }
-    /* Luna proxy avoids CORS failures on playlists hosted by IPTV panels. It falls back to XHR where the service is absent. */
-    return U.http(this.url, { timeout: 60000, proxy: true }).then(function (txt) {
+    /* Luna proxy avoids CORS failures on playlists hosted by IPTV panels. A short timeout
+       fails a dead source quickly instead of leaving the profile on the connecting screen. */
+    return U.http(this.url, { timeout: 18000, proxy: true }).then(function (txt) {
       if (!/#EXTM3U/i.test(txt) && !/#EXTINF/i.test(txt)) throw new Error('Not a valid M3U playlist');
       self.epgUrl = self.epgUrl || self._findEpgUrl(txt);
       self.items = self._parse(txt);
       if (!self.items.length) throw new Error('Playlist is empty');
       Store.cacheSet(self.acc.id, 'm3u_items', self.items);
-      self._loadEpg(self.epgUrl);
+      /* XMLTV files are often much larger than the channel list. Defer this optional download so
+         opening the first M3U channel never competes with an EPG transfer. */
+      self._scheduleEpg(self.epgUrl);
       return { status: 'Loaded', expires: null, count: self.items.length };
     });
   },
@@ -97,10 +100,15 @@ M3UProvider.prototype = {
     Object.keys(map).forEach(function (id) { map[id].sort(function (a, b) { return a.start - b.start; }); });
     return map;
   },
+  _scheduleEpg: function (epgUrl) {
+    var self = this;
+    if (!epgUrl || this._epgPending || this._epgTimer) return;
+    this._epgTimer = setTimeout(function () { self._epgTimer = null; self._loadEpg(epgUrl); }, 9000);
+  },
   _loadEpg: function (epgUrl) {
     var self = this;
     if (!epgUrl || this._epgPending) return this._epgPending || Promise.resolve(this.epg);
-    this._epgPending = U.http(epgUrl, { timeout: 60000, proxy: true }).then(function (xml) {
+    this._epgPending = U.http(epgUrl, { timeout: 25000, proxy: true }).then(function (xml) {
       self.epg = self._parseXmltv(xml); Store.cacheSet(self.acc.id, 'm3u_epg', self.epg); return self.epg;
     }).catch(function () { return self.epg; });
     this._epgPending.then(function () { self._epgPending = null; }, function () { self._epgPending = null; });
@@ -129,6 +137,7 @@ M3UProvider.prototype = {
     list = list.filter(function (p) { return p.end > now - 60; });
     return Promise.resolve(list.slice(0, limit || 10));
   },
+  destroy: function () { clearTimeout(this._epgTimer); this._epgTimer = null; },
   streamUrl: function (item) { return Promise.resolve(item && item.url); }
 };
 

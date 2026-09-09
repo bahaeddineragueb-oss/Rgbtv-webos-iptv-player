@@ -3,7 +3,8 @@
 var Service = require('webos-service');
 var http = require('http'), https = require('https'), url = require('url'), os = require('os'), crypto = require('crypto');
 var service = new Service('com.rgbtv.app.service');
-var MAX_REQUEST_BODY = 1024 * 1024, MAX_RESPONSE_BODY = 12 * 1024 * 1024, MAX_TIMEOUT = 60000;
+/* A large M3U/XMLTV export can exceed 12 MiB; keep a firm but practical 32 MiB cap. */
+var MAX_REQUEST_BODY = 1024 * 1024, MAX_RESPONSE_BODY = 32 * 1024 * 1024, MAX_TIMEOUT = 60000;
 var DEFAULT_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3',
   'Accept': '*/*', 'Connection': 'close'

@@ -1,4 +1,4 @@
-# RGBTv — webOS TV source (v2.1.0)
+# RGBTv — webOS TV source (v2.1.1)
 
 Pure HTML5 web app for LG webOS (3.0+): ES5 JavaScript, legacy-safe CSS, native <video> + hls.js.
 

@@ -1,18 +1,20 @@
 /* RGBTv — Player: native <video> (webOS handles HLS/TS/MP4/MKV natively) with hls.js fallback */
 var Player = (function () {
   var video, secondaryVideo, hls = null, secondaryHls = null, osdTimer = null, current = null, playlist = [], index = -1, ratioMode = 0, RATIOS = ['Fit', 'Fill', 'Stretch'];
-  var onEnded = null, canPlay = null, posKey = null, posTimer = null, seekAccum = 0, seekTimer = null, numBuf = '', numTimer = null, zapOpen = false, trackMenuOpen = false;
-  var dual = { on: false, item: null, index: -1, audio: 'main', loading: false, generation: 0 };
+  var onEnded = null, canPlay = null, getLiveChannels = null, posKey = null, posTimer = null, seekAccum = 0, seekTimer = null, numBuf = '', numTimer = null, zapOpen = false, trackMenuOpen = false, playGeneration = 0;
+  var dual = { on: false, item: null, index: -1, list: null, audio: 'main', loading: false, generation: 0, pickerOpen: false, pickerRequest: 0, picker: null };
   var els = {};
   /* auto-reconnect state */
   var rc = { attempts: 0, timer: null, stallTimer: null, lastTime: -1, lastProgress: 0, lastOpt: null, active: false };
   function T(k, v) { return I18n.t(k, v); }
-  var RC_MAX = 8, RC_DELAYS = [1000, 2000, 3000, 5000, 8000, 10000, 15000, 20000], STALL_LIVE = 12000, STALL_VOD = 30000, START_VOD = 60000;
+  var RC_MAX = 5, RC_DELAYS = [800, 1500, 2500, 4000, 6500], STALL_LIVE = 8500, STALL_VOD = 30000, START_VOD = 60000;
   var ICON_PLAY = '<svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M7 4v16l14-8z"/></svg>', ICON_PAUSE = '<svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';
+  /* Providers often hide an HLS manifest behind a PHP route; do not rely only on a .m3u8 suffix. */
+  function isHlsStream(url) { return /\.m3u8(?:[?#]|$)|[?&](?:type|output|format|extension)=m3u8(?:[&#]|$)|\/(?:hls|playlist)(?:[/?#]|$)/i.test(String(url || '')); }
 
   function init() {
     video = U.$('#video'); secondaryVideo = U.$('#video-secondary'); try { video.preload = 'auto'; secondaryVideo.preload = 'auto'; } catch (e) { }
-    ['osd', 'osd-title', 'osd-sub', 'osd-logo', 'osd-clock', 'osd-played', 'osd-buffer', 'osd-cur', 'osd-dur', 'osd-play', 'player-loading', 'player-loading-text', 'player-error', 'zap-list', 'channel-number', 'track-menu', 'osd-fav', 'osd-ratio', 'osd-list-btn', 'osd-audio', 'osd-subs', 'osd-quality', 'stats-box', 'zap-preview', 'osd-stats', 'osd-epg', 'osd-dual', 'osd-dual-next', 'osd-dual-audio', 'dual-primary-label', 'dual-secondary-label', 'autonext', 'an-bar', 'an-count', 'an-title'].forEach(function (id) { els[id] = document.getElementById(id); });
+    ['osd', 'osd-title', 'osd-sub', 'osd-logo', 'osd-clock', 'osd-played', 'osd-buffer', 'osd-cur', 'osd-dur', 'osd-play', 'player-loading', 'player-loading-text', 'player-error', 'zap-list', 'channel-number', 'track-menu', 'osd-fav', 'osd-ratio', 'osd-list-btn', 'osd-audio', 'osd-subs', 'osd-quality', 'stats-box', 'zap-preview', 'osd-stats', 'osd-epg', 'osd-dual', 'osd-dual-select', 'osd-dual-next', 'osd-dual-audio', 'dual-primary-label', 'dual-secondary-label', 'dual-picker', 'dual-picker-list', 'dual-picker-count', 'autonext', 'an-bar', 'an-count', 'an-title'].forEach(function (id) { els[id] = document.getElementById(id); });
     /* Buffering indicator: webOS fires 'waiting'/'stalled' very often on live TS/HLS even while the picture keeps
        moving, and sometimes never fires 'playing' afterwards -> spinner stuck in the middle. So: show it only if the
        stall lasts > 800ms, and hide it as soon as currentTime advances again (real progress), not only on 'playing'. */
@@ -79,7 +81,10 @@ var Player = (function () {
   function destroyHls() { if (hls) { try { hls.destroy(); } catch (e) { } hls = null; } }
   function startHls(url) {
     destroyHls();
-    hls = new Hls({ maxBufferLength: 30, maxMaxBufferLength: 60, liveSyncDurationCount: 3, enableWorker: false, fragLoadingTimeOut: 20000, manifestLoadingTimeOut: 10000, manifestLoadingMaxRetry: 1, levelLoadingMaxRetry: 2, fragLoadingMaxRetry: 3 });
+    var liveNow = current && current.type === 'live';
+    /* Keep only a short live buffer. It starts substantially sooner and avoids the long
+       "Buffering" phase caused by preloading 30–60 seconds before rendering a frame. */
+    hls = new Hls({ maxBufferLength: liveNow ? 8 : 30, maxMaxBufferLength: liveNow ? 16 : 60, backBufferLength: liveNow ? 12 : 60, liveSyncDurationCount: liveNow ? 2 : 3, enableWorker: false, fragLoadingTimeOut: liveNow ? 9000 : 20000, manifestLoadingTimeOut: liveNow ? 8000 : 10000, manifestLoadingMaxRetry: 1, levelLoadingMaxRetry: 1, fragLoadingMaxRetry: liveNow ? 2 : 3 });
     hls.loadSource(url); hls.attachMedia(video);
     hls.on(Hls.Events.MANIFEST_PARSED, function () { video.play().catch(function () { }); setTimeout(updateQualityBadge, 1500); });
     hls.on(Hls.Events.ERROR, function (ev, data) {
@@ -98,6 +103,7 @@ var Player = (function () {
     var live = current && current.type === 'live', active = live && dual.on;
     if (els['osd-dual']) {
       els['osd-dual'].style.display = live ? '' : 'none';
+      els['osd-dual-select'].style.display = active ? '' : 'none';
       els['osd-dual-next'].style.display = active ? '' : 'none';
       els['osd-dual-audio'].style.display = active ? '' : 'none';
       els['osd-dual'].textContent = active ? T('p.dualOff') : T('p.dual');
@@ -115,7 +121,8 @@ var Player = (function () {
   function stopDual() {
     /* Invalidate pending streamUrl calls and stale hls/video error callbacks. */
     dual.generation++;
-    dual.on = false; dual.item = null; dual.index = -1; dual.loading = false; dual.audio = 'main';
+    dual.on = false; dual.item = null; dual.index = -1; dual.list = null; dual.loading = false; dual.audio = 'main';
+    if (dual.pickerOpen) closeDualPicker(false);
     destroySecondaryHls();
     if (secondaryVideo) { try { secondaryVideo.pause(); secondaryVideo.removeAttribute('src'); secondaryVideo.load(); secondaryVideo.muted = true; } catch (e) { } }
     if (video) video.muted = false;
@@ -126,7 +133,7 @@ var Player = (function () {
   }
   function startSecondarySource(url, item, generation) {
     destroySecondaryHls();
-    var eng = Store.settings().engine, isHlsUrl = /\.m3u8(\?|$)/i.test(url), hlsOk = isHlsUrl && window.Hls && Hls.isSupported();
+    var eng = Store.settings().engine, isHlsUrl = isHlsStream(url), hlsOk = isHlsUrl && window.Hls && Hls.isSupported();
     if (hlsOk && (eng === 'hlsjs' || (eng === 'auto' && !secondaryVideo.canPlayType('application/vnd.apple.mpegurl')))) {
       secondaryHls = new Hls({ maxBufferLength: 15, maxMaxBufferLength: 30, liveSyncDurationCount: 3, enableWorker: false, fragLoadingTimeOut: 20000, manifestLoadingTimeOut: 10000 });
       secondaryHls.loadSource(url); secondaryHls.attachMedia(secondaryVideo);
@@ -135,7 +142,7 @@ var Player = (function () {
     } else { secondaryVideo.src = url; secondaryVideo.load(); secondaryVideo.play().catch(function () { }); }
     secondaryVideo.onerror = function () { if (dual.on && dual.item === item && generation === dual.generation) { UI.toast(T('p.dualError'), 3000, '⚠'); stopDual(); } };
   }
-  function loadDualItem(item, itemIndex) {
+  function loadDualItem(item, itemIndex, source) {
     if (!item || !App.provider) return;
     var generation = ++dual.generation;
     dual.loading = true;
@@ -143,7 +150,7 @@ var Player = (function () {
       /* The user may have zapped, disabled dual view, or selected a newer secondary item meanwhile. */
       if (generation !== dual.generation || !current || current.type !== 'live') return;
       if (!streamUrl) throw new Error('No stream URL');
-      dual.loading = false; dual.on = true; dual.item = item; dual.index = itemIndex; dual.audio = 'main';
+      dual.loading = false; dual.on = true; dual.item = item; dual.index = itemIndex; dual.list = source || playlist; dual.audio = 'main';
       var screen = U.$('#screen-player'); if (screen) screen.classList.add('dual');
       els['dual-primary-label'].textContent = current.name || current.title || '';
       els['dual-secondary-label'].textContent = item.name || '';
@@ -160,29 +167,78 @@ var Player = (function () {
     if (allowed && typeof allowed.then === 'function') allowed.then(function (ok) { if (ok) done(); });
     else if (allowed !== false) done();
   }
-  function findDualIndex(from) {
-    if (!playlist.length) return -1;
-    for (var step = 1; step < playlist.length; step++) {
-      var i = (from + step) % playlist.length;
-      if (i !== index && playlist[i] && playlist[i].type === 'live') return i;
+  function findDualIndex(from, source) {
+    source = source || playlist;
+    if (!source.length) return -1;
+    for (var step = 1; step < source.length; step++) {
+      var i = (from + step) % source.length;
+      if (source[i] && source[i].type === 'live' && String(source[i].id) !== String(current && current.id)) return i;
     }
     return -1;
+  }
+  function closeDualPicker(refocus) {
+    dual.pickerOpen = false; dual.pickerRequest++;
+    if (els['dual-picker']) els['dual-picker'].classList.remove('show');
+    if (refocus !== false && els['osd-dual-select']) { showOsd(); Nav.focus(dual.on ? els['osd-dual-select'] : els['osd-dual']); }
+  }
+  function renderDualPicker(source) {
+    var list = [], seen = {}, currentId = String(current && current.id);
+    (source || []).forEach(function (ch) {
+      if (!ch || ch.type !== 'live' || String(ch.id) === currentId || seen[ch.id]) return;
+      seen[ch.id] = 1; list.push(ch);
+    });
+    if (els['dual-picker-count']) els['dual-picker-count'].textContent = list.length ? T('p.dualPickCount', { n: list.length }) : T('p.dualNeed');
+    if (!list.length) { els['dual-picker-list'].innerHTML = '<div class="dual-empty">' + U.esc(T('p.dualNeed')) + '</div>'; return; }
+    dual.picker = new VList({
+      container: els['dual-picker-list'], itemH: 84, nav: 'dual-picker', overscan: 3,
+      render: function (ch, i) {
+        var row = U.el('button', 'dual-channel focusable' + (dual.item && String(ch.id) === String(dual.item.id) ? ' selected' : ''));
+        row.innerHTML = '<span class="dc-num">' + U.esc(ch.num || i + 1) + '</span><span class="dc-logo" style="' + (ch.logo ? 'background-image:url(\'' + U.esc(ch.logo) + '\')' : '') + '"></span><span class="dc-name">' + U.esc(ch.name || '—') + '</span><span class="dc-group">' + U.esc(ch.catName || '') + '</span>';
+        return row;
+      },
+      onSelect: function (ch, i) { closeDualPicker(false); permit(ch, function () { loadDualItem(ch, i, list); }); }
+    });
+    dual.picker.setItems(list);
+    var pick = 0; list.forEach(function (ch, i) { if (dual.item && String(ch.id) === String(dual.item.id)) pick = i; });
+    dual.picker.focusIndex(pick, true);
+  }
+  function openDualPicker() {
+    if (!current || current.type !== 'live') { UI.toast(T('p.dualLive'), 2500, '⚠'); return; }
+    if (dual.pickerOpen) { closeDualPicker(); return; }
+    dual.pickerOpen = true;
+    var request = ++dual.pickerRequest;
+    els['dual-picker'].classList.add('show'); els['dual-picker-list'].innerHTML = '<div class="dual-loading"><div class="loader"></div>' + U.esc(T('p.dualLoading')) + '</div>';
+    if (els['dual-picker-count']) els['dual-picker-count'].textContent = '';
+    var source = getLiveChannels ? getLiveChannels() : Promise.resolve(playlist);
+    Promise.resolve(source).then(function (list) {
+      if (!dual.pickerOpen || request !== dual.pickerRequest) return;
+      renderDualPicker(list || playlist);
+    }).catch(function () {
+      if (!dual.pickerOpen || request !== dual.pickerRequest) return;
+      renderDualPicker(playlist);
+    });
   }
   function toggleDual() {
     if (!current || current.type !== 'live') { UI.toast(T('p.dualLive'), 2500, '⚠'); return; }
     if (dual.on || dual.loading) { stopDual(); return; }
-    var i = findDualIndex(index); if (i < 0) { UI.toast(T('p.dualNeed'), 2500, '⚠'); return; }
-    permit(playlist[i], function () { loadDualItem(playlist[i], i); });
+    openDualPicker();
   }
   function nextDual() {
-    if (!dual.on || dual.loading) return toggleDual();
-    var i = findDualIndex(dual.index); if (i < 0) return;
-    permit(playlist[i], function () { loadDualItem(playlist[i], i); });
+    if (!dual.on || dual.loading) return openDualPicker();
+    var source = dual.list || playlist, i = findDualIndex(dual.index, source); if (i < 0) return openDualPicker();
+    permit(source[i], function () { loadDualItem(source[i], i, source); });
   }
 
   /* ---- auto-reconnect ---- */
   function scheduleReconnect(reason) {
     if (!current || !rc.active || rc.timer) return;
+    /* A number of webOS native players accept an HLS URL yet never produce a first frame.
+       Switch engines once instead of repeatedly waiting for the same native decoder. */
+    if (current.type === 'live' && current._engine === 'native' && isHlsStream(current.url) && window.Hls && Hls.isSupported() && !current._triedHls) {
+      current._triedHls = true; current._engine = 'hls'; rc.lastProgress = Date.now(); rc.started = false;
+      try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) { }
+      loading(true, T('p.engineFallback')); startHls(current.url); return;
+    }
     if (rc.attempts >= RC_MAX) { rc.active = false; loading(false); error(reason + ' ' + T('p.retryHint', { max: RC_MAX })); return; }
     var delay = RC_DELAYS[Math.min(rc.attempts, RC_DELAYS.length - 1)]; rc.attempts++;
     error(null); loading(true, T('reconnecting', { n: rc.attempts, max: RC_MAX }));
@@ -204,7 +260,7 @@ var Player = (function () {
     }).catch(function () { rc.attempts = keepAttempts; scheduleReconnect('Cannot resolve stream'); });
   }
   function startSource(url, item) {
-    var eng = Store.settings().engine, isHlsUrl = /\.m3u8(\?|$)/i.test(url), hlsOk = isHlsUrl && window.Hls && Hls.isSupported();
+    var eng = Store.settings().engine, isHlsUrl = isHlsStream(url), hlsOk = isHlsUrl && window.Hls && Hls.isSupported();
     var useHls = hlsOk && (eng === 'hlsjs' || (eng === 'auto' && !video.canPlayType('application/vnd.apple.mpegurl')) || item._engine === 'hls');
     if (useHls) { item._triedHls = true; item._engine = 'hls'; startHls(url); }
     else { item._engine = 'native'; video.src = url; video.load(); video.play().catch(function () { }); }
@@ -214,6 +270,8 @@ var Player = (function () {
   /* play(item, {list, index, url, resume}) */
   function play(item, opt) {
     opt = opt || {};
+    /* Ignore a late URL resolution from a channel the user has already left. */
+    var generation = ++playGeneration;
     /* A main-channel zap starts a new single view; the user can enable dual again. */
     if (dual.on || dual.loading) stopDual();
     cancelReconnect(); rc.active = true; rc.userPaused = false; rc.lastOpt = opt; rc.lastProgress = Date.now(); rc.lastTime = -1;
@@ -237,6 +295,7 @@ var Player = (function () {
 
     var p = opt.url ? Promise.resolve(opt.url) : App.provider.streamUrl(item);
     return p.then(function (url) {
+      if (generation !== playGeneration || current !== item) return;
       if (!url) throw new Error('No stream URL');
       item.url = url; current.url = url;
       startSource(url, item);
@@ -248,10 +307,11 @@ var Player = (function () {
       /* M3U cannot reconstruct an item URL from its id, unlike Xtream/Stalker. Keep the resolved
          URL for that provider so Recent/Continue watching remains playable. */
       if (item.type !== 'catchup') Store.pushHistory(App.account.id, { type: item.type, id: item.id, name: item.name, logo: item.logo, poster: item.poster, seriesId: item.seriesId, ext: item.ext, cmd: item.cmd, url: App.provider && App.provider.type === 'm3u' ? url : undefined, catId: item.catId, season: item.season, episode: item.episode });
-    }).catch(function (e) { scheduleReconnect('Cannot start stream: ' + e.message); });
+    }).catch(function (e) { if (generation === playGeneration && current === item) scheduleReconnect('Cannot start stream: ' + e.message); });
   }
   function savePos() { if (posKey && video.duration && !isNaN(video.duration)) Store.setPos(App.account.id, posKey, video.currentTime, video.duration); }
   function stop(clearCurrent) {
+    if (clearCurrent !== false) playGeneration++;
     stopDual();
     cancelReconnect(); rc.active = false;
     savePos(); clearInterval(posTimer);
@@ -366,7 +426,8 @@ var Player = (function () {
         var d = U.el('div', 'ch-item focusable' + (i === index ? ' selected' : ''));
         d.setAttribute('data-nav', 'zap'); d.setAttribute('data-i', i);
         d.innerHTML = '<span class="num">' + (c.num || i + 1) + '</span><div class="logo-img" style="background-image:url(\'' + U.esc(c.logo || '') + '\')"></div><div class="info"><div class="name">' + U.esc(c.name) + '</div></div>';
-        d.onclick = function () { playIndex(i); toggleZapList(); };
+        /* Do not close over the var loop index: previously every row attempted index=playlist.length. */
+        d.onclick = function () { playIndex(Number(this.getAttribute('data-i'))); toggleZapList(); };
         inner.appendChild(d);
       });
       els['zap-list'].appendChild(inner);
@@ -449,6 +510,13 @@ var Player = (function () {
     if (!App.isScreen('player')) return false;
     var K = Nav.KEYS;
     if (trackMenuOpen) { if (name === 'BACK' || name === 'BACK2') { closeTrackMenu(); return true; } if (name === 'UP' || name === 'DOWN' || name === 'ENTER') return false; return true; }
+    if (dual.pickerOpen) {
+      if (name === 'BACK' || name === 'BACK2' || name === 'LEFT') { closeDualPicker(); return true; }
+      var move = { UP: 'up', DOWN: 'down', CH_UP: 'pgup', CH_DOWN: 'pgdown', REW: 'pgup', FF: 'pgdown' }[name];
+      if (move && dual.picker && dual.picker.move(move)) return true;
+      if (name === 'ENTER') { var chosen = Nav.current(); if (chosen && chosen._vlist === dual.picker) { chosen.click(); return true; } closeDualPicker(); return true; }
+      return true;
+    }
     if (zapOpen) {
       if (name === 'BACK' || name === 'BACK2' || name === 'LEFT') { toggleZapList(); return true; }
       if (name === 'UP' || name === 'DOWN') { Nav.move(name.toLowerCase()); var c = Nav.current(); if (c && c.getAttribute('data-nav') === 'zap') scrollZap(c); return true; }
@@ -492,7 +560,7 @@ var Player = (function () {
       case 'p-play': togglePlay(); break; case 'p-rew': seek(-30); break; case 'p-ffw': seek(30); break;
       case 'p-next': next(); break; case 'p-prev': prev(); break; case 'p-ratio': cycleRatio(); break;
       case 'p-audio': openTrackMenu('audio'); break; case 'p-subs': openTrackMenu('subs'); break;
-      case 'p-dual': toggleDual(); break; case 'p-dual-next': nextDual(); break; case 'p-dual-audio': setDualAudio(dual.audio === 'main' ? 'secondary' : 'main'); break;
+      case 'p-dual': toggleDual(); break; case 'p-dual-select': openDualPicker(); break; case 'p-dual-close': closeDualPicker(); break; case 'p-dual-next': nextDual(); break; case 'p-dual-audio': setDualAudio(dual.audio === 'main' ? 'secondary' : 'main'); break;
       case 'p-list': toggleZapList(); break; case 'p-stats': toggleStats(); break;
       case 'p-fav': if (current && current.type !== 'catchup') { var t = current.type === 'episode' ? 'series' : current.type; var id = current.type === 'episode' ? current.seriesId : current.id; var on = Store.toggleFav(App.account.id, { type: t, id: id, name: current.seriesName || current.name, logo: current.logo, poster: current.poster, ext: current.ext, cmd: current.cmd, url: current.url, catId: current.catId, num: current.num, epgId: current.epgId }); UI.toast(on ? 'Added to favorites' : 'Removed from favorites'); updateFavBtn(); } break;
     }
@@ -502,6 +570,7 @@ var Player = (function () {
   function getCurrent() { return current; }
   function reset() { stopDual(); zapOpen = false; trackMenuOpen = false; toggleStats(false); cancelZap(); hideAutoNext(); els['zap-list'].classList.remove('show'); els['track-menu'].classList.remove('show'); hideOsd(); }
   function setCanPlay(fn) { canPlay = fn; }
+  function setLiveChannels(fn) { getLiveChannels = fn; }
 
-  return { init: init, play: play, stop: stop, handleKey: handleKey, action: action, setOnEnded: setOnEnded, setCanPlay: setCanPlay, current: getCurrent, showOsd: showOsd, reset: reset, autoNext: autoNext, hideAutoNext: hideAutoNext, video: function () { return video; } };
+  return { init: init, play: play, stop: stop, handleKey: handleKey, action: action, setOnEnded: setOnEnded, setCanPlay: setCanPlay, setLiveChannels: setLiveChannels, current: getCurrent, showOsd: showOsd, reset: reset, autoNext: autoNext, hideAutoNext: hideAutoNext, video: function () { return video; } };
 })();
