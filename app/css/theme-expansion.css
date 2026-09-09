@@ -50,3 +50,45 @@ body[data-theme="royal"] #app{background:radial-gradient(900px 550px at 50% -10%
 /* Carry every full-interface theme through forms, settings, guide, backup and player layers. */
 body[data-theme="guidepro"] .form-wrap,body[data-theme="receiver"] .form-wrap,body[data-theme="sports"] .form-wrap,body[data-theme="family"] .form-wrap,body[data-theme="neocrt"] .form-wrap,body[data-theme="cyberpunk"] .form-wrap,body[data-theme="guidepro"] .modal-box,body[data-theme="receiver"] .modal-box,body[data-theme="sports"] .modal-box,body[data-theme="family"] .modal-box,body[data-theme="neocrt"] .modal-box,body[data-theme="cyberpunk"] .modal-box{border-color:var(--frame);background:var(--panel)}body[data-theme="guidepro"] .settings-wrap,body[data-theme="receiver"] .settings-wrap,body[data-theme="sports"] .settings-wrap,body[data-theme="family"] .settings-wrap,body[data-theme="neocrt"] .settings-wrap,body[data-theme="cyberpunk"] .settings-wrap{padding-top:22px}body[data-theme="guidepro"] .setting-row,body[data-theme="receiver"] .setting-row,body[data-theme="sports"] .setting-row,body[data-theme="family"] .setting-row,body[data-theme="neocrt"] .setting-row,body[data-theme="cyberpunk"] .setting-row{border-color:var(--line)}
 body[data-theme="cyberpunk"] .guide-shell,body[data-theme="neocrt"] .guide-shell{border-radius:0}body[data-theme="sports"] .guide-shell{border-color:var(--accent);background:#08232b}body[data-theme="receiver"] .guide-shell{border-radius:4px;background:#0a1810}body[data-theme="family"] .guide-shell{border-radius:38px;background:#242351}body[data-theme="guidepro"] .guide-shell{background:#091c31}body[data-theme="neocrt"] .guide-row,body[data-theme="cyberpunk"] .guide-row{border-radius:0}body[data-theme="sports"] .guide-row.focus{background:rgba(61,224,164,.2)}
+/* Classic receiver playback: a short channel banner after every zap, then an
+   efficient virtualized channel panel on the right.  It is theme-aware through
+   shared accent variables, while Receiver X receives its familiar green edge. */
+.osd.show:not(.classic-info){pointer-events:auto}
+#screen-player.classic-live .osd.classic-info .osd-top{top:auto;bottom:174px;padding:0 60px 12px;background:linear-gradient(90deg,rgba(0,0,0,.92),rgba(0,0,0,.48),transparent);align-items:center}
+#screen-player.classic-live .osd.classic-info .osd-logo{width:82px;height:56px;margin-right:18px}
+#screen-player.classic-live .osd.classic-info .osd-title{font-size:31px;letter-spacing:.2px}
+#screen-player.classic-live .osd.classic-info .osd-sub{font-size:19px}
+#screen-player.classic-live .osd.classic-info .osd-bottom{min-height:170px;padding:20px 60px 30px;background:linear-gradient(0deg,rgba(0,0,0,.95),rgba(0,0,0,.72),transparent)}
+#screen-player.classic-live .osd.classic-info .osd-controls,#screen-player.classic-live .osd.classic-info .osd-progress,#screen-player.classic-live .osd.classic-info .osd-times{display:none}
+#screen-player.classic-live .osd.classic-info .osd-epg{margin:0;max-width:1100px}
+#screen-player.classic-live .osd.classic-info .osd-epg .oe-now{font-size:27px}
+#screen-player.classic-live .osd.classic-info .osd-epg .oe-next{font-size:20px}
+#screen-player .zap-list{left:auto;right:0;top:0;bottom:0;width:700px;padding:0;background:linear-gradient(135deg,rgba(5,12,19,.985),rgba(8,24,34,.97));border-left:2px solid var(--accent);box-shadow:-24px 0 60px rgba(0,0,0,.58);z-index:36;animation:receiverPanelIn .22s var(--ease)}
+@keyframes receiverPanelIn{from{transform:translateX(72px);opacity:0}to{transform:translateX(0);opacity:1}}
+#screen-player .zap-head{padding:30px 34px 15px;border-bottom:1px solid rgba(255,255,255,.15)}
+#screen-player .zap-head-kicker{display:inline-block;color:var(--accent);font-size:16px;font-weight:900;letter-spacing:1.6px}
+#screen-player .zap-head-count{float:right;color:#b8c6d4;font-size:18px;font-variant-numeric:tabular-nums}
+#screen-player .zap-head-service{display:flex;align-items:baseline;gap:15px;margin-top:8px;min-width:0}
+#screen-player .zap-head-number{color:#f5fbff;font-size:42px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1}
+#screen-player .zap-head-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:28px;font-weight:800}
+#screen-player .zap-epg{padding:16px 34px 18px;background:rgba(255,255,255,.045);border-bottom:1px solid rgba(255,255,255,.1)}
+#screen-player .zap-epg-now,#screen-player .zap-epg-next{display:flex;align-items:baseline;gap:12px;white-space:nowrap;overflow:hidden}
+#screen-player .zap-epg span{width:46px;flex:0 0 46px;color:var(--accent);font-size:14px;font-weight:900;letter-spacing:1px}
+#screen-player .zap-epg-next span{color:#aebbc8}
+#screen-player .zap-epg b{overflow:hidden;text-overflow:ellipsis;font-size:19px;font-weight:600}
+#screen-player .zap-epg-next{margin-top:10px;color:#c7d2dc}
+#screen-player .zap-epg-bar{height:5px;margin-top:10px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,.16)}
+#screen-player .zap-epg-bar i{display:block;width:0;height:100%;background:var(--accent);transition:width .25s ease}
+#screen-player .zap-inner{position:relative;flex:1;min-height:0;overflow:hidden;transition:none}
+#screen-player .receiver-channel{height:82px;width:100%;display:flex;align-items:center;padding:0 28px;border:0;border-bottom:1px solid rgba(255,255,255,.075);background:transparent;color:#fff;text-align:left}
+#screen-player .receiver-channel.focus{background:linear-gradient(90deg,rgba(109,93,252,.34),rgba(255,255,255,.04));box-shadow:inset 6px 0 var(--accent);transform:none}
+#screen-player .receiver-channel.selected .rc-num{color:#fff;background:var(--accent)}
+#screen-player .rc-num{display:inline-flex;width:47px;height:34px;align-items:center;justify-content:center;margin-right:16px;border:1px solid rgba(255,255,255,.25);border-radius:4px;color:#b8c6d4;font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}
+#screen-player .rc-logo{width:54px;height:54px;flex:0 0 54px;margin-right:15px;border-radius:7px;background:#101a21 center/contain no-repeat}
+#screen-player .rc-info{min-width:0;display:block}
+#screen-player .rc-info b,#screen-player .rc-info small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#screen-player .rc-info b{font-size:22px;line-height:1.2}.rc-info small{margin-top:4px;color:#aab7c4;font-size:15px}
+#screen-player .zap-foot{padding:16px 32px 20px;background:rgba(0,0,0,.32);color:#aebdcc;font-size:16px;text-align:center;border-top:1px solid rgba(255,255,255,.1)}
+body[data-theme="receiver"] #screen-player .zap-list{background:linear-gradient(135deg,#07180d,#0c2414);border-left-color:#8de151}body[data-theme="receiver"] #screen-player .receiver-channel.focus{box-shadow:inset 6px 0 #a9e86c;background:rgba(126,208,75,.19)}
+body[data-theme="sports"] #screen-player .zap-list{border-left-width:4px}body[data-theme="neocrt"] #screen-player .zap-list,body[data-theme="cyberpunk"] #screen-player .zap-head,body[data-theme="neocrt"] #screen-player .receiver-channel{border-radius:0}
+body.rtl #screen-player .zap-list{left:auto;right:0}body.rtl #screen-player .rc-num,body.rtl #screen-player .rc-logo{margin-right:0;margin-left:16px}body.rtl #screen-player .zap-head-count{float:left}body.rtl #screen-player .zap-epg{direction:rtl}

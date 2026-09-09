@@ -1,4 +1,4 @@
-# RGBTv — webOS TV source (v2.2.0)
+# RGBTv — webOS TV source (v2.2.1)
 
 Pure HTML5 web app for LG webOS (3.0+): ES5 JavaScript, legacy-safe CSS, native <video> + hls.js.
 
@@ -39,14 +39,14 @@ RGBTv-webOS/
 ```bash
 npm install -g @webos-tools/cli          # once
 ares-package app services/com.rgbtv.app.service -o dist
-# → dist/com.rgbtv.app_2.1.0_all.ipk
+# → dist/com.rgbtv.app_2.2.1_all.ipk
 ```
 
 Install on a TV in Developer Mode:
 
 ```bash
 ares-setup-device            # add the TV (IP + passphrase from the Developer Mode app)
-ares-install -d tv dist/com.rgbtv.app_2.1.0_all.ipk
+ares-install -d tv dist/com.rgbtv.app_2.2.1_all.ipk
 ares-launch  -d tv com.rgbtv.app
 ```
 
@@ -59,5 +59,6 @@ or simply `./build.sh tv`.
 - Stalker/Ministra needs the Luna service for its MAG cookie and bearer-token handshake. It tries common portal roots (`/server/load.php`, `/c/server/load.php`, and `/stalker_portal/...`) before reporting a connection failure. HTTPS certificates are verified by default; a clearly labelled per-profile switch is available only for a self-signed portal you trust.
 - The **Ramadan** theme has a dedicated emerald/gold skin and a Home prayer card. It uses the existing Prayer Times setting and does **not** turn notifications on when they were disabled.
 - Live Player offers **Dual View** for two live channels: the secondary channel begins muted and Yellow changes the audio source. Actual availability depends on the TV having two hardware decoder sessions; the app will show an error and return to single view if it cannot open the second stream.
+- Selecting a live channel starts with a **classic receiver information banner**: number, logo, name, current programme, next programme and progress. Press **LEFT** (or select **Channels** in the player controls) to open the virtualized right-side channel panel; UP/DOWN browses, OK watches, and LEFT/BACK closes it. This remains responsive with large playlists.
 - Phone pairing is time-limited and QR-token protected; review the received profile on the TV before it is stored.
 - Keep the package small: no bundled audio/video assets.

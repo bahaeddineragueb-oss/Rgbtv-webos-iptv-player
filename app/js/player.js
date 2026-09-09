@@ -1,6 +1,9 @@
 /* RGBTv — Player: native <video> (webOS handles HLS/TS/MP4/MKV natively) with hls.js fallback */
 var Player = (function () {
   var video, secondaryVideo, hls = null, secondaryHls = null, osdTimer = null, current = null, playlist = [], index = -1, ratioMode = 0, RATIOS = ['Fit', 'Fill', 'Stretch'];
+  /* Live TV opens with a short receiver-style information banner. Controls remain
+     available on OK, while the channel list stays a separate panel over the video. */
+  var osdInteractive = false, zapVList = null, zapRequest = 0;
   var onEnded = null, canPlay = null, getLiveChannels = null, posKey = null, posTimer = null, seekAccum = 0, seekTimer = null, numBuf = '', numTimer = null, zapOpen = false, trackMenuOpen = false, playGeneration = 0;
   var dual = { on: false, item: null, index: -1, list: null, audio: 'main', loading: false, generation: 0, pickerOpen: false, pickerRequest: 0, picker: null };
   var els = {};
@@ -288,10 +291,12 @@ var Player = (function () {
     els['osd-list-btn'].style.display = item.type === 'live' ? '' : 'none';
     updateFavBtn();
     var isLive = item.type === 'live';
+    U.$('#screen-player').classList.toggle('classic-live', isLive);
     U.$('.osd-progress').style.visibility = isLive ? 'hidden' : 'visible';
     U.$('.osd-times').style.visibility = isLive ? 'hidden' : 'visible';
     posKey = (isLive || item.type === 'catchup') ? null : (item.type + ':' + item.id);
-    showOsd();
+    /* Channel changes start with concise receiver information, not a wall of controls. */
+    showOsd(false, false);
 
     var p = opt.url ? Promise.resolve(opt.url) : App.provider.streamUrl(item);
     return p.then(function (url) {
@@ -335,7 +340,11 @@ var Player = (function () {
     els['osd-dur'].innerHTML = U.fmtTime(video.duration) + '<span class="osd-rem">−' + U.fmtTime(Math.max(0, video.duration - video.currentTime)) + '</span>';
     try { if (video.buffered.length) els['osd-buffer'].style.width = (video.buffered.end(video.buffered.length - 1) / video.duration * 100) + '%'; } catch (e) { }
   }
-  function showOsd(persist) {
+  function showOsd(persist, interactive) {
+    /* A live channel zap looks like a receiver's info bar until the user asks for
+       controls. VOD keeps the regular playback-control overlay. */
+    osdInteractive = interactive !== false;
+    els.osd.classList.toggle('classic-info', !osdInteractive && !!(current && current.type === 'live'));
     els.osd.classList.add('show'); clearTimeout(osdTimer);
     if (!persist) osdTimer = setTimeout(hideOsd, 5000);
     if (current && current.type === 'live') fillMiniEpg();
@@ -365,7 +374,7 @@ var Player = (function () {
   }
   function hideAutoNext() { clearInterval(an.timer); an.timer = null; if (els.autonext) els.autonext.classList.remove('show'); }
   function autoNextOpen() { return !!an.timer; }
-  function hideOsd() { els.osd.classList.remove('show'); if (Nav.current() && Nav.current().getAttribute('data-nav') === 'osd') Nav.blur(); }
+  function hideOsd() { els.osd.classList.remove('show'); els.osd.classList.remove('classic-info'); osdInteractive = false; if (Nav.current() && Nav.current().getAttribute('data-nav') === 'osd') Nav.blur(); }
   function osdVisible() { return els.osd.classList.contains('show'); }
   function ratioName(i) { return T(['p.fit', 'p.fill', 'p.stretch'][i]); }
   function cycleRatio() { ratioMode = (ratioMode + 1) % 3; video.className = ['', 'fill', 'stretch'][ratioMode]; els['osd-ratio'].textContent = ratioName(ratioMode); UI.toast(T('p.aspect', { m: ratioName(ratioMode) })); }
@@ -418,25 +427,60 @@ var Player = (function () {
       U.$('.zp-next-t', box).textContent = nxt ? U.hm(nxt.start) + '  ' + nxt.title : '—';
     });
   }
-  function toggleZapList() {
-    zapOpen = !zapOpen; els['zap-list'].classList.toggle('show', zapOpen);
-    if (zapOpen) {
-      hideOsd(); var inner = U.el('div', 'zap-inner'); els['zap-list'].innerHTML = '';
-      playlist.forEach(function (c, i) {
-        var d = U.el('div', 'ch-item focusable' + (i === index ? ' selected' : ''));
-        d.setAttribute('data-nav', 'zap'); d.setAttribute('data-i', i);
-        d.innerHTML = '<span class="num">' + (c.num || i + 1) + '</span><div class="logo-img" style="background-image:url(\'' + U.esc(c.logo || '') + '\')"></div><div class="info"><div class="name">' + U.esc(c.name) + '</div></div>';
-        /* Do not close over the var loop index: previously every row attempted index=playlist.length. */
-        d.onclick = function () { playIndex(Number(this.getAttribute('data-i'))); toggleZapList(); };
-        inner.appendChild(d);
-      });
-      els['zap-list'].appendChild(inner);
-      var target = inner.children[index >= 0 ? index : 0]; if (target) { scrollZap(target); Nav.focus(target); }
-    } else Nav.blur();
+  /* ---- classic receiver channel panel ---------------------------------
+     The player never builds one node per channel: providers can expose thousands
+     of services, so this right-side panel uses the same virtual-list model as Live
+     and the Guide. UP/DOWN browses; only OK commits a channel change. */
+  function zapProgrammes(ch, i) {
+    var box = els['zap-list']; if (!box || !ch) return;
+    var token = ++zapRequest, title = U.$('.zap-head-name', box), number = U.$('.zap-head-number', box), count = U.$('.zap-head-count', box);
+    var nowEl = U.$('.zap-epg-now b', box), nextEl = U.$('.zap-epg-next b', box), bar = U.$('.zap-epg-bar i', box);
+    if (title) title.textContent = ch.name || '—';
+    if (number) number.textContent = String(ch.num || i + 1);
+    if (count) count.textContent = (i + 1) + ' / ' + playlist.length;
+    if (nowEl) nowEl.textContent = '…'; if (nextEl) nextEl.textContent = '—'; if (bar) bar.style.width = '0';
+    function paint(list) {
+      if (!zapOpen || token !== zapRequest) return;
+      var now = Date.now() / 1000, cur = null, nxt = null;
+      (list || []).forEach(function (p) { if (p.start <= now && p.end > now) cur = p; else if (p.start > now && !nxt) nxt = p; });
+      if (nowEl) nowEl.textContent = cur ? U.hm(cur.start) + '  ' + cur.title : T('noEpg');
+      if (nextEl) nextEl.textContent = nxt ? U.hm(nxt.start) + '  ' + nxt.title : '—';
+      if (bar) bar.style.width = cur ? Math.max(0, Math.min(100, Math.round((now - cur.start) / (cur.end - cur.start) * 100))) + '%' : '0';
+    }
+    var saved = epgCache[ch.id];
+    if (saved && Date.now() - saved.at < 5 * 60000) { paint(saved.list); return; }
+    if (!App.provider || !App.provider.shortEPG) { paint([]); return; }
+    App.provider.shortEPG(ch.epgId || ch.id, 4).then(function (list) { epgCache[ch.id] = { at: Date.now(), list: list || [] }; paint(list || []); }).catch(function () { paint([]); });
   }
-  function scrollZap(elm) {
-    var inner = els['zap-list'].firstChild; if (!inner) return; var i = Number(elm.getAttribute('data-i')), h = 80, viewH = 1080 - 60;
-    var off = Math.max(0, i * h - viewH / 2 + h / 2); inner.style.transform = 'translateY(-' + off + 'px)';
+  function closeZapList(showInfo) {
+    zapOpen = false; zapRequest++;
+    if (zapVList) zapVList = null;
+    els['zap-list'].classList.remove('show'); els['zap-list'].innerHTML = '';
+    Nav.blur();
+    if (showInfo && current) showOsd(false, false);
+  }
+  function toggleZapList() {
+    if (zapOpen) { closeZapList(true); return; }
+    if (!current || current.type !== 'live' || !playlist.length) return;
+    zapOpen = true; hideOsd();
+    var box = els['zap-list'];
+    box.innerHTML = '<div class="zap-head"><span class="zap-head-kicker">' + U.esc(T('p.receiverList')) + '</span><span class="zap-head-count"></span><div class="zap-head-service"><span class="zap-head-number"></span><div class="zap-head-name"></div></div></div>' +
+      '<div class="zap-epg"><div class="zap-epg-now"><span>' + U.esc(T('nowLbl')) + '</span><b>…</b></div><div class="zap-epg-bar"><i></i></div><div class="zap-epg-next"><span>' + U.esc(T('next')) + '</span><b>—</b></div></div><div class="zap-inner"></div><div class="zap-foot">' + U.esc(T('p.receiverHint')) + '</div>';
+    box.classList.add('show');
+    var inner = U.$('.zap-inner', box);
+    zapVList = new VList({
+      container: inner, itemH: 82, nav: 'zap', overscan: 3,
+      render: function (ch, i) {
+        var row = U.el('button', 'receiver-channel focusable' + (i === index ? ' selected' : ''));
+        row.innerHTML = '<span class="rc-num">' + U.esc(ch.num || i + 1) + '</span><span class="rc-logo" style="' + (ch.logo ? 'background-image:url(\'' + U.esc(ch.logo) + '\')' : '') + '"></span><span class="rc-info"><b>' + U.esc(ch.name || '—') + '</b><small>' + U.esc(ch.catName || '') + '</small></span>';
+        return row;
+      },
+      onFocus: function (ch, i) { zapProgrammes(ch, i); },
+      onSelect: function (ch, i) { closeZapList(false); playIndex(i); }
+    });
+    zapVList.setItems(playlist);
+    zapVList.setSelected(current.id);
+    zapVList.focusIndex(index >= 0 ? index : 0);
   }
 
   /* ---- audio / subtitle tracks ---- */
@@ -518,9 +562,10 @@ var Player = (function () {
       return true;
     }
     if (zapOpen) {
-      if (name === 'BACK' || name === 'BACK2' || name === 'LEFT') { toggleZapList(); return true; }
-      if (name === 'UP' || name === 'DOWN') { Nav.move(name.toLowerCase()); var c = Nav.current(); if (c && c.getAttribute('data-nav') === 'zap') scrollZap(c); return true; }
-      if (name === 'ENTER') return false;
+      if (name === 'BACK' || name === 'BACK2' || name === 'LEFT') { closeZapList(true); return true; }
+      var zapMove = { UP: 'up', DOWN: 'down', CH_UP: 'pgup', CH_DOWN: 'pgdown', REW: 'pgup', FF: 'pgdown' }[name];
+      if (zapMove && zapVList) { zapVList.move(zapMove); return true; }
+      if (name === 'ENTER' && zapVList) { var selected = zapVList.index; closeZapList(false); playIndex(selected); return true; }
       return true;
     }
     if (code >= 48 && code <= 57) { numberKey(String(code - 48)); return true; }
@@ -532,8 +577,8 @@ var Player = (function () {
     }
     switch (name) {
       case 'BACK': case 'BACK2': if (osdVisible() && Nav.current() && Nav.current().getAttribute('data-nav') === 'osd') { hideOsd(); return true; } App.closePlayer(); return true;
-      case 'PLAY': rc.userPaused = false; video.play(); showOsd(); return true;
-      case 'PAUSE': rc.userPaused = true; video.pause(); showOsd(); return true;
+      case 'PLAY': rc.userPaused = false; video.play(); showOsd(true, true); return true;
+      case 'PAUSE': rc.userPaused = true; video.pause(); showOsd(true, true); return true;
       case 'PLAYPAUSE': togglePlay(); return true;
       case 'STOP': App.closePlayer(); return true;
       case 'REW': seek(-30); return true;
@@ -546,12 +591,25 @@ var Player = (function () {
       case 'YELLOW': if (dual.on) { setDualAudio(dual.audio === 'main' ? 'secondary' : 'main'); return true; } return false;
       case 'ENTER':
         if (!rc.active && current && els['player-error'].classList.contains('show')) { rc.active = true; rc.attempts = 0; error(null); loading(true, T('retrying')); doReconnect(); return true; }
-        if (!osdVisible()) { showOsd(); Nav.focus(els['osd-play']); return true; }
+        /* First OK expands the short live banner into normal player controls. */
+        if (!osdVisible() || !osdInteractive) { showOsd(true, true); Nav.focus(els['osd-play']); return true; }
         return false;
-      case 'UP': if (!osdVisible()) { if (current && current.type === 'live') next(); else { showOsd(); Nav.focus(els['osd-play']); } return true; } showOsd(); return false;
-      case 'DOWN': if (!osdVisible()) { showOsd(); Nav.focus(els['osd-play']); return true; } showOsd(); return false;
-      case 'LEFT': if (!osdVisible()) { if (current && current.type !== 'live') seek(-30); else if (current) toggleZapList(); return true; } showOsd(); return false;
-      case 'RIGHT': if (!osdVisible()) { if (current && current.type !== 'live') seek(30); else showOsd(); return true; } showOsd(); return false;
+      case 'UP':
+        if (!osdVisible()) { if (current && current.type === 'live') next(); else { showOsd(true, true); Nav.focus(els['osd-play']); } return true; }
+        if (!osdInteractive) { showOsd(true, true); Nav.focus(els['osd-play']); return true; }
+        showOsd(true, true); return false;
+      case 'DOWN':
+        if (!osdVisible() || !osdInteractive) { showOsd(true, true); Nav.focus(els['osd-play']); return true; }
+        showOsd(true, true); return false;
+      case 'LEFT':
+        /* LEFT is the familiar receiver shortcut for the channel list. */
+        if (current && current.type === 'live' && (!osdVisible() || !osdInteractive)) { toggleZapList(); return true; }
+        if (!osdVisible()) { if (current) seek(-30); return true; }
+        showOsd(true, true); return false;
+      case 'RIGHT':
+        if (!osdVisible()) { if (current && current.type !== 'live') seek(30); else { showOsd(true, true); Nav.focus(els['osd-play']); } return true; }
+        if (!osdInteractive) { showOsd(true, true); Nav.focus(els['osd-play']); return true; }
+        showOsd(true, true); return false;
     }
     return false;
   }
@@ -561,14 +619,15 @@ var Player = (function () {
       case 'p-next': next(); break; case 'p-prev': prev(); break; case 'p-ratio': cycleRatio(); break;
       case 'p-audio': openTrackMenu('audio'); break; case 'p-subs': openTrackMenu('subs'); break;
       case 'p-dual': toggleDual(); break; case 'p-dual-select': openDualPicker(); break; case 'p-dual-close': closeDualPicker(); break; case 'p-dual-next': nextDual(); break; case 'p-dual-audio': setDualAudio(dual.audio === 'main' ? 'secondary' : 'main'); break;
-      case 'p-list': toggleZapList(); break; case 'p-stats': toggleStats(); break;
+      case 'p-list': toggleZapList(); return;
+      case 'p-stats': toggleStats(); break;
       case 'p-fav': if (current && current.type !== 'catchup') { var t = current.type === 'episode' ? 'series' : current.type; var id = current.type === 'episode' ? current.seriesId : current.id; var on = Store.toggleFav(App.account.id, { type: t, id: id, name: current.seriesName || current.name, logo: current.logo, poster: current.poster, ext: current.ext, cmd: current.cmd, url: current.url, catId: current.catId, num: current.num, epgId: current.epgId }); UI.toast(on ? 'Added to favorites' : 'Removed from favorites'); updateFavBtn(); } break;
     }
-    showOsd();
+    showOsd(true, true);
   }
   function setOnEnded(fn) { onEnded = fn; }
   function getCurrent() { return current; }
-  function reset() { stopDual(); zapOpen = false; trackMenuOpen = false; toggleStats(false); cancelZap(); hideAutoNext(); els['zap-list'].classList.remove('show'); els['track-menu'].classList.remove('show'); hideOsd(); }
+  function reset() { stopDual(); zapOpen = false; zapVList = null; zapRequest++; trackMenuOpen = false; toggleStats(false); cancelZap(); hideAutoNext(); els['zap-list'].classList.remove('show'); els['zap-list'].innerHTML = ''; els['track-menu'].classList.remove('show'); U.$('#screen-player').classList.remove('classic-live'); hideOsd(); }
   function setCanPlay(fn) { canPlay = fn; }
   function setLiveChannels(fn) { getLiveChannels = fn; }
 
