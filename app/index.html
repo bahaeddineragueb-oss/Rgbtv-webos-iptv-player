@@ -105,6 +105,10 @@
         <div class="switch-row compact"><div><b data-i18n="stalker.insecure">Allow self-signed HTTPS</b><p class="muted" data-i18n="stalker.insecure.d">Only enable this for a portal you trust.</p></div><button type="button" class="switch focusable" data-nav="add-form" id="tls-switch" data-on="0"><i></i></button></div>
       </div>
       <div class="type-fields" data-for="m3u">
+        <label><span data-i18n="m3u.profile">Playlist connection profile</span><select class="focusable" data-nav="add-form" name="m3uProfile"><option value="auto" data-i18n="m3u.profile.auto">Automatic (webOS, Android, VU &amp; VLC)</option><option value="vu" data-i18n="m3u.profile.vu">VU IPTV compatible</option><option value="webos" data-i18n="m3u.profile.webos">webOS browser</option><option value="android" data-i18n="m3u.profile.android">Android IPTV client</option><option value="vlc" data-i18n="m3u.profile.vlc">VLC</option></select></label>
+        <label><span data-i18n="m3u.agent">Provider User-Agent (optional)</span><input class="focusable" data-nav="add-form" name="m3uUserAgent" maxlength="512" autocapitalize="off" spellcheck="false" data-i18n-ph="m3u.agent.ph" placeholder="Only if supplied by your provider"></label>
+        <label><span data-i18n="m3u.referer">Provider Referer URL (optional)</span><input class="focusable" data-nav="add-form" name="m3uReferer" maxlength="2048" inputmode="url" autocapitalize="off" spellcheck="false" data-i18n-ph="m3u.referer.ph" placeholder="https://provider.example/"></label>
+        <p class="muted" data-i18n="m3u.headers.d">Use these only when your provider documents them. You may also append |User-Agent=…&amp;Referer=… to the playlist URL.</p>
         <label>EPG URL (optional)<input class="focusable" data-nav="add-form" name="epg" placeholder="http://…/xmltv.xml"></label>
       </div>
       <div class="switch-row">

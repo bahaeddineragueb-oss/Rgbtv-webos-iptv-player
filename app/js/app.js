@@ -160,7 +160,7 @@ var App = (function () {
     setAddType(acc ? acc.type : 'xtream');
     U.$('#kids-switch').setAttribute('data-on', acc && acc.kids ? '1' : '0');
     U.$('#tls-switch').setAttribute('data-on', acc && acc.insecureTls ? '1' : '0');
-    if (acc) { ['name', 'url', 'username', 'password', 'mac', 'sn', 'deviceId', 'epg', 'pin'].forEach(function (k) { if (f[k]) f[k].value = acc[k] || ''; }); }
+    if (acc) { ['name', 'url', 'username', 'password', 'mac', 'sn', 'deviceId', 'epg', 'pin', 'm3uProfile', 'm3uUserAgent', 'm3uReferer'].forEach(function (k) { if (f[k]) f[k].value = k === 'm3uProfile' ? (acc[k] || 'auto') : (acc[k] || ''); }); }
     else { f.mac.value = Store.device().mac; }
     showScreen('add'); Nav.focus(f.name);
   }
@@ -185,7 +185,13 @@ var App = (function () {
       acc.mac = f.mac.value.trim().toUpperCase().replace(/-/g, ':'); acc.sn = f.sn.value.trim(); acc.deviceId = f.deviceId.value.trim(); acc.insecureTls = U.$('#tls-switch').getAttribute('data-on') === '1';
       if (!/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(acc.mac)) { err.textContent = 'Invalid MAC address (format 00:1A:79:XX:XX:XX).'; return; }
       acc.token = null; acc.endpoint = null;
-    } else acc.epg = f.epg.value.trim();
+    } else {
+      acc.epg = f.epg.value.trim();
+      acc.m3uProfile = /^(auto|vu|webos|android|vlc)$/.test(f.m3uProfile.value) ? f.m3uProfile.value : 'auto';
+      acc.m3uUserAgent = f.m3uUserAgent.value.trim(); acc.m3uReferer = f.m3uReferer.value.trim();
+      if (/[\r\n]/.test(acc.m3uUserAgent) || acc.m3uUserAgent.length > 512) { err.textContent = 'Invalid User-Agent.'; return; }
+      if (acc.m3uReferer && (!/^https?:\/\//i.test(acc.m3uReferer) || /[\r\n]/.test(acc.m3uReferer) || acc.m3uReferer.length > 2048)) { err.textContent = 'Referer must be a valid HTTP(S) URL.'; return; }
+    }
     if (editingId) { var old = Store.getAccount(editingId); for (var k in acc) old[k] = acc[k]; Store.updateAccount(old); Store.clearCache(editingId); acc = old; }
     else acc = Store.addAccount(acc);
     manageMode = false; openAccount(acc.id, true);

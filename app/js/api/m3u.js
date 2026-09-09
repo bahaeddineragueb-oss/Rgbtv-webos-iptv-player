@@ -1,27 +1,75 @@
 /* RGBTv — M3U / M3U8 playlist provider with XMLTV EPG support.
  * XMLTV is loaded in the background so a slow guide never blocks opening the playlist. */
-function M3UProvider(acc) {
-  this.acc = acc; this.type = 'm3u'; this.url = U.normUrl((acc.url || '').trim());
-  this.items = null; this.epg = {}; this.epgUrl = (acc.epg || '').trim(); this._epgPending = null; this._epgTimer = null;
+/* IPTV panels sometimes inspect the HTTP client before they return the list.
+   The automatic profile covers webOS, native Android/VU-compatible and VLC requests.
+   A provider-supplied custom User-Agent always wins and is never overwritten. */
+var M3U_CLIENT_PROFILES = {
+  auto: [
+    /* Try the working-player compatibility identity first to avoid provoking a panel's
+       rate limiter with several rejected requests before reaching this profile. */
+    { 'User-Agent': 'VU IPTV Player/1.2.4', 'Accept': '*/*' },
+    { 'User-Agent': 'okhttp/4.12.0', 'Accept': '*/*' },
+    { 'User-Agent': 'Dart/3.3 (dart:io)', 'Accept': '*/*' },
+    { 'User-Agent': 'Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) WebAppManager', 'Accept': '*/*', 'Accept-Language': 'en-US,en;q=0.9' },
+    { 'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20', 'Accept': '*/*' }
+  ],
+  vu: [
+    { 'User-Agent': 'VU IPTV Player/1.2.4', 'Accept': '*/*' },
+    { 'User-Agent': 'okhttp/4.12.0', 'Accept': '*/*' },
+    { 'User-Agent': 'Dart/3.3 (dart:io)', 'Accept': '*/*' }
+  ],
+  webos: [{ 'User-Agent': 'Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) WebAppManager', 'Accept': '*/*', 'Accept-Language': 'en-US,en;q=0.9' }],
+  android: [{ 'User-Agent': 'okhttp/4.12.0', 'Accept': '*/*' }, { 'User-Agent': 'Dart/3.3 (dart:io)', 'Accept': '*/*' }],
+  vlc: [{ 'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20', 'Accept': '*/*' }]
+};
+function m3uCopy(obj) { var out = {}, k; for (k in obj || {}) if (Object.prototype.hasOwnProperty.call(obj, k)) out[k] = obj[k]; return out; }
+function m3uDecode(s) { try { return decodeURIComponent(String(s || '').replace(/\+/g, '%20')); } catch (e) { return String(s || ''); } }
+/* Supports the familiar URL|User-Agent=...&Referer=... form. The suffix is removed
+   before playlist parsing, so relative channel URLs remain correct. */
+function m3uSource(raw) {
+  raw = String(raw || '').trim();
+  var pos = raw.indexOf('|'), out = { url: raw, headers: {} }, parts, i, pair, eq, key, val;
+  if (pos < 1) return out;
+  out.url = raw.slice(0, pos).trim(); parts = raw.slice(pos + 1).split('&');
+  for (i = 0; i < parts.length; i++) {
+    pair = parts[i]; eq = pair.indexOf('='); if (eq < 1) continue;
+    key = m3uDecode(pair.slice(0, eq)).toLowerCase().replace(/[_\s]/g, '-'); val = m3uDecode(pair.slice(eq + 1)).trim();
+    if (key === 'user-agent' && val.length <= 512) out.headers['User-Agent'] = val;
+    else if ((key === 'referer' || key === 'referrer') && /^https?:\/\//i.test(val) && val.length <= 2048) out.headers.Referer = val;
+  }
+  return out;
 }
-/* HTTP 444 is commonly an nginx rule that deliberately drops an IPTV request. The
-   same list may accept a TV/VLC-shaped request, so retry those immediately. */
-var M3U_CLIENTS = [
-  null,
-  { 'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20', 'Accept': '*/*' },
-  { 'User-Agent': 'Mozilla/5.0 (Web0S; Linux/SmartTV) AppleWebKit/537.36 (KHTML, like Gecko) WebAppManager', 'Accept': '*/*' }
-];
+function M3UProvider(acc) {
+  var src = m3uSource(acc.url || '');
+  this.acc = acc; this.type = 'm3u'; this.url = U.normUrl(src.url);
+  this.items = null; this.epg = {}; this.epgUrl = (acc.epg || '').trim(); this._epgPending = null; this._epgTimer = null;
+  this.profile = Object.prototype.hasOwnProperty.call(M3U_CLIENT_PROFILES, acc.m3uProfile) ? acc.m3uProfile : 'auto';
+  this.requestHeaders = src.headers;
+  if (String(acc.m3uUserAgent || '').trim()) this.requestHeaders['User-Agent'] = String(acc.m3uUserAgent).trim().slice(0, 512);
+  if (/^https?:\/\//i.test(String(acc.m3uReferer || '').trim())) this.requestHeaders.Referer = String(acc.m3uReferer).trim().slice(0, 2048);
+}
 M3UProvider.prototype = {
+  _clients: function () {
+    var custom = this.requestHeaders, profiles = M3U_CLIENT_PROFILES[this.profile] || M3U_CLIENT_PROFILES.auto, out = [], i, h;
+    if (custom['User-Agent']) return [m3uCopy(custom)];
+    for (i = 0; i < profiles.length; i++) {
+      h = m3uCopy(profiles[i]);
+      if (custom.Referer) h.Referer = custom.Referer;
+      out.push(h);
+    }
+    return out;
+  },
   _fetch: function (target, timeout) {
-    var attempt = 0, last;
+    var clients = this._clients(), attempt = 0, last, saw444 = false;
     function next() {
-      var headers = M3U_CLIENTS[attempt], opt = { timeout: timeout || 18000, proxy: true };
-      if (headers) opt.headers = headers;
+      var opt = { timeout: timeout || 18000, proxy: true, headers: clients[attempt] };
       return U.http(target, opt).catch(function (err) {
         last = err;
-        /* 444/403/406 are normally immediate server-side client filtering, not slow network failures. */
-        if (attempt < M3U_CLIENTS.length - 1 && /HTTP (?:403|406|429|444)|Network error/i.test(String(err && err.message))) { attempt++; return next(); }
-        if (/HTTP 444/.test(String(last && last.message))) throw new Error(I18n.t('provider.http444'));
+        /* Rejections are normally fast. Do not multiply a real network timeout by
+           every possible client profile. */
+        if (/HTTP 444/.test(String(err && err.message))) saw444 = true;
+        if (attempt < clients.length - 1 && /HTTP (?:403|406|429|444)/i.test(String(err && err.message))) { attempt++; return next(); }
+        if (saw444) throw new Error(I18n.t('provider.http444'));
         throw last;
       });
     }
