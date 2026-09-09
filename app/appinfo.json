@@ -13,5 +13,6 @@
   "resolution": "1920x1080",
   "disableBackHistoryAPI": true,
   "supportTouchMode": "none",
-  "requiredPermissions": ["time.query", "settings.read"]
+  "requiredPermissions": ["time.query", "settings.read"],
+  "requiredACG": ["application.launcher"]
 }
