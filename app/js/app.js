@@ -72,9 +72,7 @@ var App = (function () {
     /* Dual View can browse every live channel, rather than only the category that opened the player. */
     Player.setLiveChannels(function () {
       if (!provider) return Promise.resolve([]);
-      return provider.liveStreams(null).then(function (list) {
-        return (list || []).filter(function (ch) { return !(parentalOn() && (U.isAdult(ch.name) || U.isAdult(ch.catName))); });
-      });
+      return provider.liveStreams(null).then(function (list) { return prepareLiveList(list || []); });
     });
     setInterval(tickClock, 1000); tickClock(); setTimeout(function () { Weather.refresh(); }, 2500); Adhan.start();
     var spot = U.el('div'); spot.id = 'spot'; U.$('#screen-home').insertBefore(spot, U.$('#screen-home .topbar'));
@@ -328,6 +326,7 @@ var App = (function () {
   function parentalOn() { return account && (account.kids || Store.settings().parental); }
   var hero = { items: [], idx: 0, timer: null, clockTimer: null, onNowTimer: null };
   function renderHome() {
+    if (Store.settings().theme === 'guidepro') { renderGuideHome(); return; }
     var lay = Store.settings().layout || 'classic'; U.$('#sec-home').setAttribute('data-layout', lay);
     document.body.classList.toggle('hubmode', isHub(lay)); document.body.classList.toggle('hub-root', isHub(lay));
     if (isHub(lay)) { stopHero(); renderHub(lay); return; }
@@ -363,11 +362,24 @@ var App = (function () {
       if (sl.length) { rows.insertBefore(UI.row(T('home.latestSeries'), sl), sk); sl.slice(0, 3).forEach(function (x) { heroPool.push({ it: x, tag: T('home.latestSeries') }); }); startHero(heroPool); }
       return provider.liveStreams().catch(function () { return []; });
     }).then(function (lv) {
-      if (!alive()) return; var bad = adultCatIds(); lv = (lv || []).filter(function (x) { return !bad[x.catId]; }).slice(0, 30);
+      if (!alive()) return; lv = prepareLiveList(lv || []).slice(0, 30);
       if (lv.length) rows.insertBefore(UI.row(T('home.liveChannels'), lv), sk);
       sk.remove();
       if (!rows.children.length) rows.appendChild(U.el('div', 'empty', T('home.empty')));
     });
+  }
+  /* Guide Pro makes Home a live control desk rather than a poster-first landing page. */
+  function renderGuideHome() {
+    var rows = U.$('#home-rows'), heroEl = U.$('#hero'); stopHero(); document.body.classList.remove('hubmode', 'hub-root'); U.$('#hub').innerHTML = '';
+    heroEl.classList.add('plain'); U.$('#hero-title')._item = null; U.$('#hero-title').textContent = T('guide.title'); U.$('#hero-tag').textContent = T('guide.kicker'); U.$('#hero-desc').textContent = T('guide.hint'); U.$('#hero-meta').innerHTML = '';
+    U.$('[data-action="hero-play"]').textContent = T('nav.live'); U.$('[data-action="hero-info"]').textContent = T('guide.open'); U.$('#hero-poster').classList.remove('show'); U.$('#hero-bg').style.backgroundImage = '';
+    rows.innerHTML = ''; rows.style.transform = ''; UI.skeletonRows(rows, 1);
+    var token = renderGuideHome._t = (renderGuideHome._t || 0) + 1;
+    provider.liveStreams(null).then(function (list) {
+      if (token !== renderGuideHome._t || section !== 'home') return; list = prepareLiveList(list).slice(0, 20); rows.innerHTML = '';
+      if (list.length) rows.appendChild(UI.row(T('guide.title'), list, { max: 20 })); else rows.appendChild(U.el('div', 'empty', T('noChannels')));
+    }).catch(function () { if (token === renderGuideHome._t) rows.innerHTML = '<div class="empty">' + U.esc(T('noChannels')) + '</div>'; });
+    Nav.focus(U.$('[data-action="hero-info"]'));
   }
   /* ---- Hub layouts (VIU-style / IBO-style) ---- */
   var HUB_ICONS = {
@@ -442,7 +454,7 @@ var App = (function () {
     var token = renderHub._t = (renderHub._t || 0) + 1; function alive() { return renderHub._t === token && section === 'home' && account && document.body.contains(hub); }
     var bad = adultCatIds();
     provider.liveStreams().catch(function () { return []; }).then(function (lv) {
-      if (!alive()) return; lv = (lv || []).filter(function (x) { return !bad[x.catId]; });
+      if (!alive()) return; lv = prepareLiveList(lv || []);
       U.$('.t-sub', tLive).textContent = T('hub.live.s', { n: lv.length }); setTilePosters(tLive, lv.filter(function (x) { return x.logo; }).slice(0, 3).map(function (x) { return { src: x.logo, logo: true }; }));
       var favLive = favs.filter(function (f) { return f.type === 'live' && f.logo; }); if (favLive.length) setTilePosters(tFav, favLive.slice(0, 3).map(function (x) { return { src: x.logo, logo: true }; }));
       return provider.vodStreams().catch(function () { return []; });
@@ -464,6 +476,7 @@ var App = (function () {
   /* ---- hero carousel ---- */
   function setHeroWelcome() {
     var titleEl = U.$('#hero-title'); titleEl._item = null; titleEl.textContent = T('home.welcome', { name: account.name });
+    U.$('[data-action="hero-play"]').textContent = T('play'); U.$('[data-action="hero-info"]').textContent = T('details');
     U.$('#hero-desc').textContent = T('home.tagline', { src: account.type === 'xtream' ? 'Xtream Codes' : account.type === 'stalker' ? 'Stalker Portal' : 'M3U' });
     U.$('#hero-tag').textContent = account.type.toUpperCase(); U.$('#hero-meta').innerHTML = '';
     U.$('#hero-bg').style.backgroundImage = ''; U.$('#hero').classList.add('plain'); U.$('#hero-poster').classList.remove('show'); U.$('#hero-dots').innerHTML = '';
@@ -540,6 +553,13 @@ var App = (function () {
   }
   function hydrate(h) { var it = {}; for (var k in h) it[k] = h[k]; return it; }
   function adultCatIds() { var bad = {}; if (!parentalOn()) return bad; [live.cats, movies.cats, series.cats].forEach(function (l) { l.forEach(function (x) { if (U.isAdult(x.name) || x.censored) bad[x.id] = 1; }); }); return bad; }
+  /* Personal hiding and ordering are applied after the provider result, so they work
+     identically for M3U, Xtream and Stalker without ever modifying the source list. */
+  function prepareLiveList(list) {
+    var bad = adultCatIds();
+    list = (list || []).filter(function (x) { return !bad[x.catId] && !Store.isChannelHidden(account.id, x.id); });
+    return Store.sortChannels(account.id, list);
+  }
   function withAll(cats, name) { return [{ id: null, name: name }].concat(cats.filter(function (c) { return !(parentalOn() && (U.isAdult(c.name) || c.censored)); })); }
 
   /* ---------- live ---------- */
@@ -555,7 +575,7 @@ var App = (function () {
   function selectLiveCat(c) {
     live.catId = c.id; U.$('#live-cat-title').textContent = c.name; U.$('#live-channels')._vlist = null; live.vl = null; UI.skeletonList(U.$('#live-channels'), 9);
     provider.liveStreams(c.id).then(function (list) {
-      var bad = adultCatIds(); list = list.filter(function (x) { return !bad[x.catId]; });
+      list = prepareLiveList(list);
       live.list = list; list.forEach(function (x) { x.catName = c.name; });
       U.$('#live-channels').classList.remove('sk-list');
       live.vl = UI.renderChannels(U.$('#live-channels'), list, live.selected && live.selected.id, function (ch) { previewChannel(ch); }, function (ch, i) { playLive(ch, i); });
@@ -596,6 +616,22 @@ var App = (function () {
     if (live.vl) { var idx = live.vl.items.indexOf(ch); if (idx >= 0) live.vl.refreshItem(idx); }
     if (on && live.selected === ch) stopPreview();
   }
+  function openChannelTools(ch) {
+    if (!ch || !account) return;
+    var returnGuide = guide && guide.open;
+    UI.modal(T('channels.tools'), U.esc(ch.name || '') + '<br><small>' + U.esc(T('channels.tools.d')) + '</small>', [
+      { label: T('channels.hide'), value: 'hide', danger: true },
+      { label: T('channels.up'), value: 'up', ghost: true }, { label: T('channels.down'), value: 'down', ghost: true },
+      { label: T('channels.reset'), value: 'reset', ghost: true }, { label: T('channels.restoreHidden'), value: 'restore', ghost: true }, { label: T('cancel'), value: null, ghost: true }
+    ]).then(function (action) {
+      if (!action) { if (returnGuide) { Nav.setContainer(U.$('#guide-overlay')); Nav.focus(U.$('#guide-list .focusable')); } return; }
+      if (returnGuide) closeGuide(false);
+      if (action === 'hide') {  Store.toggleChannelHidden(account.id, ch.id); UI.toast(T('channels.hidden'), 2200, '✓'); live.selected = null; selectLiveCat({ id: live.catId, name: live.catId == null ? T('allChannels') : (live.cats.filter(function (c) { return c.id === live.catId; })[0] || {}).name || '' }); return; }
+      if (action === 'reset') { Store.clearChannelOrder(account.id); UI.toast(T('channels.resetDone'), 2200, '✓'); selectLiveCat({ id: live.catId, name: live.catId == null ? T('allChannels') : (live.cats.filter(function (c) { return c.id === live.catId; })[0] || {}).name || '' }); return; }
+      if (action === 'restore') { Store.clearHiddenChannels(account.id); UI.toast(T('channels.unhide'), 2200, '✓'); selectLiveCat({ id: live.catId, name: live.catId == null ? T('allChannels') : (live.cats.filter(function (c) { return c.id === live.catId; })[0] || {}).name || '' }); return; }
+      if (Store.moveChannel(account.id, live.list, ch.id, action === 'up' ? -1 : 1)) { UI.toast(T('channels.moved'), 1800, '↕'); selectLiveCat({ id: live.catId, name: live.catId == null ? T('allChannels') : (live.cats.filter(function (c) { return c.id === live.catId; })[0] || {}).name || '' }); }
+    });
+  }
   var unlocked = {}; // account + channel ids unlocked only for the current session
   function unlockKey(ch) { return account.id + ':' + String(ch.id); }
   function needsUnlock(ch) { return ch && account && ch.type === 'live' && Store.isLocked(account.id, ch.id) && !unlocked[unlockKey(ch)]; }
@@ -618,6 +654,75 @@ var App = (function () {
     Player.play(UI.toPlayable(ch), { list: live.list.length ? live.list : [ch], index: i != null ? i : live.list.indexOf(ch) });
   }
   function playLiveFrom(ch, list) { live.list = list; var i = list.indexOf(ch); playLive(ch, i < 0 ? 0 : i); }
+
+  /* ---------- full TV guide ---------- */
+  var guide = { open: false, list: [], request: 0, vl: null };
+  function guidePrograms(row, channel) {
+    var nowEl = U.$('.gr-now', row), nextEl = U.$('.gr-next', row), bar = U.$('.gr-progress i', row), token = guide.request;
+    provider.shortEPG(channel.epgId || channel.id, 4).then(function (programmes) {
+      if (!guide.open || token !== guide.request || !document.body.contains(row)) return;
+      var now = Date.now() / 1000, cur = null, next = null;
+      (programmes || []).forEach(function (p) { if (p.start <= now && p.end > now) cur = p; else if (p.start > now && !next) next = p; });
+      nowEl.textContent = cur ? U.hm(cur.start) + '  ' + cur.title : T('noEpg');
+      nextEl.textContent = next ? U.hm(next.start) + '  ' + next.title : '—';
+      bar.style.width = cur ? Math.max(0, Math.min(100, Math.round((now - cur.start) / (cur.end - cur.start) * 100))) + '%' : '0';
+    }).catch(function () { if (guide.open && token === guide.request) nowEl.textContent = T('noEpg'); });
+  }
+  function renderGuide(list) {
+    var box = U.$('#guide-list'); box.innerHTML = ''; guide.list = list.slice(); guide.vl = null;
+    U.$('#guide-sub').textContent = T('guide.hint');
+    if (!guide.list.length) { box.innerHTML = '<div class="guide-empty">' + U.esc(T('noChannels')) + '</div>'; return; }
+    guide.vl = new VList({
+      container: box, itemH: 72, nav: 'guide', overscan: 3,
+      render: function (ch, i) {
+        var row = U.el('button', 'guide-row focusable'); row._channel = ch;
+        row.innerHTML = '<span class="gr-channel"><b>' + U.esc(ch.num || i + 1) + '</b><i style="' + (ch.logo ? 'background-image:url(\'' + U.esc(ch.logo) + '\')' : '') + '"></i><em>' + U.esc(ch.name || '—') + '</em></span><span class="gr-now">…</span><span class="gr-next">…</span><span class="gr-progress"><i></i></span>';
+        guidePrograms(row, ch); return row;
+      },
+      onSelect: function (ch, i) { closeGuide(false); live.list = guide.list; playLive(ch, i); }
+    });
+    guide.vl.setItems(guide.list); guide.vl.focusIndex(0, true);
+  }
+  function openGuide() {
+    if (!provider || guide.open) return;
+    guide.open = true; guide.request++; U.$('#guide-overlay').classList.add('show'); U.$('#guide-list').innerHTML = '<div class="guide-loading"><div class="loader"></div>' + U.esc(T('guide.loading')) + '</div>'; U.$('#guide-sub').textContent = T('guide.loading'); Nav.setContainer(U.$('#guide-overlay'));
+    /* Always request the full live catalogue: a guide should not silently contain only
+       the category currently highlighted in Live TV. Providers cache this result. */
+    provider.liveStreams(null).then(function (list) { if (guide.open) renderGuide(prepareLiveList(list || [])); }).catch(function () { if (guide.open) renderGuide([]); });
+  }
+  function closeGuide(refocus) {
+    if (!guide.open) return; guide.open = false; guide.request++; U.$('#guide-overlay').classList.remove('show'); Nav.setContainer(activeScreen());
+    if (refocus !== false) Nav.focus(live.vl && live.vl.items.length ? live.vl.elementAt(live.vl.index) || U.$('#live-channels .focusable') : U.$('#live-cats .focusable'));
+  }
+  function refreshGuide() { if (!guide.open) return; guide.request++; U.$('#guide-list').innerHTML = '<div class="guide-loading"><div class="loader"></div>' + U.esc(T('guide.loading')) + '</div>'; provider.liveStreams(null).then(function (list) { if (guide.open) renderGuide(prepareLiveList(list)); }).catch(function () { if (guide.open) renderGuide([]); }); }
+
+  /* ---------- portable backup ---------- */
+  var backup = { open: false };
+  function openBackup() {
+    if (backup.open) return; backup.open = true;
+    U.$('#backup-overlay').classList.add('show'); U.$('#backup-code').value = ''; U.$('#backup-status').textContent = ''; U.$('#backup-secret-switch').setAttribute('data-on', '0');
+    Nav.setContainer(U.$('#backup-overlay')); Nav.focus(U.$('[data-action="backup-export"]'));
+  }
+  function closeBackup() {
+    if (!backup.open) return; backup.open = false; U.$('#backup-overlay').classList.remove('show'); Nav.setContainer(activeScreen());
+    if (screen === 'home' && section === 'settings') Nav.focus(U.$('[data-action="backup-open"]')); else Nav.focusFirst();
+  }
+  function exportBackup() {
+    var includeSecrets = U.$('#backup-secret-switch').getAttribute('data-on') === '1', code = Store.exportBackup(includeSecrets);
+    if (!code) { U.$('#backup-status').textContent = T('backup.invalid'); return; }
+    U.$('#backup-code').value = code; U.$('#backup-status').textContent = T('backup.created');
+    try { U.$('#backup-code').focus(); U.$('#backup-code').select(); } catch (e) { }
+  }
+  function confirmImportBackup() {
+    var code = U.$('#backup-code').value.trim(); if (!code) { U.$('#backup-status').textContent = T('backup.invalid'); return; }
+    UI.modal(T('backup.restoreTitle'), T('backup.restoreConfirm'), [{ label: T('backup.restore'), value: true, danger: true }, { label: T('cancel'), value: false, ghost: true }]).then(function (yes) {
+      if (!yes) { Nav.setContainer(U.$('#backup-overlay')); Nav.focus(U.$('[data-action="backup-import"]')); return; }
+      try {
+        var result = Store.importBackup(code); applyLang(); applyTheme(); applyUi(); closeBackup(); showAccounts();
+        UI.toast(T('backup.restored', { n: result.count }), 3500, '✓'); if (result.needsCredentials) setTimeout(function () { UI.toast(T('backup.needsCredentials'), 5500, '⚠'); }, 700);
+      } catch (e) { U.$('#backup-status').textContent = T('backup.invalid'); }
+    });
+  }
   function playCatchup(ch, e) {
     var dur = Math.ceil((e.end - e.start) / 60);
     Promise.resolve(provider.catchupUrl(ch, e.start, dur)).then(function (url) {
@@ -671,7 +776,7 @@ var App = (function () {
     UI.skeletonRows(rows, 1);
     Promise.all([provider.liveStreams().catch(function () { return []; }), provider.vodStreams().catch(function () { return []; }), provider.seriesList().catch(function () { return []; })]).then(function (r) {
       rows.innerHTML = ''; var bad = adultCatIds(); var f = function (x) { return !bad[x.catId] && (x.name || '').toLowerCase().indexOf(q) >= 0; };
-      var l = r[0].filter(f).slice(0, 40), m = r[1].filter(f).slice(0, 40), s = r[2].filter(f).slice(0, 40);
+      var l = prepareLiveList(r[0]).filter(f).slice(0, 40), m = r[1].filter(f).slice(0, 40), s = r[2].filter(f).slice(0, 40);
       if (l.length) rows.appendChild(UI.row(T('search.channels'), l, { max: 20 })); if (m.length) rows.appendChild(UI.row(T('search.movies'), m, { max: 20 })); if (s.length) rows.appendChild(UI.row(T('search.series'), s, { max: 20 }));
       if (!l.length && !m.length && !s.length) rows.innerHTML = '<div class="empty">' + U.esc(T('search.none', { q: q })) + '</div>';
     });
@@ -707,7 +812,7 @@ var App = (function () {
     var s = Store.settings();
     if (k === 'lang') { Store.setSetting(k, I18n.next()); applyLang(); updateExpiry(null); live.cats = []; movies.cats = []; series.cats = []; if (section === 'home') renderHome(); }
     else if (k === 'refresh') { var steps = [0, 3, 6, 12, 24], i = steps.indexOf(s.refreshHours); Store.setSetting('refreshHours', steps[(i + 1) % steps.length]); scheduleRefresh(); }
-    else if (k === 'theme') { var th = ['aurora', 'midnight', 'oled', 'ocean', 'crimson', 'emerald', 'sunset', 'royal', 'ramadan', 'cinema', 'glass', 'arcade', 'mono', 'majlis']; Store.setSetting(k, th[(th.indexOf(s.theme) + 1) % th.length]); applyTheme(); if (section === 'home') renderHome(); }
+    else if (k === 'theme') { var th = ['aurora', 'midnight', 'oled', 'ocean', 'crimson', 'emerald', 'sunset', 'royal', 'ramadan', 'cinema', 'glass', 'arcade', 'mono', 'majlis', 'guidepro', 'receiver', 'sports', 'family', 'neocrt', 'cyberpunk']; Store.setSetting(k, th[(th.indexOf(s.theme) + 1) % th.length]); applyTheme(); if (section === 'home') renderHome(); }
     else if (k === 'liveFormat') Store.setSetting(k, s.liveFormat === 'ts' ? 'm3u8' : 'ts');
     else if (k === 'engine') Store.setSetting(k, { auto: 'native', native: 'hlsjs', hlsjs: 'auto' }[s.engine]);
     else if (k === 'parental') { if (account.kids) { UI.toast(T('kids.locked'), 2500, '🔒'); return; } Store.setSetting(k, !s[k]); }
@@ -834,6 +939,15 @@ var App = (function () {
     if (Adhan.handleKey(name)) return true;
     if (amb.on) { hideAmbient(); return true; }
     if (UI.modalOpen()) { if (name === 'BACK' || name === 'BACK2') { UI.closeModal(); return true; } return false; }
+    if (guide.open) {
+      if (name === 'BACK' || name === 'BACK2') { closeGuide(); return true; }
+      if (name === 'BLUE') { var gr = Nav.current(); if (gr && gr._channel) openChannelTools(gr._channel); return true; }
+      return false;
+    }
+    if (backup.open) {
+      if (name === 'BACK' || name === 'BACK2') { closeBackup(); return true; }
+      return false;
+    }
     if (screen === 'player') return Player.handleKey(name, code);
     if (screen === 'pin') {
       if (code >= 48 && code <= 57) { pinKey(String(code - 48)); return true; }
@@ -865,6 +979,7 @@ var App = (function () {
       if (name === 'RED' && (section === 'movies' || section === 'series' || section === 'home' || section === 'favorites' || section === 'search')) { var c = Nav.current(); if (c && c._item) { toggleFavItem(c._item); if (c._vlist) c._vlist.refreshItem(Number(c.getAttribute('data-i'))); else { var f = c.querySelector('.fav'); if (f) f.remove(); else if (c.querySelector('.thumb')) c.querySelector('.thumb').appendChild(U.el('div', 'fav', '★')); } return true; } }
       if (name === 'GREEN') { showSection('favorites'); Nav.focus(U.$('.nav-item[data-section="favorites"]')); return true; }
       if (name === 'YELLOW' && section === 'live' && live.selected) { toggleLockChannel(live.selected); return true; }
+      if (name === 'BLUE' && section === 'live') { if (live.selected) openChannelTools(live.selected); else openGuide(); return true; }
       if (name === 'YELLOW') { showSection('search'); return true; }
       if ((name === 'CH_UP' || name === 'CH_DOWN') && !(Nav.current() && Nav.current()._vlist)) { var order = NAV_ORDER, i = order.indexOf(section); showSection(order[(i + (name === 'CH_UP' ? 1 : order.length - 1)) % order.length]); Nav.focus(U.$('.nav-item[data-section="' + section + '"]')); return true; }
     }
@@ -906,10 +1021,10 @@ var App = (function () {
 
   function bindEvents() {
     document.addEventListener('click', function (ev) {
-      var t = ev.target; while (t && t !== document && !(t.getAttribute && (t.getAttribute('data-action') || t.getAttribute('data-section') || t.getAttribute('data-type') || t.getAttribute('data-setting') || t.getAttribute('data-theme-pick') || t.getAttribute('data-layout-pick') || t.getAttribute('data-accent-pick') || t.id === 'kids-switch' || t.id === 'tls-switch'))) t = t.parentNode;
+      var t = ev.target; while (t && t !== document && !(t.getAttribute && (t.getAttribute('data-action') || t.getAttribute('data-section') || t.getAttribute('data-type') || t.getAttribute('data-setting') || t.getAttribute('data-theme-pick') || t.getAttribute('data-layout-pick') || t.getAttribute('data-accent-pick') || t.id === 'kids-switch' || t.id === 'tls-switch' || t.id === 'backup-secret-switch'))) t = t.parentNode;
       if (!t || t === document) return;
       var a = t.getAttribute('data-action'), sec = t.getAttribute('data-section'), typ = t.getAttribute('data-type'), set = t.getAttribute('data-setting');
-      if (t.id === 'kids-switch' || t.id === 'tls-switch') { t.setAttribute('data-on', t.getAttribute('data-on') === '1' ? '0' : '1'); return; }
+      if (t.id === 'kids-switch' || t.id === 'tls-switch' || t.id === 'backup-secret-switch') { t.setAttribute('data-on', t.getAttribute('data-on') === '1' ? '0' : '1'); return; }
       if (sec) { showSection(sec); if ((t.classList.contains('tile') || t.classList.contains('util')) && !document.body.classList.contains('hubmode')) Nav.focus(U.$('.nav-item[data-section="' + sec + '"]')); else if (t.id === 'hub-home') Nav.focus(U.$('#hub .tile')); return; }
       if (typ && t.classList.contains('tab')) { setAddType(typ); return; }
       if (set) { toggleSetting(set); return; }
@@ -929,10 +1044,17 @@ var App = (function () {
         case 'wx-location': case 'wx-unit': case 'wx-refresh': case 'wx-retry': Weather.action(a); break;
         case 'adhan-enable': case 'adhan-toggle': case 'adhan-method': case 'adhan-test': case 'adhan-refresh': case 'adhan-retry': Adhan.action(a); break;
         case 'pair-cancel': stopPair(); break;
+        case 'guide-open': openGuide(); break;
+        case 'guide-close': closeGuide(); break;
+        case 'guide-refresh': refreshGuide(); break;
+        case 'backup-open': openBackup(); break;
+        case 'backup-close': closeBackup(); break;
+        case 'backup-export': exportBackup(); break;
+        case 'backup-import': confirmImportBackup(); break;
         case 'clear-cache': Store.clearCache(account.id); live.cats = []; movies.cats = []; series.cats = []; UI.toast(T('toast.cache'), 2000, '✓'); break;
         case 'refresh-now': refreshPlaylists(true); break;
         case 'hero-play': var h = U.$('#hero-title')._item; if (h) openItem(h); else showSection('live'); break;
-        case 'hero-info': var h2 = U.$('#hero-title')._item; if (h2) openItem(h2); else showSection('movies'); break;
+        case 'hero-info': var h2 = U.$('#hero-title')._item; if (h2) openItem(h2); else if (Store.settings().theme === 'guidepro') openGuide(); else showSection('movies'); break;
         case 'details-play': playMovie(false); break;
         case 'details-resume': playMovie(true); break;
         case 'details-trailer': playTrailer(); break;
