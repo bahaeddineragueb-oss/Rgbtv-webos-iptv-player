@@ -32,7 +32,7 @@ var U = (function () {
     });
   }
   function lunaFetch(url, opt) {
-    return luna('fetch', { url: url, method: opt.method || 'GET', headers: opt.headers || {}, body: opt.body || null, timeout: opt.timeout || 20000 }).then(function (r) {
+    return luna('fetch', { url: url, method: opt.method || 'GET', headers: opt.headers || {}, body: opt.body || null, timeout: opt.timeout || 20000, insecureTls: opt.insecureTls === true }).then(function (r) {
       if (r.status >= 200 && r.status < 300) { if (opt.json) { try { return JSON.parse(r.body); } catch (e) { throw new Error('Invalid JSON from server'); } } return r.body; }
       throw new Error('HTTP ' + r.status);
     });
@@ -43,7 +43,9 @@ var U = (function () {
   function http(url, opt) {
     opt = opt || {};
     if (window.RGBTvHost && RGBTvHost.fetchAsync && /^https?:/i.test(url)) return hostFetch(url, opt);
-    var needsService = opt.headers && (opt.headers.Cookie || opt.headers.Authorization) && typeof window.PalmServiceBridge !== 'undefined' && lunaAvailable !== false;
+    /* Use the packaged Luna proxy for providers that need to bypass browser CORS. Restricted
+       Stalker headers always need it; M3U/EPG can explicitly request it with opt.proxy. */
+    var needsService = (opt.proxy || (opt.headers && (opt.headers.Cookie || opt.headers.Authorization))) && typeof window.PalmServiceBridge !== 'undefined' && lunaAvailable !== false;
     if (needsService) {
       return lunaFetch(url, opt).then(function (r) { lunaAvailable = true; return r; }).catch(function (e) {
         if (lunaAvailable === null && /no luna|Luna timeout|service error|Unknown service|not exist/i.test(e.message)) { lunaAvailable = false; return http(url, opt); }
@@ -82,7 +84,10 @@ var U = (function () {
       catch (e) { delete hostCbs[id]; reject(new Error('Network error')); }
     });
   }
-  function getJSON(url, headers) { return http(url, { json: true, headers: headers }); }
+  function getJSON(url, headers, opt) {
+    opt = opt || {}; opt.json = true; opt.headers = headers;
+    return http(url, opt);
+  }
 
   /* SHA-1 (used for Stalker device signatures) */
   function sha1(msg) {

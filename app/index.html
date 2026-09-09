@@ -102,6 +102,7 @@
           <label>Serial Number (optional)<input class="focusable" data-nav="add-form" name="sn" placeholder="auto"></label>
           <label>Device ID (optional)<input class="focusable" data-nav="add-form" name="deviceId" placeholder="auto"></label>
         </div>
+        <div class="switch-row compact"><div><b data-i18n="stalker.insecure">Allow self-signed HTTPS</b><p class="muted" data-i18n="stalker.insecure.d">Only enable this for a portal you trust.</p></div><button type="button" class="switch focusable" data-nav="add-form" id="tls-switch" data-on="0"><i></i></button></div>
       </div>
       <div class="type-fields" data-for="m3u">
         <label>EPG URL (optional)<input class="focusable" data-nav="add-form" name="epg" placeholder="http://…/xmltv.xml"></label>
@@ -248,6 +249,7 @@
             <button class="swatch focusable" data-nav="settings" data-theme-pick="emerald" data-theme="emerald"><i></i><span class="nm" data-i18n="theme.emerald">Emerald</span></button>
             <button class="swatch focusable" data-nav="settings" data-theme-pick="sunset" data-theme="sunset"><i></i><span class="nm" data-i18n="theme.sunset">Sunset</span></button>
             <button class="swatch focusable" data-nav="settings" data-theme-pick="royal" data-theme="royal"><i></i><span class="nm" data-i18n="theme.royal">Royal</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="ramadan" data-theme="ramadan"><i></i><span class="nm" data-i18n="theme.ramadan">Ramadan</span></button>
           </div></div>
         <div class="setting-row"><div><b data-i18n="set.accent">Accent color</b><p class="muted" data-i18n="set.accent.d">Color of highlights, buttons and progress bars. Auto follows the theme.</p></div>
           <div class="theme-swatches accents" id="accent-swatches">
@@ -329,6 +331,9 @@
 <!-- ================= PLAYER ================= -->
 <div id="screen-player" class="screen"><button class="host-back" data-action="host-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg></button>
   <video id="video" autoplay playsinline disableRemotePlayback></video>
+  <video id="video-secondary" muted autoplay playsinline disableRemotePlayback></video>
+  <div class="dual-label dual-primary" id="dual-primary-label"></div>
+  <div class="dual-label dual-secondary" id="dual-secondary-label"></div>
   <div class="player-loading" id="player-loading"><div class="loader"></div><span id="player-loading-text">Loading…</span></div>
   <div class="player-error" id="player-error"></div>
   <div class="osd" id="osd">
@@ -351,6 +356,9 @@
         <button class="osd-btn focusable" data-nav="osd" data-action="p-audio" id="osd-audio" data-i18n="p.audio">Audio</button>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-subs" id="osd-subs" data-i18n="p.subs">Subtitles</button>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-ratio" id="osd-ratio">Fit</button>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-dual" id="osd-dual" data-i18n="p.dual">Dual</button>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-dual-next" id="osd-dual-next" data-i18n="p.dualNext">2nd +</button>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-dual-audio" id="osd-dual-audio" data-i18n="p.dualAudio">Audio 1</button>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-fav" id="osd-fav">☆</button>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-stats" id="osd-stats" data-i18n="p.stats">Stats</button>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-list" id="osd-list-btn" data-i18n="p.channels">Channels</button>

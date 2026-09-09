@@ -35,12 +35,15 @@ var App = (function () {
   var ACCENTS = { violet: '#6d5dfc', blue: '#3b82f6', cyan: '#06b6d4', green: '#22c55e', gold: '#eab308', orange: '#f97316', red: '#ef4444', pink: '#ec4899' };
   function hexRgba(hex, a) { var n = parseInt(hex.slice(1), 16); return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + a + ')'; }
   function applyTheme() {
-    var s = Store.settings(); document.body.setAttribute('data-theme', s.theme || 'aurora');
+    var s = Store.settings();
+    /* Ramadan mode styles the existing prayer feature; it never enables reminders without consent. */
+    document.body.setAttribute('data-theme', s.theme || 'aurora'); document.body.classList.toggle('ramadan-mode', s.theme === 'ramadan');
     // accent override: written as inline custom properties on <body> so it wins over the theme rules
     var st = document.body.style, hex = ACCENTS[s.accent];
     ['--accent', '--fglow', '--glowc', '--glow1'].forEach(function (v) { st.removeProperty(v); });
     if (hex) { st.setProperty('--accent', hex); st.setProperty('--fglow', hexRgba(hex, .6)); st.setProperty('--glowc', hexRgba(hex, .6)); st.setProperty('--glow1', hexRgba(hex, .34)); }
     document.body.setAttribute('data-corners', s.corners || 'round'); document.body.classList.toggle('noglow', s.glow === false);
+    if (s.theme === 'ramadan' && window.Adhan) Adhan.tick();
   }
   function isHub(lay) { return lay === 'spotlight' || lay === 'trio' || lay === 'mosaic' || lay === 'dashboard'; }
   function applyUi() {
@@ -64,6 +67,8 @@ var App = (function () {
     if (hostPlat === 'xbox') document.body.classList.add('xbox', 'console'); else if (window.RGBTvHost) { document.body.classList.add('mobile', 'touch'); if (window.Touch && Touch.init) Touch.init(); } else if (window.RGBTvDesktop || /Electron/.test(navigator.userAgent)) document.body.classList.add('desktop');
     U.fitScreen(); setTimeout(U.fitScreen, 300); setTimeout(U.fitScreen, 1500); setTimeout(U.fitScreen, 4000);
     applyLang(); applyTheme(); applyUi(); Player.init();
+    /* Player zapping has its own entry points, so centralize the live-channel lock gate. */
+    Player.setCanPlay(function (ch) { return needsUnlock(ch) ? askUnlock(ch) : true; });
     setInterval(tickClock, 1000); tickClock(); setTimeout(function () { Weather.refresh(); }, 2500); Adhan.start();
     var spot = U.el('div'); spot.id = 'spot'; U.$('#screen-home').insertBefore(spot, U.$('#screen-home .topbar'));
     initAmbient();
@@ -81,7 +86,7 @@ var App = (function () {
   /* ---------- profiles ---------- */
   function showAccounts(keepManage) {
     if (provider && provider.destroy) provider.destroy();
-    provider = null; account = null; App.account = null; App.provider = null;
+    provider = null; account = null; App.account = null; App.provider = null; unlocked = {};
     if (!keepManage) manageMode = false;
     var list = Store.accounts();
     UI.renderAccounts(list, manageMode); showScreen('accounts');
@@ -125,7 +130,7 @@ var App = (function () {
       var p = createProvider(acc);
       return p.login().then(function (info) {
         acc.lastLogin = Date.now(); if (info && info.expires) acc.expires = info.expires; Store.updateAccount(acc); Store.setLastAccount(acc.id);
-        account = acc; provider = p; App.account = acc; App.provider = p;
+        account = acc; provider = p; App.account = acc; App.provider = p; unlocked = {};
         live.cats = []; movies.cats = []; series.cats = [];
         U.$('#chip-name').textContent = acc.name; U.$('#chip-avatar').src = Avatars.url(acc.avatar);
         updateExpiry(info); updateNewBadges();
@@ -147,6 +152,7 @@ var App = (function () {
     UI.renderAvatarPicker(addAvatar, function (id) { addAvatar = id; });
     setAddType(acc ? acc.type : 'xtream');
     U.$('#kids-switch').setAttribute('data-on', acc && acc.kids ? '1' : '0');
+    U.$('#tls-switch').setAttribute('data-on', acc && acc.insecureTls ? '1' : '0');
     if (acc) { ['name', 'url', 'username', 'password', 'mac', 'sn', 'deviceId', 'epg', 'pin'].forEach(function (k) { if (f[k]) f[k].value = acc[k] || ''; }); }
     else { f.mac.value = Store.device().mac; }
     showScreen('add'); Nav.focus(f.name);
@@ -162,13 +168,14 @@ var App = (function () {
     var acc = { id: editingId || undefined, type: addType, name: f.name.value.trim(), url: f.url.value.trim(), avatar: addAvatar, pin: f.pin.value.trim(), kids: U.$('#kids-switch').getAttribute('data-on') === '1' };
     if (!acc.name || !acc.url) { err.textContent = 'Name and URL are required.'; return; }
     if (acc.pin && !/^\d{4}$/.test(acc.pin)) { err.textContent = 'PIN must be exactly 4 digits.'; return; }
+    if (acc.kids && !acc.pin) { err.textContent = 'Kids profiles require a 4-digit PIN.'; return; }
     if (addType === 'xtream') {
       var m = acc.url.match(/^(https?:\/\/[^\/]+)\/.*[?&]username=([^&]+)&password=([^&]+)/i);
-      if (m) { acc.url = m[1]; f.username.value = decodeURIComponent(m[2]); f.password.value = decodeURIComponent(m[3]); }
+      if (m) { var parsedUser = safeDecode(m[2]), parsedPass = safeDecode(m[3]); if (parsedUser == null || parsedPass == null) { err.textContent = 'Invalid encoded username or password in URL.'; return; } acc.url = m[1]; f.username.value = parsedUser; f.password.value = parsedPass; }
       acc.username = f.username.value.trim(); acc.password = f.password.value.trim();
       if (!acc.username || !acc.password) { err.textContent = 'Username and password are required.'; return; }
     } else if (addType === 'stalker') {
-      acc.mac = f.mac.value.trim().toUpperCase().replace(/-/g, ':'); acc.sn = f.sn.value.trim(); acc.deviceId = f.deviceId.value.trim();
+      acc.mac = f.mac.value.trim().toUpperCase().replace(/-/g, ':'); acc.sn = f.sn.value.trim(); acc.deviceId = f.deviceId.value.trim(); acc.insecureTls = U.$('#tls-switch').getAttribute('data-on') === '1';
       if (!/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(acc.mac)) { err.textContent = 'Invalid MAC address (format 00:1A:79:XX:XX:XX).'; return; }
       acc.token = null; acc.endpoint = null;
     } else acc.epg = f.epg.value.trim();
@@ -200,27 +207,50 @@ var App = (function () {
     pairCall('pairStart', { lang: I18n.get() }).then(function (r) {
       if (!pair.on) return;
       var ips = (r.ips || []).filter(function (ip) { return !/^169\.254\./.test(ip); });
-      if (!ips.length) { st.className = 'pair-status bad'; txt.textContent = T('pair.noLan'); qr.innerHTML = '<div class="qr-wait">' + U.esc(T('pair.noLan')) + '</div>'; return; }
-      var link = 'http://' + ips[0] + ':' + r.port + '/?lang=' + I18n.get();
-      urlEl.textContent = ips[0] + ':' + r.port; U.$('#pair-alt').textContent = T('pair.alt') + (ips.length > 1 ? ' · ' + ips.slice(1).map(function (ip) { return ip + ':' + r.port; }).join(' · ') : '');
+      if (!ips.length) { st.className = 'pair-status bad'; txt.textContent = T('pair.noLan'); qr.innerHTML = '<div class="qr-wait">' + U.esc(T('pair.noLan')) + '</div>'; pair.on = false; pairCall('pairStop', {}).catch(function () { }); return; }
+      if (!/^[a-f0-9]{32,}$/i.test(String(r.token || ''))) throw new Error(T('pair.noService'));
+      var link = 'http://' + ips[0] + ':' + r.port + '/?lang=' + I18n.get() + '&token=' + encodeURIComponent(r.token);
+      urlEl.textContent = link.replace(/^http:\/\//, ''); U.$('#pair-alt').textContent = T('pair.alt') + (ips.length > 1 ? ' · ' + ips.slice(1).map(function (ip) { return ip + ':' + r.port + '/?lang=' + I18n.get() + '&token=' + r.token; }).join(' · ') : '');
       if (window.RGBTvDesktop) U.$('#pair-alt').textContent += ' — ' + T('pair.firewall');
       try { var q = qrcode(0, 'M'); q.addData(link); q.make(); qr.innerHTML = q.createSvgTag({ cellSize: 1, margin: 0, scalable: true }); } catch (e) { qr.innerHTML = '<div class="qr-wait">' + U.esc(link) + '</div>'; }
       st.className = 'pair-status'; txt.textContent = T('pair.waiting');
       clearInterval(pair.timer); pair.timer = setInterval(pollPair, 2000);
     }).catch(function (e) { st.className = 'pair-status bad'; txt.textContent = (/no luna/.test(e.message) ? T('pair.noService') : e.message); qr.innerHTML = '<div class="qr-wait">' + U.esc(txt.textContent) + '</div>'; });
   }
+  function safeDecode(v) { try { return decodeURIComponent(v); } catch (e) { return null; } }
+  function accountFromPair(d) {
+    d = d || {};
+    var type = /^(xtream|stalker|m3u)$/.test(d.type) ? d.type : '', name = String(d.name || '').trim().slice(0, 40), serverUrl = String(d.url || '').trim();
+    if (!type || !name || !/^https?:\/\/[^\s/]+/i.test(serverUrl)) return null;
+    var acc = { type: type, name: name, url: serverUrl, avatar: Avatars.list()[Store.accounts().length % Avatars.list().length], pin: /^\d{4}$/.test(d.pin || '') ? d.pin : '', kids: false };
+    if (type === 'xtream') {
+      var m = acc.url.match(/^(https?:\/\/[^\/]+)\/.*[?&]username=([^&]+)&password=([^&]+)/i);
+      if (m) { var user = safeDecode(m[2]), pass = safeDecode(m[3]); if (user == null || pass == null) return null; acc.url = m[1]; acc.username = user; acc.password = pass; }
+      else { acc.username = String(d.username || '').trim(); acc.password = String(d.password || '').trim(); }
+      if (!acc.username || !acc.password) return null;
+    } else if (type === 'stalker') {
+      acc.mac = String(d.mac || '').trim().toUpperCase().replace(/-/g, ':');
+      if (!/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(acc.mac)) return null;
+      acc.endpoint = null;
+    } else acc.epg = String(d.epg || '').trim();
+    return acc;
+  }
+  function returnFromPair() {
+    if (pair.from === 'home' && account) { showScreen('home'); Nav.focusScope('settings') || Nav.focusFirst(); }
+    else if (pair.from === 'add') { showScreen('add'); Nav.focus(U.$('#add-form').name); }
+    else showAccounts();
+  }
   function pollPair() {
     if (!pair.on) { clearInterval(pair.timer); return; }
     pairCall('pairPoll', {}).then(function (r) {
       var items = (r && r.items) || []; if (!items.length) return;
-      var d = items[items.length - 1], acc = { type: /^(xtream|stalker|m3u)$/.test(d.type) ? d.type : 'xtream', name: String(d.name || '').trim().slice(0, 40), url: String(d.url || '').trim(), avatar: Avatars.list()[Store.accounts().length % Avatars.list().length], pin: /^\d{4}$/.test(d.pin || '') ? d.pin : '', kids: false };
-      if (acc.type === 'xtream') { var m = acc.url.match(/^(https?:\/\/[^\/]+)\/.*[?&]username=([^&]+)&password=([^&]+)/i); if (m) { acc.url = m[1]; acc.username = decodeURIComponent(m[2]); acc.password = decodeURIComponent(m[3]); } else { acc.username = String(d.username || '').trim(); acc.password = String(d.password || '').trim(); } }
-      else if (acc.type === 'stalker') { acc.mac = String(d.mac || '').trim().toUpperCase().replace(/-/g, ':') || Store.device().mac; acc.token = null; acc.endpoint = null; }
-      else acc.epg = String(d.epg || '').trim();
-      if (!/^https?:\/\//i.test(acc.url)) acc.url = 'http://' + acc.url;
-      U.$('#pair-status').className = 'pair-status ok'; U.$('#pair-status-text').textContent = T('pair.received', { n: acc.name });
-      acc = Store.addAccount(acc); UI.toast(T('pair.received', { n: acc.name }), 3000, '📱');
-      setTimeout(function () { stopPair(true); manageMode = false; openAccount(acc.id, true); }, 1200);
+      var acc = accountFromPair(items[0]);
+      if (!acc) { U.$('#pair-status').className = 'pair-status bad'; U.$('#pair-status-text').textContent = T('pair.invalid'); return; }
+      stopPair(true);
+      UI.modal(T('pair.confirm'), U.esc(acc.name) + '<br><small>' + U.esc(acc.type.toUpperCase() + ' · ' + acc.url) + '</small>', [{ label: T('pair.add'), value: true }, { label: T('cancel'), value: false, ghost: true }]).then(function (ok) {
+        if (!ok) { returnFromPair(); return; }
+        acc = Store.addAccount(acc); UI.toast(T('pair.received', { n: acc.name }), 3000, '📱'); manageMode = false; openAccount(acc.id, true);
+      });
     }).catch(function () { });
   }
   function stopPair(silent) { pair.on = false; clearInterval(pair.timer); pair.timer = null; pairCall('pairStop', {}).catch(function () { }); if (!silent) { if (pair.from === 'home' && account) { showScreen('home'); Nav.focusScope('settings') || Nav.focusFirst(); } else if (pair.from === 'add') { showScreen('add'); Nav.focus(U.$('#add-form').name); } else showAccounts(); } }
@@ -293,6 +323,7 @@ var App = (function () {
     var cont = hist.filter(function (h) { return h.type !== 'live' && Store.getPos(account.id, h.type + ':' + h.id); });
     var recentLive = hist.filter(function (h) { return h.type === 'live'; });
     stopHero(); setHeroWelcome();
+    if (Store.settings().theme === 'ramadan') rows.appendChild(ramadanPrayerCard());
     var favLive = favs.filter(function (f) { return f.type === 'live'; }), favVod = favs.filter(function (f) { return f.type !== 'live'; });
     if (favLive.length) rows.appendChild(onNowRow(favLive.slice(0, 12)));
     if (cont.length) rows.appendChild(UI.row(T('home.continue'), cont.map(hydrate)));
@@ -451,6 +482,22 @@ var App = (function () {
     TMDB.enrich(h).then(function (it) { if (titleEl._item === it && it.tmdbId) setHeroStatic(it, tag); });
   }
   function setHeroStatic(h, tag) { var t = U.$('#hero-title'); t.textContent = TMDB.cleanTitle(h.name); U.$('#hero-desc').textContent = h.plot || ''; if (h.backdrop) U.$('#hero-bg').style.backgroundImage = 'url("' + h.backdrop + '")'; var meta = []; if (h.year) meta.push(String(h.year).substr(0, 4)); if (h.rating) meta.push('★ ' + Number(h.rating).toFixed(1)); if (h.genre) meta.push(h.genre); if (h.duration) meta.push(h.duration); U.$('#hero-meta').innerHTML = meta.map(function (x) { return '<span>' + U.esc(x) + '</span>'; }).join(''); }
+  /* Ramadan mode keeps the next prayer visible on Home as well as in the top bar. */
+  function ramadanPrayerCard() {
+    var card = U.el('button', 'ramadan-prayer focusable'), prayerOn = Store.settings().adhan;
+    card.setAttribute('data-nav', 'row'); card.setAttribute('data-section', 'adhan');
+    card.innerHTML = '<span class="rp-crescent">☾</span><span class="rp-copy"><b>' + U.esc(T('ramadan.mode')) + '</b><small>' + U.esc(prayerOn ? T('ramadan.next') : T('adhan.off')) + '</small></span><span class="rp-time" id="ramadan-next-prayer">—</span><span class="rp-open">' + U.esc(T('ramadan.open')) + ' ›</span>';
+    function paint() {
+      if (!document.body.contains(card) || Store.settings().theme !== 'ramadan') return;
+      var next = Adhan.next && Adhan.next(), out = U.$('#ramadan-next-prayer', card);
+      if (!Store.settings().adhan) { if (out) out.textContent = '—'; return; }
+      if (out && next) out.textContent = I18n.t('adhan.' + next.name.toLowerCase()) + ' · ' + next.time;
+      if (!next) Adhan.tick();
+      /* Keep the card in sync when a prayer boundary changes the next item. */
+      setTimeout(paint, next ? 20000 : 1800);
+    }
+    paint(); return card;
+  }
   /* ---- "On Now" row: favourite channels with live EPG progress ---- */
   function onNowRow(chs) {
     var r = U.el('div', 'row'); r.innerHTML = '<div class="row-title">' + U.esc(T('home.onNow')) + '<span class="live-dot"></span><span class="count">' + chs.length + '</span></div>';
@@ -532,13 +579,14 @@ var App = (function () {
     if (live.vl) { var idx = live.vl.items.indexOf(ch); if (idx >= 0) live.vl.refreshItem(idx); }
     if (on && live.selected === ch) stopPreview();
   }
-  var unlocked = {}; // channel ids unlocked this session
-  function needsUnlock(ch) { return ch && ch.type === 'live' && Store.isLocked(account.id, ch.id) && !unlocked[ch.id]; }
+  var unlocked = {}; // account + channel ids unlocked only for the current session
+  function unlockKey(ch) { return account.id + ':' + String(ch.id); }
+  function needsUnlock(ch) { return ch && account && ch.type === 'live' && Store.isLocked(account.id, ch.id) && !unlocked[unlockKey(ch)]; }
   function askUnlock(ch) {
     return new Promise(function (resolve) {
       var buf = '', ov = U.$('#locked-overlay'), dots = U.$$('#lock-dots i');
       function paint() { dots.forEach(function (d, i) { d.classList.toggle('on', i < buf.length); }); }
-      function done(ok) { ov.classList.remove('show'); document.removeEventListener('keydown', kd, true); if (ok) unlocked[ch.id] = 1; resolve(ok); }
+      function done(ok) { ov.classList.remove('show'); document.removeEventListener('keydown', kd, true); if (ok) unlocked[unlockKey(ch)] = 1; resolve(ok); }
       function kd(ev) {
         var c = ev.keyCode; ev.stopPropagation(); ev.preventDefault();
         if (c >= 48 && c <= 57) { buf = (buf + String(c - 48)).slice(0, 4); paint(); if (buf.length === 4) { if (buf === account.pin) done(true); else { buf = ''; paint(); U.$('#lock-dots').classList.add('shake'); setTimeout(function () { U.$('#lock-dots').classList.remove('shake'); }, 450); } } }
@@ -642,7 +690,7 @@ var App = (function () {
     var s = Store.settings();
     if (k === 'lang') { Store.setSetting(k, I18n.next()); applyLang(); updateExpiry(null); live.cats = []; movies.cats = []; series.cats = []; if (section === 'home') renderHome(); }
     else if (k === 'refresh') { var steps = [0, 3, 6, 12, 24], i = steps.indexOf(s.refreshHours); Store.setSetting('refreshHours', steps[(i + 1) % steps.length]); scheduleRefresh(); }
-    else if (k === 'theme') { var th = ['aurora', 'midnight', 'oled', 'ocean', 'crimson', 'emerald', 'sunset', 'royal']; Store.setSetting(k, th[(th.indexOf(s.theme) + 1) % th.length]); applyTheme(); }
+    else if (k === 'theme') { var th = ['aurora', 'midnight', 'oled', 'ocean', 'crimson', 'emerald', 'sunset', 'royal', 'ramadan']; Store.setSetting(k, th[(th.indexOf(s.theme) + 1) % th.length]); applyTheme(); }
     else if (k === 'liveFormat') Store.setSetting(k, s.liveFormat === 'ts' ? 'm3u8' : 'ts');
     else if (k === 'engine') Store.setSetting(k, { auto: 'native', native: 'hlsjs', hlsjs: 'auto' }[s.engine]);
     else if (k === 'parental') { if (account.kids) { UI.toast(T('kids.locked'), 2500, '🔒'); return; } Store.setSetting(k, !s[k]); }
@@ -841,14 +889,14 @@ var App = (function () {
 
   function bindEvents() {
     document.addEventListener('click', function (ev) {
-      var t = ev.target; while (t && t !== document && !(t.getAttribute && (t.getAttribute('data-action') || t.getAttribute('data-section') || t.getAttribute('data-type') || t.getAttribute('data-setting') || t.getAttribute('data-theme-pick') || t.getAttribute('data-layout-pick') || t.getAttribute('data-accent-pick') || t.id === 'kids-switch'))) t = t.parentNode;
+      var t = ev.target; while (t && t !== document && !(t.getAttribute && (t.getAttribute('data-action') || t.getAttribute('data-section') || t.getAttribute('data-type') || t.getAttribute('data-setting') || t.getAttribute('data-theme-pick') || t.getAttribute('data-layout-pick') || t.getAttribute('data-accent-pick') || t.id === 'kids-switch' || t.id === 'tls-switch'))) t = t.parentNode;
       if (!t || t === document) return;
       var a = t.getAttribute('data-action'), sec = t.getAttribute('data-section'), typ = t.getAttribute('data-type'), set = t.getAttribute('data-setting');
-      if (t.id === 'kids-switch') { t.setAttribute('data-on', t.getAttribute('data-on') === '1' ? '0' : '1'); return; }
+      if (t.id === 'kids-switch' || t.id === 'tls-switch') { t.setAttribute('data-on', t.getAttribute('data-on') === '1' ? '0' : '1'); return; }
       if (sec) { showSection(sec); if ((t.classList.contains('tile') || t.classList.contains('util')) && !document.body.classList.contains('hubmode')) Nav.focus(U.$('.nav-item[data-section="' + sec + '"]')); else if (t.id === 'hub-home') Nav.focus(U.$('#hub .tile')); return; }
       if (typ && t.classList.contains('tab')) { setAddType(typ); return; }
       if (set) { toggleSetting(set); return; }
-      var tp = t.getAttribute('data-theme-pick'); if (tp) { Store.setSetting('theme', tp); applyTheme(); renderSettings(); return; }
+      var tp = t.getAttribute('data-theme-pick'); if (tp) { Store.setSetting('theme', tp); if (tp === 'ramadan') Store.setSetting('accent', 'auto'); applyTheme(); renderSettings(); return; }
       var lp = t.getAttribute('data-layout-pick'); if (lp) { Store.setSetting('layout', lp); applyUi(); renderSettings(); UI.toast(T('lay.' + lp), 2000, '✓'); return; }
       var ap = t.getAttribute('data-accent-pick'); if (ap) { Store.setSetting('accent', ap); applyTheme(); renderSettings(); return; }
       switch (a) {

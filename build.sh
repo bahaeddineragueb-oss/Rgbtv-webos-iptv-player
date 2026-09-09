@@ -5,6 +5,7 @@ set -e
 cd "$(dirname "$0")"
 mkdir -p dist
 echo "▶ Packaging…"
+command -v ares-package >/dev/null 2>&1 || { echo "ares-package is missing. Install @webos-tools/cli first." >&2; exit 127; }
 ares-package app services/com.rgbtv.app.service -o dist
 IPK=$(ls -t dist/*.ipk | head -1)
 echo "✔ Built: $IPK"

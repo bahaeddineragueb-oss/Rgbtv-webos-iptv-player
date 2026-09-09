@@ -55,5 +55,9 @@ or simply `./build.sh tv`.
 ## Notes
 - Do not add ES6 syntax (arrow functions, let/const, template strings) in `app/js` — older webOS browsers will fail to parse.
 - Avoid CSS `inset`, flex `gap`, `backdrop-filter`, `@supports`, and `Element.closest()` for the same reason.
-- The Luna service is required for Stalker portals and for "Add from phone"; Xtream/M3U work without it.
+- M3U supports quoted/unquoted attributes, relative stream URLs, stable item IDs, and an optional XMLTV EPG URL (or `url-tvg` declared in the playlist). The packaged Luna service is used automatically when a playlist/guide needs a CORS-safe fetch; direct browser XHR remains the fallback.
+- Stalker/Ministra needs the Luna service for its MAG cookie and bearer-token handshake. It tries common portal roots (`/server/load.php`, `/c/server/load.php`, and `/stalker_portal/...`) before reporting a connection failure. HTTPS certificates are verified by default; a clearly labelled per-profile switch is available only for a self-signed portal you trust.
+- The **Ramadan** theme has a dedicated emerald/gold skin and a Home prayer card. It uses the existing Prayer Times setting and does **not** turn notifications on when they were disabled.
+- Live Player offers **Dual View** for two live channels: the secondary channel begins muted and Yellow changes the audio source. Actual availability depends on the TV having two hardware decoder sessions; the app will show an error and return to single view if it cannot open the second stream.
+- Phone pairing is time-limited and QR-token protected; review the received profile on the TV before it is stored.
 - Keep the package small: no bundled audio/video assets.

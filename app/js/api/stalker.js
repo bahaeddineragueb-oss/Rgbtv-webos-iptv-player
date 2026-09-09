@@ -6,13 +6,17 @@ function StalkerProvider(acc) {
   // Accept "http://host", "http://host/c", "http://host/stalker_portal/c", or a direct load.php URL
   base = base.replace(/\/(c|stalker_portal\/c)\/?$/, '').replace(/\/(server\/load\.php|portal\.php).*$/, '');
   this.base = base;
-  this.endpoints = [base + '/server/load.php', base + '/stalker_portal/server/load.php', base + '/portal.php', base + '/c/portal.php', base + '/stalker_portal/portal.php'];
+  /* Portals are deployed at several different roots. Keep the supplied endpoint first,
+     but also try the common Ministra / Stalker layouts. */
+  this.endpoints = [base + '/server/load.php', base + '/c/server/load.php', base + '/stalker_portal/server/load.php', base + '/portal.php', base + '/c/portal.php', base + '/stalker_portal/portal.php', base + '/stalker_portal/c/portal.php'];
+  this.endpoints = this.endpoints.filter(function (v, i, a) { return a.indexOf(v) === i; });
   this.endpoint = this.endpoints[0];
   var dev = Store.device();
   this.mac = (acc.mac || dev.mac).toUpperCase();
   this.sn = acc.sn || dev.sn; this.deviceId = acc.deviceId || dev.deviceId; this.deviceId2 = acc.deviceId2 || dev.deviceId2;
   this.sig = U.sha1(this.mac + this.sn);
-  this.token = acc.token || null;
+  /* Tokens are short-lived session credentials; always perform a fresh handshake instead of retaining one at rest. */
+  this.token = null;
   this.profile = null;
   this._genreCache = {}; this._keepalive = null; this._mem = {};
 }
@@ -20,9 +24,10 @@ StalkerProvider.prototype = {
   _headers: function () {
     var h = {
       'X-User-Agent': 'Model: MAG250; Link: WiFi',
-      'Authorization': 'Bearer ' + (this.token || ''),
+      'Referer': this.base + '/c/',
       'Cookie': 'mac=' + encodeURIComponent(this.mac) + '; stb_lang=en; timezone=Europe/Paris'
     };
+    if (this.token) h.Authorization = 'Bearer ' + this.token;
     return h;
   },
   _url: function (params) {
@@ -35,10 +40,13 @@ StalkerProvider.prototype = {
   },
   _call: function (params, noRetry) {
     var self = this;
-    return U.getJSON(this._url(params), this._headers()).then(function (r) {
-      if (r && typeof r === 'object' && 'js' in r) return r.js;
-      if (typeof r === 'string' && /Authorization failed/i.test(r)) throw new Error('AUTH');
-      return r;
+    /* Self-signed TLS remains opt-in per trusted portal; secure verification is the default. */
+    return U.getJSON(this._url(params), this._headers(), { insecureTls: this.acc.insecureTls === true }).then(function (r) {
+      var result = r && typeof r === 'object' && 'js' in r ? r.js : r;
+      /* Some Ministra versions put a JSON object inside the `js` string. */
+      if (typeof result === 'string' && /^[\[{]/.test(result.trim())) { try { result = JSON.parse(result); } catch (x) { } }
+      if (typeof result === 'string' && /Authorization failed|invalid token/i.test(result)) throw new Error('AUTH');
+      return result;
     }).catch(function (e) {
       if (!noRetry && (/AUTH|HTTP 401|HTTP 403|Invalid JSON/.test(e.message))) {
         return self._handshake().then(function () { return self._call(params, true); });
@@ -47,19 +55,22 @@ StalkerProvider.prototype = {
     });
   },
   _handshake: function () {
-    var self = this, i = 0;
+    var self = this, i = 0, lastError = null;
     function tryNext() {
-      if (i >= self.endpoints.length) throw new Error('Portal not reachable (no valid endpoint)');
+      if (i >= self.endpoints.length) return Promise.reject(lastError || new Error('Portal not reachable (no valid endpoint)'));
       self.endpoint = self.endpoints[i++];
       return U.getJSON(self._url({ type: 'stb', action: 'handshake', token: '', prehash: '' }), self._headers()).then(function (r) {
-        var js = r && r.js;
-        if (!js || !js.token) throw new Error('bad');
+        var js = r && r.js != null ? r.js : r;
+        if (typeof js === 'string') { try { js = JSON.parse(js); } catch (e) { } }
+        if (!js || !js.token) throw new Error('No token returned by ' + self.endpoint);
         self.token = js.token;
-        self.acc.token = js.token; self.acc.endpoint = self.endpoint; Store.updateAccount(self.acc);
+        /* Only the endpoint is cached. Persisting a bearer token exposes a credential and causes stale-token failures. */
+        delete self.acc.token; self.acc.endpoint = self.endpoint; Store.updateAccount(self.acc);
         return js;
-      }).catch(function () { return tryNext(); });
+      }).catch(function (e) { lastError = e; return tryNext(); });
     }
-    if (this.acc.endpoint) { this.endpoints.unshift(this.acc.endpoint); }
+    if (this.acc.endpoint && this.acc.endpoint.indexOf(this.base) === 0) this.endpoints.unshift(this.acc.endpoint);
+    this.endpoints = this.endpoints.filter(function (v, n, a) { return a.indexOf(v) === n; });
     return tryNext();
   },
   login: function () {
@@ -94,7 +105,9 @@ StalkerProvider.prototype = {
     var self = this, c = Store.cacheGet(this.acc.id, cacheKey, 6 * 3600e3); if (c) return Promise.resolve(c);
     var p = type === 'itv' ? { type: 'itv', action: 'get_genres' } : { type: type, action: 'get_categories' };
     return this._call(p).then(function (r) {
-      var list = (Array.isArray(r) ? r : []).filter(function (g) { return g.id !== '*' && g.id !== undefined; }).map(function (g) { return { id: String(g.id), name: g.title, censored: Number(g.censored) === 1 }; });
+      /* MAG releases return either js:[…] or js:{data:[…]}. */
+      var rows = Array.isArray(r) ? r : ((r && r.data) || []);
+      var list = rows.filter(function (g) { return g.id !== '*' && g.id !== undefined; }).map(function (g) { return { id: String(g.id), name: g.title || g.name || '—', censored: Number(g.censored) === 1 }; });
       Store.cacheSet(self.acc.id, cacheKey, list); return list;
     });
   },
@@ -118,13 +131,17 @@ StalkerProvider.prototype = {
   _logo: function (l) { if (!l) return ''; if (/^https?:/.test(l)) return l; return this.base + '/stalker_portal/misc/logos/320/' + l; },
   _pageAll: function (params, mapFn, maxPages) {
     var self = this, out = [], page = 1, total = 0, pageSize = 14;
-    maxPages = maxPages || 60;
+    /* 200 pages protects the TV from a runaway portal while no longer silently cutting
+       the "All" catalogues to 20 pages. */
+    maxPages = maxPages || 200;
     function next() {
       params.p = page;
       return self._call(params).then(function (r) {
         var data = (r && r.data) || []; total = Number(r && r.total_items) || 0; pageSize = Number(r && r.max_page_items) || data.length || 14;
         data.forEach(function (x) { out.push(mapFn(x)); });
-        if (data.length && out.length < total && page < maxPages) { page++; return next(); }
+        /* Some portals omit total_items; then the first short page is the end. */
+        var more = total ? out.length < total : data.length >= pageSize;
+        if (data.length && more && page < maxPages) { page++; return next(); }
         return out;
       });
     }
@@ -134,13 +151,13 @@ StalkerProvider.prototype = {
     var self = this, key = 'vod_' + (catId || 'all'), c = Store.cacheGet(this.acc.id, key, 3600e3); if (c) return Promise.resolve(c);
     return this._pageAll({ type: 'vod', action: 'get_ordered_list', category: catId || '*', genre: catId || '*', sortby: 'added', fav: 0, hd: 0, not_ended: 0 }, function (x) {
       return { type: Number(x.is_series) === 1 ? 'series' : 'movie', id: String(x.id), name: x.name, poster: x.screenshot_uri || x.pic || '', catId: String(x.category_id || catId || ''), rating: x.rating_imdb || x.rating_kinopoisk || '', plot: x.description || '', year: x.year || '', genre: x.genres_str || '', cast: x.actors || '', director: x.director || '', cmd: x.cmd, duration: x.time || '', added: Date.parse(x.added) || 0, series: x.series || [] };
-    }, catId ? 60 : 20).then(function (list) { Store.cacheSet(self.acc.id, key, list); return list; });
+    }, catId ? 100 : 200).then(function (list) { Store.cacheSet(self.acc.id, key, list); return list; });
   },
   seriesList: function (catId) {
     var self = this, key = 'series_' + (catId || 'all'), c = Store.cacheGet(this.acc.id, key, 3600e3); if (c) return Promise.resolve(c);
     return this._pageAll({ type: 'series', action: 'get_ordered_list', category: catId || '*', genre: catId || '*', sortby: 'added', fav: 0, hd: 0, not_ended: 0 }, function (x) {
       return { type: 'series', id: String(x.id), name: x.name, poster: x.screenshot_uri || x.pic || '', catId: String(x.category_id || catId || ''), rating: x.rating_imdb || '', plot: x.description || '', year: x.year || '', genre: x.genres_str || '', cast: x.actors || '', director: x.director || '', cmd: x.cmd, added: Date.parse(x.added) || 0 };
-    }, catId ? 60 : 20).then(function (list) {
+    }, catId ? 100 : 200).then(function (list) {
       if (list.length) { Store.cacheSet(self.acc.id, key, list); return list; }
       // fallback: portals that expose series inside VOD (is_series=1)
       return self.vodStreams(catId).then(function (v) { return v.filter(function (x) { return x.type === 'series'; }); });
@@ -165,7 +182,8 @@ StalkerProvider.prototype = {
   },
   shortEPG: function (streamId, limit) {
     return this._call({ type: 'itv', action: 'get_short_epg', ch_id: streamId, size: limit || 10 }).then(function (r) {
-      return (Array.isArray(r) ? r : []).map(function (e) { return { title: e.name, desc: e.descr || '', start: Number(e.start_timestamp), end: Number(e.stop_timestamp) }; });
+      var rows = Array.isArray(r) ? r : ((r && r.data) || []);
+      return rows.map(function (e) { return { title: e.name, desc: e.descr || '', start: Number(e.start_timestamp), end: Number(e.stop_timestamp) }; });
     }).catch(function () { return []; });
   },
   streamUrl: function (item) {
@@ -175,7 +193,7 @@ StalkerProvider.prototype = {
     else if (item.type === 'episode') params = { type: 'vod', action: 'create_link', cmd: cmd, series: item.seriesNum || item.episode || '', forced_storage: '', disable_ad: 0, download: 0 };
     else params = { type: 'vod', action: 'create_link', cmd: cmd, series: '', forced_storage: '', disable_ad: 0, download: 0 };
     return this._call(params).then(function (r) {
-      var c = (r && r.cmd) || cmd; return self._cleanCmd(c);
+      var c = (r && (r.cmd || r.data && r.data.cmd)) || cmd; return self._cleanCmd(c);
     }).catch(function () { return self._cleanCmd(cmd); });
   },
   _cleanCmd: function (c) {
