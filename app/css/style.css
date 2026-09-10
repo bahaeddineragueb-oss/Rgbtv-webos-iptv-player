@@ -33,10 +33,6 @@ body[data-theme="ramadan"] .ad-hero,body[data-theme="ramadan"] .adhan-banner{box
 body[data-theme="ramadan"] .adhan-banner{background:linear-gradient(120deg,#06343a,#07524c 48%,#8a6016)!important}
 body[data-theme="ramadan"] .live-dot,body[data-theme="ramadan"] .ai-tag{background:#e5bb4f;color:#163029}
 body[data-theme="ramadan"] .btn:not(.danger),body[data-theme="ramadan"] .tab.active{color:#102b29}
-.ramadan-prayer{display:none}
-body[data-theme="ramadan"] .ramadan-prayer{display:flex;align-items:center;width:100%;min-height:102px;margin:0 0 26px;padding:14px 34px;border:1px solid rgba(252,218,108,.40);border-radius:18px;background:linear-gradient(100deg,rgba(7,67,67,.94),rgba(151,104,23,.76));box-shadow:0 14px 40px rgba(0,0,0,.27);text-align:inherit;color:#fff8dc}
-.rp-crescent{font-size:68px;line-height:1;color:#ffe899;text-shadow:0 0 24px rgba(255,232,153,.48);margin-right:24px}.rp-copy{display:flex;flex-direction:column;text-align:left}.rp-copy b{font-size:30px}.rp-copy small{font-size:18px;color:#d9e5bd;margin-top:3px}.rp-time{font-size:34px;font-weight:800;margin-left:auto;direction:ltr}.rp-open{font-size:20px;margin-left:32px;color:#fff0ad}
-body.rtl .rp-crescent{margin-right:0;margin-left:24px}body.rtl .rp-copy{text-align:right}body.rtl .rp-time{margin-left:0;margin-right:auto}body.rtl .rp-open{margin-left:0;margin-right:32px}
 *{box-sizing:border-box;margin:0;padding:0;outline:none}
 html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:"LG Smart UI","Segoe UI","Noto Sans Arabic","Noto Sans","Helvetica Neue",Arial,Tahoma,sans-serif;font-size:26px;-webkit-user-select:none;user-select:none;cursor:default}
 body{transition:background .4s;position:relative}

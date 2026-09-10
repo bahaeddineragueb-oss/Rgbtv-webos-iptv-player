@@ -93,11 +93,44 @@ var Adhan = (function () {
     }).catch(function () { setChip(null); });
   }
   function setChip(nx) {
-    var el = U.$('#adhan-chip'); if (!el) return;
-    if (!nx) { el.className = 'adhan-chip focusable'; el.innerHTML = ''; return; }
+    var el = U.$('#adhan-chip'), hub = U.$('#hub-adhan');
+    if (!el) { if (document.body.getAttribute('data-theme') === 'ramadan') strip(); return; }
+    if (!nx) {
+      el.className = 'adhan-chip focusable'; el.innerHTML = '';
+      if (hub) hub.textContent = I18n.t('adhan.off');
+      if (document.body.getAttribute('data-theme') === 'ramadan') strip();
+      return;
+    }
     el.className = 'adhan-chip focusable show' + (nx.inMin <= 15 ? ' soon' : '');
     el.innerHTML = ICON + '<span class="ac-n">' + U.esc(prayerName(nx.name)) + '</span><span class="ac-t">' + U.esc(nx.time) + '</span>';
-    var hub = U.$('#hub-adhan'); if (hub) hub.textContent = I18n.t('adhan.next') + ': ' + prayerName(nx.name) + ' ' + nx.time;
+    if (hub) hub.textContent = I18n.t('adhan.next') + ': ' + prayerName(nx.name) + ' ' + nx.time;
+    if (document.body.getAttribute('data-theme') === 'ramadan') strip();
+  }
+
+  /* Ramadan's compact strip reuses the monthly calendar already used by the Adhan page.
+     It never enables reminders; the disabled and unavailable states remain explicit. */
+  function stripMessage(el, kind, text) {
+    el.className = 'prayer-strip ' + kind;
+    el.innerHTML = '<div class="ps-state">' + U.esc(text) + '</div>';
+  }
+  function strip() {
+    var el = U.$('#prayer-strip');
+    if (!el || document.body.getAttribute('data-theme') !== 'ramadan') return;
+    if (!enabled()) { stripMessage(el, 'is-off', I18n.t('adhan.stripOff')); return; }
+    today().then(function (dd) {
+      if (!document.body.contains(el) || document.body.getAttribute('data-theme') !== 'ramadan') return;
+      if (!enabled()) { stripMessage(el, 'is-off', I18n.t('adhan.stripOff')); return; }
+      var now = minutesNow(), nx = computeNext(dd), html = '<div class="ps-hijri" dir="auto">' + U.esc(hijriText(dd.hijri)) + '</div>';
+      NAMES.forEach(function (name) {
+        var time = dd.times[name] || '—', min = toMin(time), cl = 'ps-item';
+        if (nx && nx.name === name) cl += ' next';
+        else if (min != null && min <= now) cl += ' past';
+        html += '<div class="' + cl + '"><span class="ps-name">' + U.esc(prayerName(name)) + '</span><b class="ps-time">' + U.esc(time) + '</b></div>';
+      });
+      el.className = 'prayer-strip'; el.innerHTML = html;
+    }).catch(function () {
+      if (document.body.contains(el) && document.body.getAttribute('data-theme') === 'ramadan') stripMessage(el, 'is-wait', I18n.t('adhan.stripWait'));
+    });
   }
 
   /* ---- the notification banner ---- */
@@ -192,5 +225,5 @@ var Adhan = (function () {
   function refocus(a) { pendingFocus = a; open(); }
   function invalidate() { day = null; dayKey = ''; if (enabled()) tick(); else setChip(null); }
   function start() { clearInterval(timer); timer = setInterval(tick, 20000); setTimeout(tick, 1800); }
-  return { start: start, tick: tick, open: open, action: action, handleKey: handleKey, invalidate: invalidate, announce: announce, next: function () { return nextInfo; }, icon: ICON };
+  return { start: start, tick: tick, strip: strip, open: open, action: action, handleKey: handleKey, invalidate: invalidate, announce: announce, next: function () { return nextInfo; }, icon: ICON };
 })();

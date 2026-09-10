@@ -37,13 +37,16 @@ var App = (function () {
   function applyTheme() {
     var s = Store.settings();
     /* Ramadan mode styles the existing prayer feature; it never enables reminders without consent. */
-    document.body.setAttribute('data-theme', s.theme || 'aurora'); document.body.classList.toggle('ramadan-mode', s.theme === 'ramadan');
+    document.body.setAttribute('data-theme', s.theme || 'aurora'); document.body.classList.toggle('ramadan-mode', s.theme === 'ramadan'); document.body.classList.toggle('tstruct', s.theme === 'ramadan');
     // accent override: written as inline custom properties on <body> so it wins over the theme rules
     var st = document.body.style, hex = ACCENTS[s.accent];
     ['--accent', '--fglow', '--glowc', '--glow1'].forEach(function (v) { st.removeProperty(v); });
-    if (hex) { st.setProperty('--accent', hex); st.setProperty('--fglow', hexRgba(hex, .6)); st.setProperty('--glowc', hexRgba(hex, .6)); st.setProperty('--glow1', hexRgba(hex, .34)); }
+    if (hex && s.theme !== 'ramadan') { st.setProperty('--accent', hex); st.setProperty('--fglow', hexRgba(hex, .6)); st.setProperty('--glowc', hexRgba(hex, .6)); st.setProperty('--glow1', hexRgba(hex, .34)); }
     document.body.setAttribute('data-corners', s.corners || 'round'); document.body.classList.toggle('noglow', s.glow === false);
-    if (s.theme === 'ramadan' && window.Adhan) Adhan.tick();
+    if (s.theme === 'ramadan' && window.Adhan) {
+      Adhan.tick();
+      if (Adhan.strip) setTimeout(function () { Adhan.strip(); }, 0);
+    }
   }
   function isHub(lay) { return lay === 'spotlight' || lay === 'trio' || lay === 'mosaic' || lay === 'dashboard'; }
   function applyUi() {
@@ -52,13 +55,17 @@ var App = (function () {
     U.$('#sec-home').setAttribute('data-layout', s.layout || 'classic');
     document.body.classList.toggle('hubmode', isHub(s.layout)); // hub content layout; the final theme contract keeps the real menu visible and reachable
     Nav.setPointerMode(s.pointer || 'click');
+    if (s.theme === 'ramadan' && window.Adhan && Adhan.strip) Adhan.strip();
   }
   function tickClock() {
     var d = new Date(); U.$('#clock').textContent = U.clock(d);
     var de = U.$('#clock-date'); if (de) { try { de.textContent = d.toLocaleDateString(I18n.get() === 'ar' ? 'ar' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short' }); } catch (e) { de.textContent = d.toDateString(); } }
     if (Weather && Weather.refresh && d.getSeconds() % 30 === 0) Weather.refresh();
   }
-  function applyLang() { I18n.set(Store.settings().lang || 'en'); }
+  function applyLang() {
+    I18n.set(Store.settings().lang || 'en');
+    if (window.Adhan && Adhan.strip) Adhan.strip();
+  }
   function T(k, v) { return I18n.t(k, v); }
 
   /* ---------- boot ---------- */
@@ -335,7 +342,6 @@ var App = (function () {
     var cont = hist.filter(function (h) { return h.type !== 'live' && Store.getPos(account.id, h.type + ':' + h.id); });
     var recentLive = hist.filter(function (h) { return h.type === 'live'; });
     stopHero(); setHeroWelcome();
-    if (Store.settings().theme === 'ramadan') rows.appendChild(ramadanPrayerCard());
     var favLive = favs.filter(function (f) { return f.type === 'live'; }), favVod = favs.filter(function (f) { return f.type !== 'live'; });
     if (favLive.length) rows.appendChild(onNowRow(favLive.slice(0, 12)));
     if (cont.length) rows.appendChild(UI.row(T('home.continue'), cont.map(hydrate)));
@@ -508,22 +514,6 @@ var App = (function () {
     TMDB.enrich(h).then(function (it) { if (titleEl._item === it && it.tmdbId) setHeroStatic(it, tag); });
   }
   function setHeroStatic(h, tag) { var t = U.$('#hero-title'); t.textContent = TMDB.cleanTitle(h.name); U.$('#hero-desc').textContent = h.plot || ''; if (h.backdrop) U.$('#hero-bg').style.backgroundImage = 'url("' + h.backdrop + '")'; var meta = []; if (h.year) meta.push(String(h.year).substr(0, 4)); if (h.rating) meta.push('★ ' + Number(h.rating).toFixed(1)); if (h.genre) meta.push(h.genre); if (h.duration) meta.push(h.duration); U.$('#hero-meta').innerHTML = meta.map(function (x) { return '<span>' + U.esc(x) + '</span>'; }).join(''); }
-  /* Ramadan mode keeps the next prayer visible on Home as well as in the top bar. */
-  function ramadanPrayerCard() {
-    var card = U.el('button', 'ramadan-prayer focusable'), prayerOn = Store.settings().adhan;
-    card.setAttribute('data-nav', 'row'); card.setAttribute('data-section', 'adhan');
-    card.innerHTML = '<span class="rp-crescent">☾</span><span class="rp-copy"><b>' + U.esc(T('ramadan.mode')) + '</b><small>' + U.esc(prayerOn ? T('ramadan.next') : T('adhan.off')) + '</small></span><span class="rp-time" id="ramadan-next-prayer">—</span><span class="rp-open">' + U.esc(T('ramadan.open')) + ' ›</span>';
-    function paint() {
-      if (!document.body.contains(card) || Store.settings().theme !== 'ramadan') return;
-      var next = Adhan.next && Adhan.next(), out = U.$('#ramadan-next-prayer', card);
-      if (!Store.settings().adhan) { if (out) out.textContent = '—'; return; }
-      if (out && next) out.textContent = I18n.t('adhan.' + next.name.toLowerCase()) + ' · ' + next.time;
-      if (!next) Adhan.tick();
-      /* Keep the card in sync when a prayer boundary changes the next item. */
-      setTimeout(paint, next ? 20000 : 1800);
-    }
-    paint(); return card;
-  }
   /* ---- "On Now" row: favourite channels with live EPG progress ---- */
   function onNowRow(chs) {
     var r = U.el('div', 'row'); r.innerHTML = '<div class="row-title">' + U.esc(T('home.onNow')) + '<span class="live-dot"></span><span class="count">' + chs.length + '</span></div>';
