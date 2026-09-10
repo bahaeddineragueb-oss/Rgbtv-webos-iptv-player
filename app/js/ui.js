@@ -175,7 +175,7 @@ var UI = (function () {
     lazyBg(d.querySelector('.logo-img'));
     return d;
   }
-  function renderChannels(el, list, selectedId, onFocus, onPlay) {
+  function renderChannels(el, list, selectedId, onFocus, onPlay, keepIndex) {
     el.classList.remove('sk-list');
     var grid = !!Store.settings().liveGrid; el.classList.toggle('grid-mode', grid);
     if (el._vlist && !!el._vlist._grid !== grid) el._vlist = null;
@@ -183,8 +183,8 @@ var UI = (function () {
     if (grid) { el.setAttribute('data-tw', tw); }
     var vl = el._vlist || new VList({ container: el, itemH: grid ? 166 : 88, itemW: tw, gap: 12, cols: cols, nav: 'chl', render: grid ? chTile : chEl, onFocus: function (c) { if (onFocus) onFocus(c); }, onSelect: function (c, i) { onPlay(c, i); } });
     vl._grid = grid;
-    vl.onFocus = function (c) { if (onFocus) onFocus(c); }; vl.onSelect = function (c, i) { onPlay(c, i); };
-    vl.selectedId = selectedId; vl.setItems(list); return vl;
+    vl.onFocus = function (c, i) { if (onFocus) onFocus(c, i); }; vl.onSelect = function (c, i) { onPlay(c, i); };
+    vl.selectedId = selectedId; vl.setItems(list, !!keepIndex); return vl;
   }
   function renderGrid(el, list, nav, onOpen) {
     var large = document.body.classList.contains('large'), iw = large ? 230 : 200, ih = large ? 418 : 372;

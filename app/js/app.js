@@ -1,7 +1,9 @@
 /* RGBTv — application controller (v1.1) */
 var App = (function () {
   var screen = 'splash', section = 'home', account = null, provider = null;
-  var live = { cats: [], catId: null, list: [], selected: null, previewTimer: null, epgTimer: null, previewVideo: null, previewHls: null, previewGeneration: 0, request: 0 };
+  /* Stalker pages are appended on demand. The VList below remains bounded to its
+     visible window, while this state holds only metadata already requested. */
+  var live = { cats: [], catId: null, list: [], selected: null, previewTimer: null, epgTimer: null, previewVideo: null, previewHls: null, previewGeneration: 0, request: 0, pager: null };
   var movies = { cats: [], catId: null, list: [], request: 0 }, series = { cats: [], catId: null, list: [], request: 0 };
   var favoriteListId = 'all';
   var details = { base: null, info: null, season: null, list: null };
@@ -544,13 +546,13 @@ var App = (function () {
   function adultCatIds() { var bad = {}; if (!parentalOn()) return bad; [live.cats, movies.cats, series.cats].forEach(function (l) { l.forEach(function (x) { if (U.isAdult(x.name) || x.censored) bad[x.id] = 1; }); }); return bad; }
   /* Personal hiding and ordering are applied after the provider result, so they work
      identically for M3U, Xtream and Stalker without ever modifying the source list. */
-  function prepareLiveList(list, preserveOrder) {
+  function prepareLiveList(list, preserveOrder, skipSmartDecorate) {
     var bad = adultCatIds(), prepared, m3uReady = App.provider && App.provider.type === 'm3u' && (!App.provider.active || App.provider.active === App.provider.playlist);
     list = (list || []).filter(function (x) { return !bad[x.catId] && !Store.isCategoryHidden(account.id, x.catId) && !Store.isChannelHidden(account.id, x.id); });
-    /* Text M3U is cleaned once before its six-hour cache is written. Avoid a
-       second full-list sort whenever All Channels is reopened; portal results
-       are decorated only when their current category is actually opened. */
-    if (window.SmartPlaylist && !m3uReady) { prepared = SmartPlaylist.prepare(list, { urls: false }); list = prepared.list; live.smartStats = prepared.stats; }
+    /* Text M3U is cleaned once before its six-hour cache is written. Paged Stalker
+       results must retain portal order and must not re-run a full-catalogue smart
+       decorator whenever one small page arrives. */
+    if (window.SmartPlaylist && !m3uReady && !skipSmartDecorate) { prepared = SmartPlaylist.prepare(list, { urls: false }); list = prepared.list; live.smartStats = prepared.stats; }
     return preserveOrder ? list : Store.sortChannels(account.id, list);
   }
   function withAll(cats, name) { return [{ id: null, name: name }].concat(cats.filter(function (c) { return !(parentalOn() && (U.isAdult(c.name) || c.censored)); })); }
@@ -585,7 +587,15 @@ var App = (function () {
       var first = visibleCats.length ? visibleCats[0] : { id: null, name: T('allChannels') };
       UI.renderCats(U.$('#live-cats'), displayCats, first.id, 'lcat', function (c) { selectLiveCat(c); });
       selectLiveCat(first); Nav.focus(U.$('#live-cats .cat-item.selected') || U.$('#live-cats .cat-item'));
-    }).catch(function (e) { UI.toast('Failed to load categories: ' + e.message, 3000, '⚠'); });
+    }).catch(function (e) {
+      /* Genres are auxiliary metadata. A portal can legitimately deny/omit them
+         while ITV is usable, so keep a reachable All Channels rail instead of
+         treating the account as empty. */
+      live.cats = []; U.$('#live-cats').classList.remove('sk-list');
+      UI.renderCats(U.$('#live-cats'), [{ id: null, name: T('allChannels') }], null, 'lcat', function (c) { selectLiveCat(c); });
+      selectLiveCat({ id: null, name: T('allChannels') }); Nav.focus(U.$('#live-cats .cat-item'));
+      UI.toast('Categories unavailable: ' + e.message, 3000, '⚠');
+    });
   }
   function loadLiveCategorySet(ids) {
     /* A Smart group can map to several provider folders. Limit the work to four
@@ -603,10 +613,56 @@ var App = (function () {
     if (kind === 'favorites') return Store.favorites(account.id).filter(function (x) { return x.type === 'live'; });
     return Store.history(account.id).filter(function (x) { return x.type === 'live'; });
   }
+  function setLiveLoadStatus(pager, loading) {
+    var el = U.$('#live-load-status'); if (!el) return;
+    if (!pager) { el.textContent = ''; return; }
+    var n = pager.items.length, total = pager.total || 0;
+    el.textContent = loading ? (total ? T('live.loadingOf', { n: n, total: total }) : T('live.loading', { n: n })) : (total ? T('live.loadedOf', { n: n, total: total }) : T('live.loaded', { n: n }));
+  }
+  function renderStalkerLivePage(request, pager, names, categoryName) {
+    if (request !== live.request || live.pager !== pager) return;
+    var list = prepareLiveList(pager.items, true, true);
+    list.forEach(function (x) { if (!x.catName) x.catName = names[String(x.catId)] || categoryName; });
+    live.list = list; U.$('#live-channels').classList.remove('sk-list');
+    if (!list.length) { U.$('#live-channels').innerHTML = '<div class="empty">' + U.esc(pager.loading ? T('live.loading', { n: 0 }) : T('smart.empty')) + '</div>'; return; }
+    live.vl = UI.renderChannels(U.$('#live-channels'), list, live.selected && live.selected.id, function (ch, index) {
+      previewChannel(ch);
+      /* Request the following page only as the viewer approaches the end. This
+         keeps memory/network proportional to actual browsing, not portal size. */
+      var gap = Math.max(8, Math.min(40, pager.pageSize || 20));
+      if (pager.hasMore && !pager.loading && index >= list.length - gap) loadNextStalkerLivePage(request, pager, names, categoryName);
+    }, function (ch, i) { playLive(ch, i); }, !!live.vl);
+  }
+  function loadNextStalkerLivePage(request, pager, names, categoryName) {
+    if (!pager || pager.loading || !pager.hasMore || request !== live.request || live.pager !== pager) return;
+    pager.loading = true; setLiveLoadStatus(pager, true);
+    provider.livePage(pager.categoryId, pager.nextPage).then(function (result) {
+      if (request !== live.request || live.pager !== pager) return;
+      var before = pager.items.length, known = pager.ids, items = result && result.items || [];
+      pager.loading = false; pager.pageSize = result && result.pageSize || pager.pageSize; pager.total = result && result.total || pager.total;
+      items.forEach(function (item) { if (item && !known[item.id]) { known[item.id] = 1; pager.items.push(item); } });
+      pager.nextPage = (result && result.page || pager.nextPage) + 1;
+      /* Never keep asking a non-compliant portal for a page that merely repeats
+         the same records; its metadata stays on screen and browsing remains safe. */
+      pager.hasMore = !!(result && result.hasMore) && pager.items.length > before;
+      setLiveLoadStatus(pager, false); renderStalkerLivePage(request, pager, names, categoryName);
+    }).catch(function (e) {
+      if (request !== live.request || live.pager !== pager) return;
+      pager.loading = false; pager.hasMore = false; setLiveLoadStatus(pager, false);
+      if (!pager.items.length) U.$('#live-channels').innerHTML = '<div class="empty">' + U.esc(e.message) + '</div>'; else UI.toast(e.message, 3000, '⚠');
+    });
+  }
   function selectLiveCat(c) {
     var request = ++live.request, categoryId = c.id, categoryName = c.name, smart = c && c.smart, p, names = {};
     live.cats.forEach(function (x) { names[String(x.id)] = x.name; });
-    live.catId = categoryId; U.$('#live-cat-title').textContent = categoryName; U.$('#live-channels')._vlist = null; live.vl = null; UI.skeletonList(U.$('#live-channels'), 9);
+    live.catId = categoryId; U.$('#live-cat-title').textContent = categoryName; U.$('#live-channels')._vlist = null; live.vl = null; live.pager = null; setLiveLoadStatus(null); UI.skeletonList(U.$('#live-channels'), 9);
+    /* Stalker exposes a real ITV page API. Start it immediately and let VList
+       request subsequent pages at the visible edge; smart groups retain their
+       separate (small, explicit) category behaviour. */
+    if (provider && provider.type === 'stalker' && provider.livePage && !smart) {
+      var pager = { categoryId: categoryId, items: [], ids: {}, nextPage: 1, pageSize: 0, total: 0, hasMore: true, loading: false };
+      live.pager = pager; setLiveLoadStatus(pager, true); loadNextStalkerLivePage(request, pager, names, categoryName); return;
+    }
     if (smart && (smart === 'favorites' || smart === 'recent' || smart === 'most')) p = Promise.resolve(savedSmartLive(smart));
     else if (smart && c.sourceIds && c.sourceIds.length) p = loadLiveCategorySet(c.sourceIds);
     else p = provider.liveStreams(smart ? null : categoryId);
@@ -629,9 +685,10 @@ var App = (function () {
     live.selected = ch; clearTimeout(live.previewTimer); clearTimeout(live.epgTimer);
     if (live.vl) live.vl.setSelected(ch.id);
     live.epgTimer = setTimeout(function () { epgFor(ch, 12).then(function (l) { if (live.selected === ch) UI.renderEpg(l); }); }, 600);
-    /* M3U browsing stays decoder-free: on many TVs an invisible preview competes with the
-       requested channel and is the main cause of a long first-buffer delay. */
-    if (Store.settings().preview && App.provider && App.provider.type !== 'm3u' && !needsUnlock(ch) && !Nav.byPointer()) live.previewTimer = setTimeout(function () { startPreview(ch); }, 1200);
+    /* Browsing M3U stays decoder-free. Stalker also resolves create_link only on
+       an explicit play: resolving every focused row consumes portal sessions and
+       can trigger a rate limit before the viewer chooses a channel. */
+    if (Store.settings().preview && App.provider && App.provider.type !== 'm3u' && App.provider.type !== 'stalker' && !needsUnlock(ch) && !Nav.byPointer()) live.previewTimer = setTimeout(function () { startPreview(ch); }, 1200);
   }
   function startPreview(ch) {
     stopPreview(); var generation = ++live.previewGeneration, box = U.$('#live-preview'); box.innerHTML = '';
@@ -990,13 +1047,27 @@ var App = (function () {
       if (section === 'favorites') renderFavorites();
     });
   }
-  var doSearch = U.debounce(function (q) {
-    var rows = U.$('#search-rows'); rows.innerHTML = ''; rows.style.transform = ''; q = q.trim().toLowerCase();
+  var searchGeneration = 0;
+  var doSearch = U.debounce(function (query, generation, completeIndex) {
+    var rows = U.$('#search-rows'); rows.innerHTML = ''; rows.style.transform = ''; var q = query.trim().toLowerCase();
     if (q.length < 2) { rows.innerHTML = '<div class="empty">Type at least 2 characters.</div>'; return; }
     UI.skeletonRows(rows, 1);
-    Promise.all([provider.liveStreams().catch(function () { return []; }), provider.vodStreams().catch(function () { return []; }), provider.seriesList().catch(function () { return []; })]).then(function (r) {
-      rows.innerHTML = ''; var bad = adultCatIds(); var f = function (x) { return !bad[x.catId] && (x.name || '').toLowerCase().indexOf(q) >= 0; };
-      var l = prepareLiveList(r[0]).filter(f).slice(0, 40), m = r[1].filter(f).slice(0, 40), s = r[2].filter(f).slice(0, 40);
+    /* A Stalker page cache is searched locally first; an explicit search is the
+       only path allowed to complete a not-yet-loaded All Channels index. It is
+       serialized by the provider and reports progress rather than issuing a
+       full get_all_channels request. */
+    var stalkerSearch = provider && provider.type === 'stalker' && provider.searchLive;
+    var livePromise = stalkerSearch ? provider.searchLive(query, function (loaded, total) {
+      if (generation !== searchGeneration || section !== 'search') return;
+      rows.innerHTML = '<div class="empty">' + U.esc(total ? T('live.loadingOf', { n: loaded, total: total }) : T('live.loading', { n: loaded })) + '</div>';
+    }, !!completeIndex).catch(function () { return []; }) : provider.liveStreams().catch(function () { return []; });
+    /* Do not turn each key stroke into VOD/series catalogue work on Stalker.
+       Enter submits a complete portal search; typing is instant local-index search. */
+    var sources = stalkerSearch && !completeIndex ? Promise.all([livePromise, Promise.resolve([]), Promise.resolve([])]) : Promise.all([livePromise, provider.vodStreams().catch(function () { return []; }), provider.seriesList().catch(function () { return []; })]);
+    sources.then(function (r) {
+      if (generation !== searchGeneration || section !== 'search') return;
+      rows.innerHTML = ''; var bad = adultCatIds(), f = function (x) { return !bad[x.catId] && (x.name || '').toLowerCase().indexOf(q) >= 0; };
+      var l = stalkerSearch ? r[0].filter(function (x) { return !bad[x.catId]; }).slice(0, 40) : prepareLiveList(r[0]).filter(f).slice(0, 40), m = r[1].filter(f).slice(0, 40), s = r[2].filter(f).slice(0, 40);
       if (l.length) rows.appendChild(UI.row(T('search.channels'), l, { max: 20 })); if (m.length) rows.appendChild(UI.row(T('search.movies'), m, { max: 20 })); if (s.length) rows.appendChild(UI.row(T('search.series'), s, { max: 20 }));
       if (!l.length && !m.length && !s.length) rows.innerHTML = '<div class="empty">' + U.esc(T('search.none', { q: q })) + '</div>';
     });
@@ -1306,8 +1377,8 @@ var App = (function () {
     });
     U.$('#add-form').addEventListener('submit', saveAccount);
     U.$('#fav-list-form').addEventListener('submit', saveFavoriteList);
-    U.$('#search-input').addEventListener('input', function () { doSearch(this.value); });
-    U.$('#search-input').addEventListener('keydown', function (ev) { if (ev.keyCode === 13) { this.blur(); doSearch(this.value); ev.preventDefault(); } });
+    U.$('#search-input').addEventListener('input', function () { searchGeneration++; doSearch(this.value, searchGeneration, false); });
+    U.$('#search-input').addEventListener('keydown', function (ev) { if (ev.keyCode === 13) { this.blur(); searchGeneration++; doSearch(this.value, searchGeneration, true); ev.preventDefault(); } });
     U.$('#tmdb-key').addEventListener('change', function () { Store.setSetting('tmdbKey', this.value.trim()); UI.toast(this.value.trim() ? 'TMDB enabled' : 'TMDB disabled', 2000, '✓'); });
     U.$('#tmdb-key').addEventListener('keydown', function (ev) { if (ev.keyCode === 13) { this.blur(); } });
     U.$('#acc-list').addEventListener('contextmenu', function (ev) { ev.preventDefault(); var t = ev.target; while (t && !(t.classList && t.classList.contains('profile'))) t = t.parentNode; if (t && t.getAttribute('data-id')) accountMenu(t.getAttribute('data-id')); });

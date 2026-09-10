@@ -33,7 +33,18 @@ var U = (function () {
   }
   function lunaFetch(url, opt) {
     return luna('fetch', { url: url, method: opt.method || 'GET', headers: opt.headers || {}, body: opt.body || null, timeout: opt.timeout || 20000, insecureTls: opt.insecureTls === true }).then(function (r) {
-      if (r.status >= 200 && r.status < 300) { if (opt.json) { try { return JSON.parse(r.body); } catch (e) { throw new Error('Invalid JSON from server'); } } return r.body; }
+      if (r.status >= 200 && r.status < 300) {
+        if (opt.json) {
+          try {
+            var data = JSON.parse(r.body);
+            /* Stalker uses session cookies in addition to its bearer token. Keep
+               response metadata available only to callers that explicitly need it
+               so existing providers continue to receive their plain JSON value. */
+            return opt.responseMeta ? { data: data, status: r.status, headers: r.headers || {} } : data;
+          } catch (e) { throw new Error('Invalid JSON from server'); }
+        }
+        return opt.responseMeta ? { data: r.body, status: r.status, headers: r.headers || {} } : r.body;
+      }
       throw new Error('HTTP ' + r.status);
     });
   }
@@ -60,8 +71,10 @@ var U = (function () {
       x.onreadystatechange = function () {
         if (x.readyState !== 4 || done) return; done = true;
         if (x.status >= 200 && x.status < 300 || (x.status === 0 && x.responseText)) {
-          if (opt.json) { try { resolve(JSON.parse(x.responseText)); } catch (e) { reject(new Error('Invalid JSON from server')); } }
-          else resolve(x.responseText);
+          if (opt.json) {
+            try { var parsed = JSON.parse(x.responseText); resolve(opt.responseMeta ? { data: parsed, status: x.status, headers: {} } : parsed); }
+            catch (e) { reject(new Error('Invalid JSON from server')); }
+          } else resolve(opt.responseMeta ? { data: x.responseText, status: x.status, headers: {} } : x.responseText);
         } else reject(new Error('HTTP ' + x.status + (x.status === 0 ? ' (network/CORS)' : '')));
       };
       x.ontimeout = function () { if (!done) { done = true; reject(new Error('Timeout')); } };
@@ -77,8 +90,10 @@ var U = (function () {
       var id = ++hostSeq;
       hostCbs[id] = function (json) {
         var r; try { r = JSON.parse(json); } catch (e) { reject(new Error('Network error')); return; }
-        if (r.status >= 200 && r.status < 300) { if (opt.json) { try { resolve(JSON.parse(r.body)); } catch (e) { reject(new Error('Invalid JSON from server')); } } else resolve(r.body); }
-        else reject(new Error(r.status ? 'HTTP ' + r.status : (r.error && /timed? ?out/i.test(r.error) ? 'Timeout' : 'Network error')));
+        if (r.status >= 200 && r.status < 300) {
+          if (opt.json) { try { var data = JSON.parse(r.body); resolve(opt.responseMeta ? { data: data, status: r.status, headers: r.headers || {} } : data); } catch (e) { reject(new Error('Invalid JSON from server')); } }
+          else resolve(opt.responseMeta ? { data: r.body, status: r.status, headers: r.headers || {} } : r.body);
+        } else reject(new Error(r.status ? 'HTTP ' + r.status : (r.error && /timed? ?out/i.test(r.error) ? 'Timeout' : 'Network error')));
       };
       try { RGBTvHost.fetchAsync(id, url, opt.method || 'GET', JSON.stringify(opt.headers || {}), opt.body || '', opt.timeout || 20000); }
       catch (e) { delete hostCbs[id]; reject(new Error('Network error')); }

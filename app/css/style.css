@@ -258,6 +258,7 @@ img{display:block}
 /* ===== BROWSE ===== */
 .cat-panel{width:380px;flex:0 0 380px;background:var(--panel);border-radius:20px;padding:20px 0;display:flex;flex-direction:column;overflow:hidden}
 .panel-title{font-size:24px;font-weight:700;padding:0 24px 16px;color:var(--muted);text-transform:uppercase;letter-spacing:2px}
+.live-load-status{display:block;min-height:18px;margin-top:5px;color:var(--accent);font-size:14px;font-weight:700;letter-spacing:.5px;text-transform:none;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cat-list{overflow:hidden;flex:1;position:relative}
 .vl-inner{transition:transform .18s var(--ease);will-change:transform}
 .cat-item{padding:0 24px;height:60px;line-height:60px;font-size:24px;border-left:4px solid transparent;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;justify-content:space-between;}
