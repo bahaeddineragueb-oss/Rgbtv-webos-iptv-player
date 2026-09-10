@@ -46,7 +46,7 @@ function parsePlaylist() {
   assert.strictEqual(stale[0].streamHeaders['User-Agent'], 'Cached Player');
   assert.strictEqual(stale[1].seasons[1][0].url, 'https://cache.example/episode.m3u8');
   assert.strictEqual(stale[1].seasons[1][0].streamHeaders.Referer, 'https://cache.example/');
-  return list;
+  return { list: list, provider: provider };
 }
 
 function classList() {
@@ -114,13 +114,22 @@ function playerHarness(canPlayType) {
     UI: { toast: function () {}, toPlayable: function (item) { return item; } },
     Nav: { current: function () { return null; }, focus: function () {}, blur: function () {}, focusScope: function () {}, move: function () {}, KEYS: {} }
   };
+  vm.runInNewContext(fs.readFileSync(ROOT + '/app/js/playback-manager.js', 'utf8'), context, { filename: 'playback-manager.js' });
   vm.runInNewContext(fs.readFileSync(ROOT + '/app/js/player.js', 'utf8'), context, { filename: 'player.js' });
   context.Player.init();
   return { player: context.Player, video: video, emit: emit, hls: hlsInstances };
 }
 
+async function testM3UStreamContract(parsed) {
+  var stream = await parsed.provider.resolveStream(parsed.list[0]);
+  assert.strictEqual(stream.provider, 'm3u');
+  assert.strictEqual(stream.channelId, parsed.list[0].id);
+  assert.strictEqual(stream.url, parsed.list[0].url, 'normalized M3U contract retains the exact original stream URL');
+  assert.deepStrictEqual(Object.assign({}, stream.headers), Object.assign({}, parsed.list[0].streamHeaders));
+}
+
 async function testPlayerFallback(parsed) {
-  var stream = parsed[0];
+  var stream = parsed.list[0];
   var native = playerHarness('probably');
   await native.player.play({ type: 'live', id: stream.id, name: stream.name, url: stream.url, streamHeaders: stream.streamHeaders });
   assert.strictEqual(native.video.src, stream.url, 'auto mode must keep the direct M3U channel on native webOS first');
@@ -145,10 +154,17 @@ async function testPlayerFallback(parsed) {
   var noNativeHls = playerHarness('');
   await noNativeHls.player.play({ type: 'live', id: 'forced', name: 'No native HLS', url: route });
   assert.strictEqual(noNativeHls.hls.length, 1, 'devices without native HLS must choose hls.js for extensionless HLS routes');
+
+  var transport = playerHarness('');
+  var tsUrl = 'https://edge.example/live/transport.ts?token=unchanged';
+  await transport.player.play({ type: 'live', id: 'ts', name: 'MPEG TS', url: tsUrl });
+  assert.strictEqual(transport.video.src, tsUrl, 'MPEG-TS stays on the webOS native media path when selected');
+  assert.strictEqual(transport.hls.length, 0, 'MPEG-TS is never forced through an HLS adapter');
 }
 
 (async function () {
   var parsed = parsePlaylist();
+  await testM3UStreamContract(parsed);
   await testPlayerFallback(parsed);
   console.log('M3U playback regression checks passed');
 })().catch(function (error) { console.error(error.stack || error); process.exitCode = 1; });

@@ -150,6 +150,17 @@ async function testQueueDedupe429AndSingleRefresh() {
   assert.deepStrictEqual(phases, ['get_ordered_list', 'handshake', 'get_ordered_list'], 'expired token gets exactly one handshake and exactly one retry');
 }
 
+async function testStalkerStreamContract() {
+  var h = freshProvider(function (url) {
+    assert.strictEqual(actionOf(url), 'create_link');
+    return Promise.resolve(meta({ js: { cmd: 'ffmpeg https://stream.example/live.m3u8?token=private' } }));
+  });
+  var resolved = await h.provider.resolveStream({ type: 'live', id: 'stalker-live', name: 'Stalker Live', cmd: 'ffmpeg http://old.example/live' });
+  assert.strictEqual(resolved.provider, 'stalker');
+  assert.strictEqual(resolved.channelId, 'stalker-live');
+  assert.strictEqual(resolved.url, 'https://stream.example/live.m3u8?token=private');
+}
+
 async function testLoadedIndexSearch() {
   var h = freshProvider();
   h.provider._rememberAllLive([
@@ -169,6 +180,7 @@ async function testLoadedIndexSearch() {
   await testOnePageForLargeCatalogues();
   await testPaginationAndExplicitLegacyFallback();
   await testQueueDedupe429AndSingleRefresh();
+  await testStalkerStreamContract();
   await testLoadedIndexSearch();
   console.log('Stalker progressive catalogue regression checks passed');
 })().catch(function (error) { console.error(error.stack || error); process.exitCode = 1; });

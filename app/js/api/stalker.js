@@ -23,6 +23,7 @@ function stalkerRows(payload) {
   return row || [];
 }
 function stalkerNumber(value) { value = Number(value); return isFinite(value) && value >= 0 ? value : 0; }
+function stalkerCancelledError() { var e = new Error('Playback request cancelled'); e.name = 'AbortError'; e.code = 'USER_CANCELLED'; return e; }
 function stalkerPageInfo(payload, rows, page) {
   var boxes = [{ value: payload, depth: 0 }], seen = [], total = 0, size = 0, returnedPage = Number(page) || 1, entry, box, keys, i;
   while (boxes.length) {
@@ -87,10 +88,10 @@ StalkerProvider.prototype = {
       if (/^[A-Za-z0-9_.-]{1,80}$/.test(key) && value.length <= 2048 && !/[\r\n]/.test(value)) this.cookies[key] = value;
     }
   },
-  _enqueue: function (work, priority) {
+  _enqueue: function (work, priority, signal) {
     var self = this;
     return new Promise(function (resolve, reject) {
-      var job = { work: work, resolve: resolve, reject: reject };
+      var job = { work: work, resolve: resolve, reject: reject, signal: signal };
       if (priority === 'playback') self._queue.unshift(job); else self._queue.push(job);
       self._drainQueue();
     });
@@ -98,7 +99,11 @@ StalkerProvider.prototype = {
   _drainQueue: function () {
     var self = this;
     if (this._activeRequests || !this._queue.length) return;
-    var job = this._queue.shift(); this._activeRequests++;
+    var job = this._queue.shift();
+    /* A channel zap can cancel a create_link request before its turn. Do not send
+       abandoned playback work to a rate-limited portal merely to discard it later. */
+    if (job.signal && job.signal.aborted) { job.reject(stalkerCancelledError()); this._drainQueue(); return; }
+    this._activeRequests++;
     Promise.resolve().then(job.work).then(function (value) {
       self._activeRequests--; job.resolve(value); self._drainQueue();
     }, function (err) {
@@ -127,22 +132,28 @@ StalkerProvider.prototype = {
     if (!q.mac) q.mac = this.mac;
     return this.endpoint + '?' + U.qs(q);
   },
-  _call: function (params, noRetry, priority) {
-    var self = this, key = this.endpoint + '?' + U.qs(params || {});
+  _call: function (params, noRetry, priority, requestOpt) {
+    requestOpt = requestOpt || {};
+    var self = this, key = this.endpoint + '?' + U.qs(params || {}), signal = requestOpt.signal;
     /* Home, sidebar, guide and search can ask for the same endpoint together.
-       One queued request is shared, which also prevents accidental portal bursts. */
-    if (this._pending[key]) return this._pending[key];
-    var pending = this._enqueue(function () { return self._callNow(params, noRetry); }, priority);
-    this._pending[key] = pending;
-    pending.then(function () { delete self._pending[key]; }, function () { delete self._pending[key]; });
+       Playback requests carry a session signal and are intentionally not shared:
+       an aborted zap must not cancel or inherit another session's create_link. */
+    if (!signal && this._pending[key]) return this._pending[key];
+    var pending = this._enqueue(function () { return self._callNow(params, noRetry, requestOpt); }, priority, signal);
+    if (!signal) {
+      this._pending[key] = pending;
+      pending.then(function () { delete self._pending[key]; }, function () { delete self._pending[key]; });
+    }
     return pending;
   },
-  _callNow: function (params, noRetry) {
+  _callNow: function (params, noRetry, requestOpt) {
     var self = this;
+    requestOpt = requestOpt || {};
+    if (requestOpt.signal && requestOpt.signal.aborted) return Promise.reject(stalkerCancelledError());
     /* Self-signed TLS remains opt-in per trusted portal; secure verification is the default.
        A catalogue page is allowed a longer request budget, but requests themselves
        are serialized in _enqueue to protect rate-limited MAG portals. */
-    var opt = { insecureTls: this.acc.insecureTls === true, timeout: 45000, responseMeta: true };
+    var opt = { insecureTls: this.acc.insecureTls === true, timeout: 45000, responseMeta: true, signal: requestOpt.signal };
     if (params && (params.action === 'get_ordered_list' || params.action === 'get_all_channels' || (params.action === 'get_categories' && params.type !== 'itv'))) opt.timeout = 120000;
     return U.getJSON(this._url(params), this._headers(), opt).then(function (response) {
       /* responseMeta is available through Luna. Keeping the fallback makes unit
@@ -160,11 +171,15 @@ StalkerProvider.prototype = {
       var message = String(e && e.message || e);
       /* A 429 is already retried calmly by the service. Do not launch another
          handshake / endpoint sweep, because that would immediately re-trigger the limit. */
-      if (/HTTP 429|rate limited/i.test(message)) throw new Error(I18n.t('provider.http429'));
+      if (/cancelled|canceled|AbortError/i.test(message) || e && e.code === 'USER_CANCELLED') throw stalkerCancelledError();
+      if (/HTTP 429|rate limited/i.test(message)) { var rate = new Error(I18n.t('provider.http429')); rate.status = Number(e && e.status || 429); rate.retryAfter = Number(e && e.retryAfter || 0); throw rate; }
       if (!noRetry && (/AUTH|HTTP 401|HTTP 403|HTTP 406|HTTP 444/.test(message))) {
         /* Exactly one renewed token attempt inside this queued operation: no
            recursive queue entry and no infinite refresh loop. */
-        return self._handshake().then(function () { return self._callNow(params, true); });
+        return self._handshake().then(function () {
+          if (requestOpt.signal && requestOpt.signal.aborted) throw stalkerCancelledError();
+          return self._callNow(params, true, requestOpt);
+        });
       }
       throw e;
     });
@@ -427,15 +442,26 @@ StalkerProvider.prototype = {
       return stalkerRows(r).map(function (e) { return { title: e.name || e.title || '', desc: e.descr || e.description || '', start: Number(e.start_timestamp || e.start), end: Number(e.stop_timestamp || e.end) }; });
     }).catch(function () { return []; });
   },
-  streamUrl: function (item) {
+  streamUrl: function (item, requestOpt) {
     var self = this, cmd = item.cmd || '';
     var params;
     if (item.type === 'live') params = { type: 'itv', action: 'create_link', cmd: cmd, series: '', forced_storage: '', disable_ad: 0, download: 0, force_ch_link_check: 0 };
     else if (item.type === 'episode') params = { type: 'vod', action: 'create_link', cmd: cmd, series: item.seriesNum || item.episode || '', forced_storage: '', disable_ad: 0, download: 0 };
     else params = { type: 'vod', action: 'create_link', cmd: cmd, series: '', forced_storage: '', disable_ad: 0, download: 0 };
-    return this._call(params, false, 'playback').then(function (r) {
+    return this._call(params, false, 'playback', requestOpt).then(function (r) {
       var c = (r && (r.cmd || r.data && r.data.cmd)) || cmd; return self._cleanCmd(c);
-    }).catch(function () { return self._cleanCmd(cmd); });
+    }).catch(function (e) {
+      var msg = String(e && e.message || e);
+      if (e && (e.code === 'USER_CANCELLED' || e.name === 'AbortError')) throw e;
+      /* Do not disguise access/rate/transport failures as a playable stale cmd:
+         the central manager must classify them and apply its bounded policy. */
+      if (e && (e.status === 401 || e.status === 403 || e.status === 404 || e.status === 429) || /HTTP\s*(401|403|404|429)|timeout|network|rate limit/i.test(msg)) throw e;
+      return self._cleanCmd(cmd);
+    });
+  },
+  resolveStream: function (item, requestOpt) {
+    var self = this;
+    return this.streamUrl(item, requestOpt).then(function (url) { return { url: url, provider: self.type, channelId: item && item.id, headers: item && item.streamHeaders, metadata: { contentType: item && item.type, title: item && item.name, live: !!(item && item.type === 'live') } }; });
   },
   _cleanCmd: function (c) {
     c = String(c || '').trim();

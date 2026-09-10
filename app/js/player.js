@@ -1,67 +1,171 @@
-/* RGBTv — Player: native <video> (webOS handles HLS/TS/MP4/MKV natively) with hls.js fallback */
+/* RGBTv — HTML5/webOS player adapter. Playback lifecycle, source resolution,
+ * session invalidation and recovery belong to PlaybackManager (not the UI). */
 var Player = (function () {
-  var video, hls = null, osdTimer = null, current = null, playlist = [], index = -1, ratioMode = 0, RATIOS = ['Fit', 'Fill', 'Stretch'];
+  var video, hls = null, manager = null, osdTimer = null, current = null, playlist = [], index = -1, ratioMode = 0, RATIOS = ['Fit', 'Fill', 'Stretch'];
   var onEnded = null, canPlay = null, posKey = null, posTimer = null, seekAccum = 0, seekTimer = null, numBuf = '', numTimer = null, zapOpen = false, trackMenuOpen = false, trackMenuKind = '', trackReturnEl = null;
-  var els = {};
-  /* auto-reconnect state */
-  var rc = { attempts: 0, timer: null, stallTimer: null, lastTime: -1, lastProgress: 0, lastOpt: null, active: false };
+  var els = {}, lastTime = -1, lastBufferEnd = -1, bufferTimer = null;
+  var ICON_PLAY = '<svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M7 4v16l14-8z"/></svg>', ICON_PAUSE = '<svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M6 5h4v14h-4z"/></svg>';
   function T(k, v) { return I18n.t(k, v); }
-  var RC_MAX = 8, RC_DELAYS = [1000, 2000, 3000, 5000, 8000, 10000, 15000, 20000], STALL_LIVE = 12000, STALL_VOD = 30000, START_VOD = 60000;
-  var ICON_PLAY = '<svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M7 4v16l14-8z"/></svg>', ICON_PAUSE = '<svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';
-  /* A large number of panels serve HLS from get.php, a token route, or an
-     extensionless /playlist endpoint. The native webOS player remains first, but
-     these routes must still be eligible for the one hls.js fallback on a native
-     failure. URL|header annotations are intentionally ignored for detection. */
-  function isHlsStream(url) {
-    url = String(url || '').replace(/\|.*$/, '');
-    return /\.m3u8(?:[?#]|$)|[?&](?:type|output|format|extension)=m3u8(?:[&#]|$)|\/(?:hls|playlist)(?:[/?#]|$)/i.test(url);
+  function redactStreamUrl(url) {
+    return String(url || '').replace(/\/\/[^@/]+@/, '//').replace(/\/(live|movie|series)\/[^/?#]+\/[^/?#]+(?=\/)/i, '/$1/[redacted]/[redacted]').replace(/([?&](?:token|auth|authorization|username|user|password|pass|key|signature|sig)=[^&#]*)/gi, function (match) { return match.replace(/=[^&]*/, '=[redacted]'); }).replace(/^https?:\/\//, '');
+  }
+
+  function loading(on, txt) { els['player-loading'].classList.toggle('show', !!on); if (txt) els['player-loading-text'].textContent = txt; }
+  function error(msg) {
+    els['player-error'].classList.toggle('show', !!msg);
+    if (msg) (els['player-error-text'] || els['player-error']).textContent = msg;
+    if (els['player-retry']) els['player-retry'].style.display = msg ? '' : 'none';
+  }
+  function playbackUi(state, detail) {
+    detail = detail || {};
+    if (state === PlaybackManager.STATES.LOADING) {
+      error(null); loading(true, detail.fallback ? T('p.engineFallback') : detail.resolving ? T('connecting') : detail.elapsed ? T('opening', { s: detail.elapsed }) : T('loading'));
+    } else if (state === PlaybackManager.STATES.READY || state === PlaybackManager.STATES.PLAYING) {
+      loading(false); error(null); if (state === PlaybackManager.STATES.PLAYING) els['osd-play'].innerHTML = ICON_PAUSE;
+    } else if (state === PlaybackManager.STATES.BUFFERING) {
+      loading(true, T('buffering'));
+    } else if (state === PlaybackManager.STATES.RECOVERING) {
+      error(null); loading(true, T('reconnecting', { n: detail.attempt, max: detail.max }));
+      if (detail.attempt > 1) UI.toast(T('p.interrupted', { n: detail.attempt, max: detail.max }), 2500, '↻');
+    } else if (state === PlaybackManager.STATES.ERROR) {
+      loading(false); error((detail.error && detail.error.message) || T('p.error'));
+    } else if (state === PlaybackManager.STATES.IDLE) {
+      loading(false);
+    }
+  }
+  function destroyHls() { if (hls) { try { hls.destroy(); } catch (e) { } hls = null; } }
+  function clearSource() {
+    clearTimeout(bufferTimer); bufferTimer = null; destroyHls();
+    try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) { }
+  }
+  function hlsHeaderSetup(headers) {
+    var safe = {}, key, value, has = false;
+    for (key in headers || {}) if (Object.prototype.hasOwnProperty.call(headers, key)) {
+      value = String(headers[key] || '');
+      if (value && value.length <= 2048 && !/[\r\n]/.test(value)) { safe[key] = value; has = true; }
+    }
+    if (!has) return null;
+    return function (xhr) {
+      for (key in safe) if (Object.prototype.hasOwnProperty.call(safe, key)) {
+        /* Some headers are forbidden by browser XHR. Try permitted IPTV headers
+           without blocking the direct source assignment on webOS. */
+        try { xhr.setRequestHeader(key, safe[key]); } catch (e) { }
+      }
+    };
+  }
+  function startHls(stream, session) {
+    destroyHls();
+    var cfg = {
+      /* Recovery is centralized in PlaybackRecoveryManager. hls.js may report
+         a fatal error, but it never owns a second reconnect loop. */
+      maxBufferLength: 18, maxMaxBufferLength: 30, liveSyncDurationCount: 3, enableWorker: false,
+      fragLoadingTimeOut: 20000, manifestLoadingTimeOut: 10000,
+      manifestLoadingMaxRetry: 0, levelLoadingMaxRetry: 0, fragLoadingMaxRetry: 0
+    }, setup = hlsHeaderSetup(stream.headers), instance;
+    if (setup) cfg.xhrSetup = setup;
+    instance = new Hls(cfg); hls = instance; instance._rgbSession = session;
+    instance.loadSource(stream.url); instance.attachMedia(video);
+    instance.on(Hls.Events.MANIFEST_PARSED, function () {
+      if (hls !== instance || !manager.isCurrent(session)) return;
+      video.play().catch(function (e) { if (hls === instance && manager.isCurrent(session)) manager.mediaError({ message: e && e.message || 'Unable to start HLS playback' }); });
+      setTimeout(function () { if (hls === instance && manager.isCurrent(session)) updateQualityBadge(); }, 1000);
+    });
+    instance.on(Hls.Events.ERROR, function (ev, data) {
+      if (!data || !data.fatal || hls !== instance || !manager.isCurrent(session)) return;
+      manager.mediaError({ hls: true, type: data.type, details: data.details, response: data.response, message: 'HLS ' + (data.details || data.type || 'error') });
+    });
+  }
+  function canUseHls() { return !!(window.Hls && Hls.isSupported && Hls.isSupported()); }
+  function canPlayDash() { try { return !!(video && video.canPlayType && video.canPlayType('application/dash+xml')); } catch (e) { return false; } }
+  function mediaSnapshot() {
+    var end = 0;
+    try { end = video.buffered && video.buffered.length ? video.buffered.end(video.buffered.length - 1) : 0; } catch (e) { }
+    return { paused: !!video.paused, ended: !!video.ended, readyState: Number(video.readyState) || 0, currentTime: Number(video.currentTime) || 0, bufferedEnd: end };
+  }
+  function mediaBelongsToCurrentSession() {
+    if (!manager || !manager.current || !manager.stream) return false;
+    /* hls.js owns a MediaSource URL, while direct native playback exposes the
+       assigned source. Ignore a late native event if the element still reports
+       a previous channel URL after a rapid zap. */
+    if (hls) return hls._rgbSession === manager.currentSession();
+    var expected = String(manager.stream.url || ''), actual = String(video.currentSrc || video.src || '');
+    return !actual || !expected || actual === expected;
+  }
+  function recoverHlsMedia(session) { if (hls && hls._rgbSession === session) { try { hls.recoverMediaError(); } catch (e) { manager.mediaError({ hls: true, type: 'mediaError', message: e.message || 'Media recovery failed' }); } } }
+  function loadSource(stream, session, forcedEngine) {
+    if (!manager.isCurrent(session)) return;
+    var setting = Store.settings().engine, nativeHls = false, useHls;
+    try { nativeHls = !!video.canPlayType('application/vnd.apple.mpegurl'); } catch (e) { }
+    useHls = stream.type === 'hls' && canUseHls() && (forcedEngine === 'hls' || setting === 'hlsjs' || (setting === 'auto' && !nativeHls));
+    current.url = stream.url; current.streamHeaders = stream.headers || {};
+    if (useHls) { startHls(stream, session); return; }
+    destroyHls();
+    /* This is the webOS adapter's direct handoff: preserve the exact provider URL
+       and let the hardware-backed HTML5 media pipeline open it immediately. */
+    try {
+      video.src = stream.url; video.load();
+      video.play().catch(function (e) { if (manager.isCurrent(session)) manager.mediaError({ message: e && e.message || 'Unable to start native playback' }); });
+    } catch (e2) { manager.mediaError({ message: e2.message || 'Unable to assign media source' }); }
+  }
+  function sourceResolved(stream, session, context) {
+    if (!manager.isCurrent(session) || !current) return;
+    current.url = stream.url; current.streamHeaders = stream.headers || {};
+    if (context.resumeAt) {
+      var once = function () { video.removeEventListener('loadedmetadata', once); if (manager.isCurrent(session)) { try { video.currentTime = context.resumeAt; } catch (e) { } } };
+      video.addEventListener('loadedmetadata', once);
+    } else if (context.initial && manager.options && manager.options.resume && posKey) {
+      var saved = Store.getPos(App.account.id, posKey);
+      if (saved && saved.pos > 10) {
+        var resume = function () { video.removeEventListener('loadedmetadata', resume); if (manager.isCurrent(session)) { try { video.currentTime = saved.pos; } catch (e) { } } };
+        video.addEventListener('loadedmetadata', resume);
+      }
+    }
+    if (context.initial) {
+      if (posKey) { clearInterval(posTimer); posTimer = setInterval(savePos, 5000); }
+      if (current.type !== 'catchup') Store.pushHistory(App.account.id, { type: current.type, id: current.id, name: current.name, logo: current.logo, poster: current.poster, seriesId: current.seriesId, ext: current.ext, cmd: current.cmd, url: current.type === 'm3u' ? stream.url : undefined, catId: current.catId, season: current.season, episode: current.episode });
+    }
   }
 
   function init() {
     video = U.$('#video'); try { video.preload = 'auto'; } catch (e) { }
-    ['osd', 'osd-title', 'osd-sub', 'osd-logo', 'osd-clock', 'osd-played', 'osd-buffer', 'osd-cur', 'osd-dur', 'osd-play', 'player-loading', 'player-loading-text', 'player-error', 'zap-list', 'channel-number', 'track-menu', 'osd-fav', 'osd-ratio', 'osd-list-btn', 'osd-audio', 'osd-subs', 'osd-quality', 'osd-picture', 'picture-fx', 'stats-box', 'zap-preview', 'osd-stats', 'osd-epg', 'autonext', 'an-bar', 'an-count', 'an-title'].forEach(function (id) { els[id] = document.getElementById(id); });
-    /* Buffering indicator: webOS fires 'waiting'/'stalled' very often on live TS/HLS even while the picture keeps
-       moving, and sometimes never fires 'playing' afterwards -> spinner stuck in the middle. So: show it only if the
-       stall lasts > 800ms, and hide it as soon as currentTime advances again (real progress), not only on 'playing'. */
-    var bufTimer = null;
-    function bufferingSoon() { if (bufTimer || !current) return; bufTimer = setTimeout(function () { bufTimer = null; if (current && !video.paused && Date.now() - rc.lastProgress > 700) loading(true, T('buffering')); }, 800); }
-    function bufferingDone() { clearTimeout(bufTimer); bufTimer = null; if (els['player-loading'].classList.contains('show') && /Buffering|Loading|Opening/.test(els['player-loading-text'].textContent)) loading(false); }
-    video.addEventListener('waiting', bufferingSoon);
-    video.addEventListener('stalled', bufferingSoon);
-    video.addEventListener('playing', function () { bufferingDone(); error(null); els['osd-play'].innerHTML = ICON_PAUSE; });
-    video.addEventListener('canplay', bufferingDone);
-    video.addEventListener('timeupdate', function () { if (video.currentTime !== rc.lastTime && video.currentTime > 0) bufferingDone(); });
-    video.addEventListener('loadedmetadata', updateQualityBadge);
-    video.addEventListener('resize', updateQualityBadge);
-    video.addEventListener('pause', function () { els['osd-play'].innerHTML = ICON_PLAY; });
-    video.addEventListener('timeupdate', updateProgress);
-    video.addEventListener('progress', updateProgress);
-    video.addEventListener('ended', function () { if (onEnded) onEnded(); });
-    video.addEventListener('error', function () {
-      var code = video.error && video.error.code;
-      if (hls) return; // hls.js reports its own errors
-      /* Do not reconnect to the same native decoder when it has already rejected
-         an HLS route. tryHlsFallback keeps the original, direct stream URL. */
-      if (tryHlsFallback()) return;
-      // code 4 = SRC_NOT_SUPPORTED (often a dead link / 404) ; 2 = NETWORK ; 3 = DECODE
-      scheduleReconnect(T('p.error') + (code ? ' (code ' + code + ')' : ''));
+    ['osd', 'osd-title', 'osd-sub', 'osd-logo', 'osd-clock', 'osd-played', 'osd-buffer', 'osd-cur', 'osd-dur', 'osd-play', 'player-loading', 'player-loading-text', 'player-error', 'player-error-text', 'player-retry', 'zap-list', 'channel-number', 'track-menu', 'osd-fav', 'osd-ratio', 'osd-list-btn', 'osd-audio', 'osd-subs', 'osd-quality', 'osd-picture', 'picture-fx', 'stats-box', 'zap-preview', 'osd-stats', 'osd-epg', 'autonext', 'an-bar', 'an-count', 'an-title'].forEach(function (id) { els[id] = document.getElementById(id); });
+    manager = new PlaybackManager({
+      resolve: function (item, opt) { return StreamResolver.resolve(App.provider, item, opt); },
+      adapter: { clear: clearSource, load: loadSource, snapshot: mediaSnapshot, canUseHls: canUseHls, canPlayDash: canPlayDash, recoverMedia: recoverHlsMedia },
+      onState: playbackUi,
+      onSource: sourceResolved,
+      onError: function () { /* state renderer supplies the bounded retry result */ }
     });
-    video.addEventListener('playing', function () { rc.attempts = 0; rc.lastProgress = Date.now(); });
-    video.addEventListener('timeupdate', function () { if (video.currentTime !== rc.lastTime) { rc.lastTime = video.currentTime; rc.lastProgress = Date.now(); } });
-    // bytes still arriving (buffer growing) also counts as progress — big MKV/MP4 files can take a while before first frame
-    video.addEventListener('progress', function () { try { var b = video.buffered, end = b.length ? b.end(b.length - 1) : 0; if (end !== rc.lastBuf) { rc.lastBuf = end; rc.lastProgress = Date.now(); } } catch (e) { } });
-    video.addEventListener('loadedmetadata', function () { rc.lastProgress = Date.now(); rc.started = true; });
-    // stall watchdog: no progress for N seconds while supposed to be playing -> reconnect
-    setInterval(function () {
-      if (!current || !rc.active || video.ended || rc.timer || rc.userPaused) return;
-      if (!rc.started && current.type !== 'live' && els['player-loading'].classList.contains('show')) { var secs = Math.round((Date.now() - rc.lastStart) / 1000); if (secs >= 6) loading(true, T('opening', { s: secs })); }
-      var limit = current.type === 'live' ? STALL_LIVE : (rc.started ? STALL_VOD : START_VOD);
-      // paused by the user is fine; paused because nothing ever loaded is a stall
-      if (video.paused && video.readyState >= 3) return;
-      if (Date.now() - rc.lastProgress > limit && video.readyState < 3) scheduleReconnect(T('p.stalled'));
-    }, 3000);
-    // network back -> immediate retry
-    window.addEventListener('online', function () { if (rc.timer && current) { clearTimeout(rc.timer); rc.timer = null; doReconnect(); } });
+    function bufferingSoon() {
+      if (bufferTimer || !current) return;
+      bufferTimer = setTimeout(function () { bufferTimer = null; if (current && !video.paused) manager.mediaEvent('waiting'); }, 700);
+    }
+    function bufferingDone() { clearTimeout(bufferTimer); bufferTimer = null; if (manager) manager.mediaEvent('progress', { progressed: true }); }
+    video.addEventListener('loadstart', function () { if (mediaBelongsToCurrentSession()) manager.mediaEvent('loadstart'); });
+    video.addEventListener('waiting', function () { if (mediaBelongsToCurrentSession()) bufferingSoon(); });
+    video.addEventListener('stalled', function () { if (mediaBelongsToCurrentSession()) bufferingSoon(); });
+    video.addEventListener('loadedmetadata', function () { if (!mediaBelongsToCurrentSession()) return; updateQualityBadge(); manager.mediaEvent('loadedmetadata'); });
+    video.addEventListener('canplay', function () { if (!mediaBelongsToCurrentSession()) return; bufferingDone(); manager.mediaEvent('canplay'); });
+    video.addEventListener('playing', function () { if (!mediaBelongsToCurrentSession()) return; bufferingDone(); manager.mediaEvent('playing'); els['osd-play'].innerHTML = ICON_PAUSE; });
+    video.addEventListener('pause', function () { els['osd-play'].innerHTML = ICON_PLAY; if (mediaBelongsToCurrentSession()) manager.mediaEvent('pause'); });
+    video.addEventListener('timeupdate', function () {
+      if (!mediaBelongsToCurrentSession()) return;
+      var advanced = video.currentTime !== lastTime; if (advanced) lastTime = video.currentTime;
+      if (advanced && video.currentTime > 0) bufferingDone(); manager.mediaEvent('timeupdate', { progressed: advanced }); updateProgress();
+    });
+    video.addEventListener('progress', function () {
+      if (!mediaBelongsToCurrentSession()) return;
+      var snap = mediaSnapshot(), advanced = snap.bufferedEnd !== lastBufferEnd; if (advanced) lastBufferEnd = snap.bufferedEnd;
+      manager.mediaEvent('progress', { progressed: advanced }); updateProgress();
+    });
+    video.addEventListener('resize', updateQualityBadge);
+    video.addEventListener('ended', function () { if (!mediaBelongsToCurrentSession()) return; manager.mediaEvent('ended'); if (onEnded) onEnded(); });
+    video.addEventListener('error', function () {
+      /* HLS errors are emitted by its adapter callback. Native errors are classified
+         centrally, including the one HLS engine fallback and terminal formats. */
+      if (!hls && mediaBelongsToCurrentSession()) manager.mediaError({ nativeCode: video.error && video.error.code, message: T('p.error') });
+    });
+    window.addEventListener('online', function () { if (manager) manager.online(); });
     setInterval(function () { if (els['osd-clock']) els['osd-clock'].textContent = U.clock(); }, 1000);
   }
 
@@ -77,93 +181,14 @@ var Player = (function () {
     if (!b.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
     el.className = 'osd-badges'; el.innerHTML = b.join(''); el.style.display = '';
   }
-  function loading(on, txt) { els['player-loading'].classList.toggle('show', !!on); if (txt) els['player-loading-text'].textContent = txt; }
-  function error(msg) { els['player-error'].classList.toggle('show', !!msg); if (msg) els['player-error'].textContent = msg; }
-
-  function destroyHls() { if (hls) { try { hls.destroy(); } catch (e) { } hls = null; } }
-  function hlsHeaderSetup(headers) {
-    var safe = {}, key, value, has = false;
-    for (key in headers || {}) if (Object.prototype.hasOwnProperty.call(headers, key)) {
-      value = String(headers[key] || '');
-      if (value && value.length <= 2048 && !/[\r\n]/.test(value)) { safe[key] = value; has = true; }
-    }
-    if (!has) return null;
-    return function (xhr) {
-      for (key in safe) if (Object.prototype.hasOwnProperty.call(safe, key)) {
-        /* Browsers can forbid User-Agent/Referer. Never let that prevent a direct
-           HLS request from opening; permitted IPTV headers are still forwarded. */
-        try { xhr.setRequestHeader(key, safe[key]); } catch (e) { }
-      }
-    };
-  }
-  function startHls(url) {
-    destroyHls();
-    var cfg = { maxBufferLength: 30, maxMaxBufferLength: 60, liveSyncDurationCount: 3, enableWorker: false, fragLoadingTimeOut: 20000, manifestLoadingTimeOut: 10000, manifestLoadingMaxRetry: 1, levelLoadingMaxRetry: 2, fragLoadingMaxRetry: 3 }, setup = hlsHeaderSetup(current && current.streamHeaders);
-    if (setup) cfg.xhrSetup = setup;
-    hls = new Hls(cfg);
-    hls.loadSource(url); hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED, function () { video.play().catch(function () { }); setTimeout(updateQualityBadge, 1500); });
-    hls.on(Hls.Events.ERROR, function (ev, data) {
-      if (!data.fatal) return;
-      if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { if (/manifest|level/i.test(data.details)) scheduleReconnect(T('p.cannotLoad') + ' (' + data.details + ')'); else hls.startLoad(); }
-      else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) { if (!hls._recovered) { hls._recovered = true; hls.recoverMediaError(); } else scheduleReconnect('Media error'); }
-      else scheduleReconnect('Stream error: ' + data.details);
-    });
-  }
-
-  /* ---- auto-reconnect ---- */
-  function tryHlsFallback() {
-    /* Native playback remains the default. This is a single, direct-URL fallback
-       only after it has failed or stalled; it does not create a proxy, second
-       stream, or a retry loop. */
-    if (!current || current.type !== 'live' || current._engine !== 'native' || current._triedHls || !isHlsStream(current.url) || !window.Hls || !Hls.isSupported()) return false;
-    current._triedHls = true; current._engine = 'hls'; rc.lastProgress = Date.now(); rc.started = false;
-    try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) { }
-    loading(true, T('p.engineFallback')); startHls(current.url);
-    return true;
-  }
-  function scheduleReconnect(reason) {
-    if (!current || !rc.active || rc.timer) return;
-    /* A webOS native player can accept an HLS URL yet never produce a frame. Do
-       the direct hls.js handover once instead of endlessly reconnecting native. */
-    if (tryHlsFallback()) return;
-    if (rc.attempts >= RC_MAX) { rc.active = false; loading(false); error(reason + ' ' + T('p.retryHint', { max: RC_MAX })); return; }
-    var delay = RC_DELAYS[Math.min(rc.attempts, RC_DELAYS.length - 1)]; rc.attempts++;
-    error(null); loading(true, T('reconnecting', { n: rc.attempts, max: RC_MAX }));
-    if (rc.attempts > 1) UI.toast(T('p.interrupted', { n: rc.attempts, max: RC_MAX }), 2500, '↻');
-    rc.timer = setTimeout(function () { rc.timer = null; doReconnect(); }, delay);
-  }
-  function doReconnect() {
-    if (!current) return;
-    var item = current, opt = rc.lastOpt || {}, resumeAt = (item.type !== 'live' && item.type !== 'catchup' && video.currentTime > 5) ? video.currentTime : 0;
-    var keepAttempts = rc.attempts;
-    rc.started = false; rc.lastBuf = -1; rc.lastStart = Date.now();
-    destroyHls(); try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) { }
-    // re-resolve the URL (Stalker links expire; Xtream tokens may rotate)
-    var p = (opt.url && item.type === 'catchup') ? Promise.resolve(opt.url) : App.provider.streamUrl(item);
-    p.then(function (url) {
-      if (current !== item) return; item.url = url; startSource(url, item);
-      if (resumeAt) { var once = function () { video.removeEventListener('loadedmetadata', once); try { video.currentTime = resumeAt; } catch (e) { } }; video.addEventListener('loadedmetadata', once); }
-      rc.attempts = keepAttempts; rc.lastProgress = Date.now();
-    }).catch(function () { rc.attempts = keepAttempts; scheduleReconnect('Cannot resolve stream'); });
-  }
-  function startSource(url, item) {
-    var eng = Store.settings().engine, isHlsUrl = isHlsStream(url), hlsOk = isHlsUrl && window.Hls && Hls.isSupported();
-    var useHls = hlsOk && (eng === 'hlsjs' || (eng === 'auto' && !video.canPlayType('application/vnd.apple.mpegurl')) || item._engine === 'hls');
-    if (useHls) { item._triedHls = true; item._engine = 'hls'; startHls(url); }
-    else { item._engine = 'native'; video.src = url; video.load(); video.play().catch(function () { }); }
-  }
-  function cancelReconnect() { clearTimeout(rc.timer); rc.timer = null; rc.attempts = 0; }
 
   /* play(item, {list, index, url, resume}) */
   function play(item, opt) {
     opt = opt || {};
-    cancelReconnect(); rc.active = true; rc.userPaused = false; rc.lastOpt = opt; rc.lastProgress = Date.now(); rc.lastTime = -1;
-    current = item; current._triedHls = false; current._engine = null; applyPictureMode();
+    /* Save the old VOD position before the manager clears the stable element. */
+    savePos(); clearInterval(posTimer); current = item; applyPictureMode();
     if (opt.list) { playlist = opt.list; index = opt.index != null ? opt.index : playlist.indexOf(item); }
     error(null); loading(true, T('loading'));
-    stop(false);
-    rc.active = true; rc.attempts = 0; rc.lastProgress = Date.now(); rc.started = false; rc.lastBuf = -1; rc.lastStart = Date.now();
     els['osd-title'].textContent = item.title || item.name || '';
     els['osd-sub'].textContent = item.subtitle || ''; if (els['osd-quality']) { els['osd-quality'].innerHTML = ''; els['osd-quality'].style.display = 'none'; }
     els['osd-epg'].classList.remove('show'); els['osd-epg'].innerHTML = ''; hideAutoNext();
@@ -174,31 +199,23 @@ var Player = (function () {
     U.$('.osd-progress').style.visibility = isLive ? 'hidden' : 'visible';
     U.$('.osd-times').style.visibility = isLive ? 'hidden' : 'visible';
     posKey = (isLive || item.type === 'catchup') ? null : (item.type + ':' + item.id);
-    showOsd();
-
-    var p = opt.url ? Promise.resolve(opt.url) : App.provider.streamUrl(item);
-    return p.then(function (url) {
-      if (!url) throw new Error('No stream URL');
-      item.url = url; current.url = url;
-      startSource(url, item);
-      if (opt.resume && posKey) {
-        var saved = Store.getPos(App.account.id, posKey);
-        if (saved && saved.pos > 10) { var once = function () { video.removeEventListener('loadedmetadata', once); try { video.currentTime = saved.pos; } catch (e) { } }; video.addEventListener('loadedmetadata', once); }
-      }
-      if (posKey) { clearInterval(posTimer); posTimer = setInterval(savePos, 5000); }
-      if (item.type !== 'catchup') Store.pushHistory(App.account.id, { type: item.type, id: item.id, name: item.name, logo: item.logo, poster: item.poster, seriesId: item.seriesId, ext: item.ext, cmd: item.cmd, url: item.type === 'm3u' ? url : undefined, catId: item.catId, season: item.season, episode: item.episode });
-    }).catch(function (e) { scheduleReconnect('Cannot start stream: ' + e.message); });
+    showOsd(); lastTime = -1; lastBufferEnd = -1;
+    return manager.play(item, opt);
   }
-  function savePos() { if (posKey && video.duration && !isNaN(video.duration)) Store.setPos(App.account.id, posKey, video.currentTime, video.duration); }
   function stop(clearCurrent) {
-    cancelReconnect(); rc.active = false;
-    savePos(); clearInterval(posTimer);
-    destroyHls();
-    try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) { }
+    savePos(); clearInterval(posTimer); clearTimeout(bufferTimer); bufferTimer = null;
+    if (manager) manager.stop(clearCurrent);
     if (clearCurrent !== false) current = null;
     loading(false);
   }
-  function togglePlay() { if (!rc.active && current && els['player-error'].classList.contains('show')) { rc.active = true; rc.attempts = 0; error(null); loading(true, T('retrying')); doReconnect(); return; } if (video.paused) { rc.userPaused = false; video.play().catch(function () { }); } else { rc.userPaused = true; video.pause(); } showOsd(); }
+  function togglePlay() {
+    if (manager && manager.state === PlaybackManager.STATES.ERROR && current) { error(null); loading(true, T('retrying')); manager.retryNow(); return; }
+    if (video.paused) { if (manager) manager.setUserPaused(false); video.play().catch(function (e) { if (manager) manager.mediaError({ message: e && e.message || 'Unable to resume playback' }); }); }
+    else { if (manager) manager.setUserPaused(true); video.pause(); }
+    showOsd();
+  }
+
+  function savePos() { if (posKey && video.duration && !isNaN(video.duration)) Store.setPos(App.account.id, posKey, video.currentTime, video.duration); }
   function seek(delta) {
     if (!current || current.type === 'live' || !isFinite(video.duration)) return;
     seekAccum += delta; showOsd();
@@ -535,8 +552,8 @@ var Player = (function () {
     rows.push([T('stats.codec'), (codec ? codec + ' · ' : '') + (container || T('stats.unknown'))]);
     rows.push([T('stats.engine'), hls ? T('stats.hlsjs') : T('stats.native')]);
     if (lat != null && lat < 90) rows.push([T('stats.latency'), lat.toFixed(1) + ' s']);
-    if (rc.attempts) rows.push(['Reconnects', String(rc.attempts)]);
-    rows.push([T('stats.url'), (current.url || '').replace(/\/\/[^@/]+@/, '//').replace(/^https?:\/\//, '')]);
+    if (manager && manager.attempts()) rows.push(['Reconnects', String(manager.attempts())]);
+    rows.push([T('stats.url'), redactStreamUrl(current.url)]);
     var html = '<h4>' + U.esc(T('stats.title')) + '<span class="live-dot"></span></h4>' + rows.map(function (r) { return '<div class="sr"><span>' + U.esc(r[0]) + '</span><b class="' + (r[2] || '') + '">' + U.esc(r[1]) + '</b></div>'; }).join('');
     if (brHist.length > 1) { var mx = Math.max.apply(null, brHist), bars = []; for (var bi = 0; bi < 40; bi++) { var v = brHist[brHist.length - 40 + bi]; bars.push('<i style="height:' + (v == null ? 2 : Math.max(3, Math.round(v / mx * 100))) + '%;' + (v == null ? 'opacity:.15' : '') + '"></i>'); } html += '<div class="graph">' + bars.join('') + '</div>'; }
     els['stats-box'].innerHTML = html;
@@ -570,8 +587,11 @@ var Player = (function () {
     }
     switch (name) {
       case 'BACK': case 'BACK2': if (osdVisible() && Nav.current() && Nav.current().getAttribute('data-nav') === 'osd') { hideOsd(); return true; } App.closePlayer(); return true;
-      case 'PLAY': rc.userPaused = false; video.play(); showOsd(); return true;
-      case 'PAUSE': rc.userPaused = true; video.pause(); showOsd(); return true;
+      case 'PLAY':
+        if (manager && manager.state === PlaybackManager.STATES.ERROR) manager.retryNow();
+        else { if (manager) manager.setUserPaused(false); video.play().catch(function (e) { if (manager) manager.mediaError({ message: e && e.message || 'Unable to resume playback' }); }); }
+        showOsd(); return true;
+      case 'PAUSE': if (manager) manager.setUserPaused(true); video.pause(); showOsd(); return true;
       case 'PLAYPAUSE': togglePlay(); return true;
       case 'STOP': App.closePlayer(); return true;
       case 'REW': seek(-30); return true;
@@ -582,7 +602,7 @@ var Player = (function () {
       case 'BLUE': toggleStats(); return true;
       case 'GREEN': cycleRatio(); return true;
       case 'ENTER':
-        if (!rc.active && current && els['player-error'].classList.contains('show')) { rc.active = true; rc.attempts = 0; error(null); loading(true, T('retrying')); doReconnect(); return true; }
+        if (manager && manager.state === PlaybackManager.STATES.ERROR && current) { error(null); loading(true, T('retrying')); manager.retryNow(); return true; }
         /* The first OK always reveals the complete player bar and lands on Picture,
            so its remote-only LEFT / RIGHT controls are immediately discoverable. */
         if (!osdVisible() || !Nav.current() || Nav.current().getAttribute('data-nav') !== 'osd') { showOsd(); Nav.focus(els['osd-picture'] || els['osd-play']); return true; }
@@ -596,7 +616,7 @@ var Player = (function () {
   }
   function action(a) {
     switch (a) {
-      case 'p-play': togglePlay(); break; case 'p-rew': seek(-30); break; case 'p-ffw': seek(30); break;
+      case 'p-play': togglePlay(); break; case 'p-retry': if (manager) manager.retryNow(); break; case 'p-rew': seek(-30); break; case 'p-ffw': seek(30); break;
       case 'p-next': next(); break; case 'p-prev': prev(); break; case 'p-ratio': cycleRatio(); break;
       case 'p-audio': openTrackMenu('audio'); break; case 'p-subs': openTrackMenu('subs'); break; case 'p-picture': openPictureMenu(); break;
       case 'p-list': toggleZapList(); break; case 'p-stats': toggleStats(); break;
@@ -609,5 +629,5 @@ var Player = (function () {
   function reset() { zapOpen = false; trackMenuOpen = false; trackMenuKind = ''; trackReturnEl = null; toggleStats(false); cancelZap(); hideAutoNext(); els['zap-list'].classList.remove('show'); els['track-menu'].classList.remove('show'); els['track-menu'].classList.remove('picture-menu'); hideOsd(); }
 
   function setCanPlay(fn) { canPlay = fn; }
-  return { init: init, play: play, stop: stop, handleKey: handleKey, action: action, setOnEnded: setOnEnded, setCanPlay: setCanPlay, current: getCurrent, showOsd: showOsd, reset: reset, autoNext: autoNext, hideAutoNext: hideAutoNext, video: function () { return video; } };
+  return { init: init, play: play, stop: stop, handleKey: handleKey, action: action, setOnEnded: setOnEnded, setCanPlay: setCanPlay, current: getCurrent, state: function () { return manager ? manager.state : 'IDLE'; }, session: function () { return manager ? manager.currentSession() : 0; }, showOsd: showOsd, reset: reset, autoNext: autoNext, hideAutoNext: hideAutoNext, video: function () { return video; } };
 })();

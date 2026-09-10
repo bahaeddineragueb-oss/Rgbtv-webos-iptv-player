@@ -137,6 +137,12 @@ XtreamProvider.prototype = {
     else url = this.base + '/series/' + this.user + '/' + this.pass + '/' + item.id + '.' + (item.ext || 'mp4');
     return Promise.resolve(url);
   },
+  /* Constructing an Xtream URL is local and immediate: no EPG, VOD, logo or
+     catalogue request is permitted between a user's selection and playback. */
+  resolveStream: function (item) {
+    var self = this;
+    return this.streamUrl(item).then(function (url) { return { url: url, provider: self.type, channelId: item && item.id, headers: item && item.streamHeaders, metadata: { contentType: item && item.type, title: item && item.name, live: !!(item && item.type === 'live') } }; });
+  },
   catchupUrl: function (item, startTs, durationMin) {
     var d = new Date(startTs * 1000), s = d.getFullYear() + '-' + U.pad(d.getMonth() + 1) + '-' + U.pad(d.getDate()) + ':' + U.pad(d.getHours()) + '-' + U.pad(d.getMinutes());
     return this.base + '/streaming/timeshift.php?' + U.qs({ username: this.user, password: this.pass, stream: item.id, start: s, duration: durationMin });

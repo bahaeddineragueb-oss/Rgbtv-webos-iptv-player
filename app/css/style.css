@@ -417,7 +417,7 @@ video::-webkit-media-controls{display:none!important}
 .player-loading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;display:none}
 .player-loading.show{display:block}
 .player-error{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(239,68,68,.92);padding:24px 40px;border-radius:14px;font-size:28px;display:none;max-width:1200px;text-align:center}
-.player-error.show{display:block}
+.player-error.show{display:block}.player-error #player-error-text{display:block}.player-error #player-retry{margin:18px auto 0;font-size:20px;display:block;background:#fff;color:#991b1b}.player-error #player-retry.focus{box-shadow:0 0 0 4px rgba(255,255,255,.55)}
 .osd{position:absolute;top:0;left:0;right:0;bottom:0;opacity:0;transition:opacity .3s;pointer-events:none}
 .osd.show{opacity:1}
 .osd-top{position:absolute;top:0;left:0;right:0;padding:40px 60px;display:flex;align-items:center;background:linear-gradient(180deg,rgba(0,0,0,.85),transparent)}

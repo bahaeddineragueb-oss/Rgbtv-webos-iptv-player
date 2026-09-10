@@ -307,6 +307,12 @@ M3UProvider.prototype = {
     return Promise.resolve(list.slice(0, limit || 10));
   },
   destroy: function () { clearTimeout(this._epgTimer); this._epgTimer = null; },
+  /* Provider-neutral playback contract. streamUrl remains for older callers,
+     while resolveStream supplies the exact M3U URL and per-entry headers to the
+     central PlaybackManager without fetching or pre-validating the stream. */
+  resolveStream: function (item) {
+    return Promise.resolve({ url: item && item.url, provider: this.type, channelId: item && item.id, headers: item && item.streamHeaders, metadata: { contentType: item && item.type, title: item && item.name, live: !!(item && item.type === 'live') } });
+  },
   streamUrl: function (item) { return Promise.resolve(item && item.url); }
 };
 
@@ -361,6 +367,10 @@ M3UGetPhpProvider.prototype = {
   seriesInfo: function (id, item) { return this._provider().seriesInfo(id, item); },
   shortEPG: function (streamId, limit) { return this._provider().shortEPG(streamId, limit); },
   streamUrl: function (item) { return this._provider().streamUrl(item); },
+  resolveStream: function (item, opt) {
+    var provider = this._provider();
+    return provider.resolveStream ? provider.resolveStream(item, opt) : provider.streamUrl(item).then(function (url) { return { url: url, provider: provider.type, channelId: item && item.id, headers: item && item.streamHeaders }; });
+  },
   catchupUrl: function (item, startTs, durationMin) {
     var p = this._provider();
     return p.catchupUrl ? p.catchupUrl(item, startTs, durationMin) : Promise.reject(new Error('Catch-up is not available for this playlist'));

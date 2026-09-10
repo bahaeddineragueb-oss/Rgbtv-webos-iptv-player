@@ -89,7 +89,7 @@ function retryDelay(headers, attempt) {
   if (!delay) delay = MIN_RATE_DELAY * Math.pow(2, attempt || 0);
   return Math.max(MIN_RATE_DELAY, Math.min(MAX_RATE_DELAY, delay));
 }
-function rateError(delay) { return new Error('HTTP 429 rate limited — retry in ' + Math.max(1, Math.ceil(delay / 1000)) + ' seconds'); }
+function rateError(delay) { var e = new Error('HTTP 429 rate limited — retry in ' + Math.max(1, Math.ceil(delay / 1000)) + ' seconds'); e.status = 429; e.retryAfter = delay; return e; }
 
 function doFetch(opts, cb, redirects, rateRetries, startedAt, skipRateGate) {
   redirects = redirects || 0; rateRetries = rateRetries || 0; startedAt = startedAt || Date.now();
@@ -165,7 +165,7 @@ service.register('fetch', function (message) {
   var p = message.payload || {};
   if (!p.url) { message.respond({ returnValue: false, errorText: 'url required' }); return; }
   doFetch(p, function (err, r) {
-    if (err) message.respond({ returnValue: false, errorText: String(err.message || err) });
+    if (err) message.respond({ returnValue: false, errorText: String(err.message || err), status: Number(err.status || 0), retryAfter: Number(err.retryAfter || 0) });
     else message.respond({ returnValue: true, status: r.status, headers: r.headers, body: r.body });
   });
 });

@@ -359,7 +359,7 @@
   <!-- Fallback grading layer: native webOS video planes may ignore CSS filters. -->
   <div class="picture-fx" id="picture-fx" aria-hidden="true"></div>
   <div class="player-loading" id="player-loading"><div class="loader"></div><span id="player-loading-text">Loading…</span></div>
-  <div class="player-error" id="player-error"></div>
+  <div class="player-error" id="player-error"><span id="player-error-text"></span><button class="btn focusable" data-nav="osd" data-action="p-retry" id="player-retry" data-i18n="retry" style="display:none">Retry</button></div>
   <div class="osd" id="osd">
     <div class="osd-top">
       <div class="osd-logo" id="osd-logo"></div>
@@ -451,6 +451,7 @@
 <script src="js/api/m3u.js"></script>
 <script src="js/tmdb.js"></script>
 <script src="js/weather.js"></script>
+<script src="js/playback-manager.js"></script>
 <script src="js/player.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/keyboard.js"></script>

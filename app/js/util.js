@@ -21,15 +21,41 @@ var U = (function () {
   function normUrl(u) { u = (u || '').trim(); if (!/^https?:\/\//i.test(u)) u = 'http://' + u; return u.replace(/\/+$/, ''); }
   function isAdult(name) { return /adult|xxx|porn|18\+|erotic|for adults/i.test(name || ''); }
 
+  function abortError() { var e = new Error('Request cancelled'); e.name = 'AbortError'; e.code = 'USER_CANCELLED'; return e; }
+  /* Luna calls cannot be force-stopped by the legacy bridge, but callers can stop
+     waiting and their result is ignored. XHR requests additionally receive a real
+     abort below. This keeps session cancellation webOS 3+ compatible. */
+  function abortable(promise, signal) {
+    if (!signal) return promise;
+    if (signal.aborted) return Promise.reject(abortError());
+    return new Promise(function (resolve, reject) {
+      var done = false;
+      function finish(fn, value) { if (done) return; done = true; if (signal.removeEventListener) signal.removeEventListener('abort', onAbort); fn(value); }
+      function onAbort() { finish(reject, abortError()); }
+      if (signal.addEventListener) signal.addEventListener('abort', onAbort);
+      Promise.resolve(promise).then(function (value) { finish(resolve, value); }, function (err) { finish(reject, err); });
+    });
+  }
   /* Luna service bridge (webOS only). Lets us send Cookie/Authorization headers that XHR forbids. */
   var lunaAvailable = null;
   function luna(method, params) {
     return new Promise(function (resolve, reject) {
       if (typeof window.PalmServiceBridge === 'undefined') { reject(new Error('no luna')); return; }
       var b = new window.PalmServiceBridge(), t = setTimeout(function () { reject(new Error('Luna timeout')); }, (params.timeout || 20000) + 3000);
-      b.onservicecallback = function (msg) { clearTimeout(t); try { var r = JSON.parse(msg); if (r.returnValue === false) reject(new Error(r.errorText || 'service error')); else resolve(r); } catch (e) { reject(e); } };
+      b.onservicecallback = function (msg) { clearTimeout(t); try { var r = JSON.parse(msg), e; if (r.returnValue === false) { e = new Error(r.errorText || 'service error'); e.status = Number(r.status || r.errorCode || 0); e.retryAfter = Number(r.retryAfter || 0); if (e.status) e.response = { status: e.status, headers: r.headers || {} }; reject(e); } else resolve(r); } catch (e) { reject(e); } };
       b.call('luna://com.rgbtv.app.service/' + method, JSON.stringify(params));
     });
+  }
+  function httpError(status, headers, suffix) {
+    var e = new Error('HTTP ' + status + (suffix || ''));
+    e.status = Number(status) || 0; e.response = { status: e.status, headers: headers || {} };
+    return e;
+  }
+  function xhrHeaders(xhr) {
+    var out = {}, raw = '';
+    try { raw = xhr.getAllResponseHeaders ? xhr.getAllResponseHeaders() : ''; } catch (e) { }
+    String(raw || '').split(/\r?\n/).forEach(function (line) { var p = line.indexOf(':'); if (p > 0) out[line.slice(0, p).toLowerCase()] = line.slice(p + 1).trim(); });
+    return out;
   }
   function lunaFetch(url, opt) {
     return luna('fetch', { url: url, method: opt.method || 'GET', headers: opt.headers || {}, body: opt.body || null, timeout: opt.timeout || 20000, insecureTls: opt.insecureTls === true }).then(function (r) {
@@ -45,7 +71,7 @@ var U = (function () {
         }
         return opt.responseMeta ? { data: r.body, status: r.status, headers: r.headers || {} } : r.body;
       }
-      throw new Error('HTTP ' + r.status);
+      throw httpError(r.status, r.headers || {});
     });
   }
 
@@ -53,32 +79,42 @@ var U = (function () {
    * Requests that carry restricted headers (Cookie/Authorization) go through the Luna service on TV. */
   function http(url, opt) {
     opt = opt || {};
-    if (window.RGBTvHost && RGBTvHost.fetchAsync && /^https?:/i.test(url)) return hostFetch(url, opt);
+    if (opt.signal && opt.signal.aborted) return Promise.reject(abortError());
+    if (window.RGBTvHost && RGBTvHost.fetchAsync && /^https?:/i.test(url)) return abortable(hostFetch(url, opt), opt.signal);
     /* Use the packaged Luna proxy for providers that need to bypass browser CORS. Restricted
        Stalker headers always need it; M3U/EPG can explicitly request it with opt.proxy. */
     var needsService = (opt.proxy || (opt.headers && (opt.headers.Cookie || opt.headers.Authorization))) && typeof window.PalmServiceBridge !== 'undefined' && lunaAvailable !== false;
     if (needsService) {
-      return lunaFetch(url, opt).then(function (r) { lunaAvailable = true; return r; }).catch(function (e) {
+      return abortable(lunaFetch(url, opt), opt.signal).then(function (r) { lunaAvailable = true; return r; }).catch(function (e) {
+        if (e && e.code === 'USER_CANCELLED') throw e;
         if (lunaAvailable === null && /no luna|Luna timeout|service error|Unknown service|not exist/i.test(e.message)) { lunaAvailable = false; return http(url, opt); }
         throw e;
       });
     }
     return new Promise(function (resolve, reject) {
-      var x = new XMLHttpRequest(), done = false;
+      var x = new XMLHttpRequest(), done = false, signal = opt.signal;
+      function finish(fn, value) {
+        if (done) return; done = true;
+        if (signal && signal.removeEventListener) signal.removeEventListener('abort', onAbort);
+        fn(value);
+      }
+      function onAbort() { try { x.abort(); } catch (e) { } finish(reject, abortError()); }
+      if (signal && signal.aborted) { finish(reject, abortError()); return; }
       x.open(opt.method || 'GET', url, true);
       x.timeout = opt.timeout || 20000;
+      if (signal && signal.addEventListener) signal.addEventListener('abort', onAbort);
       if (opt.headers) Object.keys(opt.headers).forEach(function (k) { try { x.setRequestHeader(k, opt.headers[k]); } catch (e) { } });
       x.onreadystatechange = function () {
-        if (x.readyState !== 4 || done) return; done = true;
+        if (x.readyState !== 4 || done) return;
         if (x.status >= 200 && x.status < 300 || (x.status === 0 && x.responseText)) {
           if (opt.json) {
-            try { var parsed = JSON.parse(x.responseText); resolve(opt.responseMeta ? { data: parsed, status: x.status, headers: {} } : parsed); }
-            catch (e) { reject(new Error('Invalid JSON from server')); }
-          } else resolve(opt.responseMeta ? { data: x.responseText, status: x.status, headers: {} } : x.responseText);
-        } else reject(new Error('HTTP ' + x.status + (x.status === 0 ? ' (network/CORS)' : '')));
+            try { var parsed = JSON.parse(x.responseText); finish(resolve, opt.responseMeta ? { data: parsed, status: x.status, headers: xhrHeaders(x) } : parsed); }
+            catch (e) { finish(reject, new Error('Invalid JSON from server')); }
+          } else finish(resolve, opt.responseMeta ? { data: x.responseText, status: x.status, headers: xhrHeaders(x) } : x.responseText);
+        } else finish(reject, httpError(x.status, xhrHeaders(x), x.status === 0 ? ' (network/CORS)' : ''));
       };
-      x.ontimeout = function () { if (!done) { done = true; reject(new Error('Timeout')); } };
-      x.onerror = function () { if (!done) { done = true; reject(new Error('Network error')); } };
+      x.ontimeout = function () { finish(reject, new Error('Timeout')); };
+      x.onerror = function () { finish(reject, new Error('Network error')); };
       x.send(opt.body || null);
     });
   }
@@ -93,7 +129,7 @@ var U = (function () {
         if (r.status >= 200 && r.status < 300) {
           if (opt.json) { try { var data = JSON.parse(r.body); resolve(opt.responseMeta ? { data: data, status: r.status, headers: r.headers || {} } : data); } catch (e) { reject(new Error('Invalid JSON from server')); } }
           else resolve(opt.responseMeta ? { data: r.body, status: r.status, headers: r.headers || {} } : r.body);
-        } else reject(new Error(r.status ? 'HTTP ' + r.status : (r.error && /timed? ?out/i.test(r.error) ? 'Timeout' : 'Network error')));
+        } else reject(r.status ? httpError(r.status, r.headers || {}) : new Error(r.error && /timed? ?out/i.test(r.error) ? 'Timeout' : 'Network error'));
       };
       try { RGBTvHost.fetchAsync(id, url, opt.method || 'GET', JSON.stringify(opt.headers || {}), opt.body || '', opt.timeout || 20000); }
       catch (e) { delete hostCbs[id]; reject(new Error('Network error')); }
