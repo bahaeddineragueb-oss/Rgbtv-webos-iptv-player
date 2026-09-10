@@ -111,6 +111,7 @@ async function testFallbackAndBoundedRecovery() {
 async function testSmartBufferAndMetrics() {
   var h = harness(function () { return Promise.resolve(stream('metrics', 'mpegts')); });
   await h.manager.play({ id: 'metrics', type: 'live' }, {});
+  assert.ok(h.states.some(function (entry) { return entry.state === context.PlaybackManager.STATES.RESOLVING; }) && h.states.some(function (entry) { return entry.state === context.PlaybackManager.STATES.STARTING; }), 'the explicit lifecycle distinguishes resolving from source start');
   h.manager.mediaEvent('loadstart', { networkState: 2 });
   h.manager.mediaEvent('loadedmetadata');
   h.manager.mediaEvent('canplay');
@@ -125,11 +126,60 @@ async function testSmartBufferAndMetrics() {
   assert.strictEqual(h.manager.state, context.PlaybackManager.STATES.BUFFERING, 'short live waiting becomes buffering only after the SmartBuffer grace period');
   assert.strictEqual(h.manager.diagnostics().bufferingCount, 1);
   h.manager.mediaEvent('progress', { progressed: true });
-  assert.strictEqual(h.manager.state, context.PlaybackManager.STATES.PLAYING, 'real progress clears buffering without a reconnect');
+  assert.strictEqual(h.manager.state, context.PlaybackManager.STATES.BUFFERING, 'buffer download alone does not hide the spinner while the media clock is stuck');
+  h.manager.mediaEvent('timeupdate', { progressed: true, currentTime: 1 });
+  assert.strictEqual(h.manager.state, context.PlaybackManager.STATES.PLAYING, 'real media-clock progress clears buffering without a reconnect');
+  assert.ok(h.manager.diagnostics().bufferingDuration > 0, 'buffer duration is captured for local diagnostics');
   h.manager.networkLost();
   assert.strictEqual(h.manager.state, context.PlaybackManager.STATES.BUFFERING, 'offline signal presents a network-lost buffering state without opening another source');
-  h.manager.mediaEvent('progress', { progressed: true });
+  h.manager.mediaEvent('timeupdate', { progressed: true, currentTime: 2 });
   assert.strictEqual(h.manager.state, context.PlaybackManager.STATES.PLAYING);
+  h.manager.setUserPaused(true); h.manager.mediaEvent('pause');
+  assert.strictEqual(h.manager.state, context.PlaybackManager.STATES.PAUSED, 'user pause has an explicit state and is never interpreted as a failure');
+  h.manager.setUserPaused(false); h.manager.mediaEvent('playing', { currentTime: 3 });
+  assert.strictEqual(h.manager.state, context.PlaybackManager.STATES.PLAYING);
+  h.manager.stop();
+  assert.strictEqual(h.manager.state, context.PlaybackManager.STATES.STOPPED, 'a deliberate stop has a terminal STOPPED state rather than looking like a playback error');
+}
+
+async function testAdaptiveRecoveryFingerprintWatchdogAndCircuit() {
+  var calls = 0, adaptive = harness(function () { calls++; return Promise.resolve(stream('adaptive', 'mpegts')); }), reloads = 0, bufferNudges = 0;
+  adaptive.manager.adapter.reload = function (source, session, engine) { reloads++; assert.strictEqual(source.url, 'https://stream.example/adaptive.ts'); assert.strictEqual(engine, 'native'); return true; };
+  adaptive.manager.adapter.recoverBuffer = function () { bufferNudges++; return true; };
+  await adaptive.manager.play({ id: 'adaptive', type: 'live' }, {});
+  adaptive.manager.mediaError({ message: 'Network timeout' }); await wait(320);
+  assert.strictEqual(calls, 1, 'first temporary transport recovery reloads the known source before another provider resolve');
+  assert.strictEqual(reloads, 1, 'adaptive level two uses the stable adapter rather than replacing the video element');
+  var bufferOnly = harness(function () { return Promise.resolve(stream('buffer-only', 'mpegts')); });
+  bufferOnly.manager.adapter.recoverBuffer = function () { bufferNudges++; return true; };
+  await bufferOnly.manager.play({ id: 'buffer-only', type: 'live' }, {});
+  bufferOnly.manager.fail({ code: 'BUFFER_ERROR', message: 'Playback media clock stalled' }); await wait(320);
+  assert.strictEqual(bufferNudges, 1, 'adaptive level one lets the HLS buffer recover before a source reload');
+
+  var fingerprintCalls = 0, fingerprints = harness(function () { fingerprintCalls++; return Promise.resolve(stream('fingerprint', 'mpegts')); });
+  await fingerprints.manager.play({ id: 'fingerprint', type: 'live' }, {});
+  fingerprints.manager.sameSourceReloadTried = true;
+  fingerprints.manager._retry(fingerprints.manager.currentSession(), 2, { code: 'NETWORK_ERROR' }); await wait(0);
+  assert.strictEqual(fingerprintCalls, 2);
+  assert.strictEqual(fingerprints.manager.diagnostics().sameStreamResolutions, 1, 'source fingerprint detects an unchanged re-resolved URL without exposing it');
+  assert.strictEqual(fingerprints.loads.length, 1, 'an unchanged re-resolve does not reload identical decoder input again');
+  fingerprints.manager.recovery.cancel();
+
+  var watch = harness(function () { return Promise.resolve(stream('watch', 'mpegts')); });
+  await watch.manager.play({ id: 'watch', type: 'live' }, {});
+  watch.snapshot.readyState = 4; watch.snapshot.currentTime = 10; watch.manager.mediaEvent('playing', { currentTime: 10 });
+  watch.manager.lastCurrentTimeAt = Date.now() - 13000; watch.manager._watchdog();
+  assert.strictEqual(watch.manager.state, context.PlaybackManager.STATES.RECOVERING, 'independent watchdog detects a frozen media clock even when readyState still looks healthy');
+  watch.manager.recovery.cancel();
+
+  var breakerCalls = 0, breaker = harness(function () { breakerCalls++; return Promise.resolve(stream('circuit', 'mpegts')); });
+  for (var i = 0; i < 4; i++) { await breaker.manager.play({ id: 'circuit', type: 'live' }, {}); breaker.manager.mediaError({ status: 404, message: 'HTTP 404' }); }
+  assert.strictEqual(breaker.manager.diagnostics().lastErrorCode, 'CIRCUIT_OPEN', 'repeated failures open a short local circuit breaker');
+  await breaker.manager.play({ id: 'circuit', type: 'live' }, {});
+  assert.strictEqual(breakerCalls, 4, 'open circuit blocks a fifth immediate provider request');
+  breaker.manager.circuit.entries['fixture:circuit'].openUntil = Date.now() - 1;
+  await breaker.manager.play({ id: 'circuit', type: 'live' }, {});
+  assert.strictEqual(breakerCalls, 5, 'circuit cooldown reopens the channel without retaining permanent failure state');
 }
 
 async function testCancellationAndErrorPolicy() {
@@ -146,7 +196,7 @@ async function testCancellationAndErrorPolicy() {
   assert.strictEqual(h.loads[0].source.channelId, 'new');
 
   var C = context.PlaybackErrorClassifier;
-  [['HTTP 401', 'AUTH_ERROR', false], ['HTTP 403', 'AUTH_ERROR', false], ['HTTP 404', 'HTTP_ERROR', false], ['Network timeout', 'TIMEOUT', true], ['HTTP 429 rate limited', 'HTTP_ERROR', true]].forEach(function (row) {
+  [['HTTP 401', 'AUTH_ERROR', false], ['HTTP 403', 'AUTH_ERROR', false], ['HTTP 404', 'HTTP_ERROR', false], ['HTTP 503', 'HTTP_ERROR', true], ['Token expired', 'TOKEN_EXPIRED', true], ['Network timeout', 'TIMEOUT', true], ['HTTP 429 rate limited', 'HTTP_ERROR', true]].forEach(function (row) {
     var error = C(new Error(row[0]));
     assert.strictEqual(error.code, row[1], row[0] + ' has normalized error code');
     assert.strictEqual(error.retryable, row[2], row[0] + ' has correct retry policy');
@@ -156,13 +206,22 @@ async function testCancellationAndErrorPolicy() {
   var dated = C({ status: 429, response: { headers: { 'Retry-After': new Date(Date.now() + 3000).toUTCString() } } });
   assert.ok(dated.retryAfter > 0 && dated.retryAfter <= 3000, 'Retry-After HTTP dates are honored centrally');
   assert.strictEqual(C({ nativeCode: 4 }).retryable, false, 'unsupported native format never reconnects forever');
+
+  var tokenCalls = 0, token = harness(function () { tokenCalls++; return Promise.resolve(stream('token', 'mpegts')); });
+  await token.manager.play({ id: 'token', type: 'live' }, {});
+  token.manager.mediaError({ code: 'TOKEN_EXPIRED', message: 'Token expired' }); token.manager.retryNow(); await wait(0);
+  assert.strictEqual(tokenCalls, 2, 'an explicit expired token gets one fresh stream resolve');
+  token.manager.mediaError({ code: 'TOKEN_EXPIRED', message: 'Token expired' });
+  assert.strictEqual(token.manager.state, context.PlaybackManager.STATES.ERROR, 'a second token refresh failure becomes a clear terminal auth error');
 }
+
 
 (async function () {
   await testDetectionAndNormalization();
   await testSessionRaceAndRapidSwitching();
   await testFallbackAndBoundedRecovery();
   await testSmartBufferAndMetrics();
+  await testAdaptiveRecoveryFingerprintWatchdogAndCircuit();
   await testCancellationAndErrorPolicy();
   console.log('Playback manager regression checks passed');
 })().catch(function (error) { console.error(error.stack || error); process.exitCode = 1; });

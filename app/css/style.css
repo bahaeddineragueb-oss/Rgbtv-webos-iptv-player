@@ -409,15 +409,18 @@ img{display:block}
 #screen-player{background:#000}
 #video{width:1920px;height:1080px;object-fit:contain;background:#000}
 #video.fill{object-fit:cover}#video.stretch{object-fit:fill}
+/* A channel handoff never leaves a featureless black frame: this very small,
+   non-interactive transition layer disappears on the first playing event. */
+.player-transition{position:absolute;inset:0;z-index:2;display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;pointer-events:none;background:radial-gradient(ellipse at center,rgba(15,28,48,.84),rgba(0,0,0,.24) 58%,rgba(0,0,0,.08));text-align:center;font-size:20px;color:rgba(255,255,255,.76)}.player-transition.show{display:flex}.player-transition b{max-width:70%;font-size:36px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* The native webOS video plane can bypass CSS filters. This layer lives above it
    and provides an immediate, hardware-safe visual grade without a second video. */
 .picture-fx{position:absolute;z-index:1;top:0;right:0;bottom:0;left:0;pointer-events:none;opacity:0;background:transparent;transition:opacity .18s ease,background .18s ease}
 .player-loading,.player-error,.osd,.zap-list,.channel-number,.track-menu,.stats-box,.autonext{z-index:2}
 video::-webkit-media-controls{display:none!important}
-.player-loading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;display:none}
+.player-loading{position:absolute;z-index:3;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;display:none}
 .player-loading.show{display:block}
-.player-error{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(239,68,68,.92);padding:24px 40px;border-radius:14px;font-size:28px;display:none;max-width:1200px;text-align:center}
-.player-error.show{display:block}.player-error #player-error-text{display:block}.player-error-actions{display:flex;justify-content:center;gap:14px;margin-top:18px}.player-error #player-retry,.player-error #player-error-back{margin:0;font-size:20px;display:block}.player-error #player-retry{background:#fff;color:#991b1b}.player-error #player-retry.focus,.player-error #player-error-back.focus{box-shadow:0 0 0 4px rgba(255,255,255,.55)}
+.player-error{position:absolute;z-index:4;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(239,68,68,.92);padding:24px 40px;border-radius:14px;font-size:28px;display:none;max-width:1200px;text-align:center}
+.player-error.show{display:block}.player-error #player-error-text{display:block}.player-error-actions{display:flex;justify-content:center;gap:14px;margin-top:18px}.player-error #player-retry,.player-error #player-error-prev,.player-error #player-error-next,.player-error #player-error-back{margin:0;font-size:20px;display:block}.player-error #player-retry{background:#fff;color:#991b1b}.player-error #player-retry.focus,.player-error #player-error-prev.focus,.player-error #player-error-next.focus,.player-error #player-error-back.focus{box-shadow:0 0 0 4px rgba(255,255,255,.55)}
 .osd{position:absolute;top:0;left:0;right:0;bottom:0;opacity:0;transition:opacity .3s;pointer-events:none}
 .osd.show{opacity:1}
 .osd-top{position:absolute;top:0;left:0;right:0;padding:40px 60px;display:flex;align-items:center;background:linear-gradient(180deg,rgba(0,0,0,.85),transparent)}

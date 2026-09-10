@@ -11,27 +11,37 @@ var Player = (function () {
   }
 
   function loading(on, txt) { els['player-loading'].classList.toggle('show', !!on); if (txt) els['player-loading-text'].textContent = txt; }
+  function transition(on, item) {
+    var box = els['player-transition']; if (!box) return;
+    box.classList.toggle('show', !!on);
+    if (on && els['player-transition-title']) els['player-transition-title'].textContent = item && (item.title || item.name) || '';
+  }
   function error(msg) {
     els['player-error'].classList.toggle('show', !!msg);
     if (msg) (els['player-error-text'] || els['player-error']).textContent = msg;
     if (els['player-retry']) els['player-retry'].style.display = msg ? '' : 'none';
+    if (els['player-error-prev']) els['player-error-prev'].style.display = msg && current && current.type === 'live' && playlist.length > 1 ? '' : 'none';
+    if (els['player-error-next']) els['player-error-next'].style.display = msg && current && current.type === 'live' && playlist.length > 1 ? '' : 'none';
     if (els['player-error-back']) els['player-error-back'].style.display = msg ? '' : 'none';
   }
   function playbackUi(state, detail) {
     detail = detail || {};
-    if (state === PlaybackManager.STATES.LOADING) {
+    if (state === PlaybackManager.STATES.RESOLVING || state === PlaybackManager.STATES.LOADING || state === PlaybackManager.STATES.STARTING) {
+      if (detail.fallback || detail.recoveryLevel) transition(true, current);
       error(null); loading(true, detail.fallback ? T('p.engineFallback') : detail.resolving ? T('connecting') : detail.elapsed ? T('opening', { s: detail.elapsed }) : T('loading'));
     } else if (state === PlaybackManager.STATES.READY || state === PlaybackManager.STATES.PLAYING) {
-      loading(false); error(null); if (state === PlaybackManager.STATES.PLAYING) els['osd-play'].innerHTML = ICON_PAUSE;
+      loading(false); error(null); if (state === PlaybackManager.STATES.PLAYING) { transition(false); els['osd-play'].innerHTML = ICON_PAUSE; }
+    } else if (state === PlaybackManager.STATES.PAUSED) {
+      loading(false); error(null); els['osd-play'].innerHTML = ICON_PLAY;
     } else if (state === PlaybackManager.STATES.BUFFERING) {
       loading(true, detail.networkLost ? T('p.networkLost') : T('buffering'));
     } else if (state === PlaybackManager.STATES.RECOVERING) {
-      error(null); loading(true, T('reconnecting', { n: detail.attempt, max: detail.max }));
+      transition(true, current); error(null); loading(true, T('reconnecting', { n: detail.attempt, max: detail.max }));
       if (detail.attempt > 1) UI.toast(T('p.interrupted', { n: detail.attempt, max: detail.max }), 2500, '↻');
     } else if (state === PlaybackManager.STATES.ERROR) {
-      loading(false); error((detail.error && detail.error.message) || T('p.error'));
-    } else if (state === PlaybackManager.STATES.IDLE) {
-      loading(false);
+      transition(false); loading(false); error((detail.error && detail.error.message) || T('p.error'));
+    } else if (state === PlaybackManager.STATES.IDLE || state === PlaybackManager.STATES.STOPPED) {
+      transition(false); loading(false);
     }
   }
   function destroyHls() { if (hls) { try { hls.destroy(); } catch (e) { } hls = null; } }
@@ -96,6 +106,11 @@ var Player = (function () {
     return !actual || !expected || actual === expected;
   }
   function recoverHlsMedia(session) { if (hls && hls._rgbSession === session) { try { hls.recoverMediaError(); } catch (e) { manager.mediaError({ hls: true, type: 'mediaError', message: e.message || 'Media recovery failed' }); } } }
+  function recoverBuffer(session) {
+    if (!hls || hls._rgbSession !== session || !hls.startLoad) return false;
+    try { hls.startLoad(-1); return true; } catch (e) { return false; }
+  }
+  function reloadSource(stream, session, engine) { if (!manager.isCurrent(session)) return false; loadSource(stream, session, engine); return true; }
   function loadSource(stream, session, forcedEngine) {
     if (!manager.isCurrent(session)) return;
     var setting = Store.settings().engine, nativeHls = false, useHls;
@@ -132,18 +147,18 @@ var Player = (function () {
 
   function init() {
     video = U.$('#video'); try { video.preload = 'auto'; } catch (e) { }
-    ['osd', 'osd-title', 'osd-sub', 'osd-logo', 'osd-clock', 'osd-played', 'osd-buffer', 'osd-cur', 'osd-dur', 'osd-play', 'player-loading', 'player-loading-text', 'player-error', 'player-error-text', 'player-retry', 'player-error-back', 'zap-list', 'channel-number', 'track-menu', 'osd-fav', 'osd-ratio', 'osd-list-btn', 'osd-audio', 'osd-subs', 'osd-quality', 'osd-picture', 'picture-fx', 'stats-box', 'zap-preview', 'osd-stats', 'osd-epg', 'autonext', 'an-bar', 'an-count', 'an-title'].forEach(function (id) { els[id] = document.getElementById(id); });
-    var savedRatio = Store.settings().aspectRatio; ratioMode = ['fit', 'fill', 'stretch'].indexOf(savedRatio); if (ratioMode < 0) ratioMode = 0; applyRatio();
+    ['osd', 'osd-title', 'osd-sub', 'osd-logo', 'osd-clock', 'osd-played', 'osd-buffer', 'osd-cur', 'osd-dur', 'osd-play', 'player-transition', 'player-transition-title', 'player-loading', 'player-loading-text', 'player-error', 'player-error-text', 'player-retry', 'player-error-prev', 'player-error-next', 'player-error-back', 'zap-list', 'channel-number', 'track-menu', 'osd-fav', 'osd-ratio', 'osd-list-btn', 'osd-audio', 'osd-subs', 'osd-quality', 'osd-picture', 'picture-fx', 'stats-box', 'zap-preview', 'osd-stats', 'osd-epg', 'autonext', 'an-bar', 'an-count', 'an-title'].forEach(function (id) { els[id] = document.getElementById(id); });
+    var savedRatio = Store.settings().aspectRatio; ratioMode = ['fit', 'fill', 'stretch'].indexOf(savedRatio); if (ratioMode < 0) ratioMode = 0; applyRatio(); updateTrackControls();
     manager = new PlaybackManager({
       resolve: function (item, opt) { return StreamResolver.resolve(App.provider, item, opt); },
-      adapter: { clear: clearSource, load: loadSource, snapshot: mediaSnapshot, canUseHls: canUseHls, canPlayDash: canPlayDash, recoverMedia: recoverHlsMedia },
+      adapter: { clear: clearSource, load: loadSource, reload: reloadSource, snapshot: mediaSnapshot, canUseHls: canUseHls, canPlayDash: canPlayDash, recoverMedia: recoverHlsMedia, recoverBuffer: recoverBuffer },
       onState: playbackUi,
       onSource: sourceResolved,
       onError: function () { /* state renderer supplies the bounded retry result */ }
     });
     /* Buffer state belongs to the central SmartBufferManager. The adapter only
        forwards real media events and current networkState when webOS exposes it. */
-    function mediaDetail(extra) { extra = extra || {}; extra.networkState = video.networkState; return extra; }
+    function mediaDetail(extra) { extra = extra || {}; extra.networkState = video.networkState; extra.currentTime = Number(video.currentTime) || 0; return extra; }
     video.addEventListener('loadstart', function () { if (mediaBelongsToCurrentSession()) manager.mediaEvent('loadstart', mediaDetail()); });
     video.addEventListener('waiting', function () { if (mediaBelongsToCurrentSession()) manager.mediaEvent('waiting', mediaDetail()); });
     video.addEventListener('stalled', function () { if (mediaBelongsToCurrentSession()) manager.mediaEvent('stalled', mediaDetail()); });
@@ -173,9 +188,23 @@ var Player = (function () {
     setInterval(function () { if (els['osd-clock']) els['osd-clock'].textContent = U.clock(); }, 1000);
   }
 
+  function trackCapabilities() {
+    var audio = 0, subs = 0;
+    try { audio = (hls && hls.audioTracks ? hls.audioTracks.length : 0) || (video.audioTracks ? video.audioTracks.length : 0); subs = (hls && hls.subtitleTracks ? hls.subtitleTracks.length : 0) || (video.textTracks ? video.textTracks.length : 0); } catch (e) { }
+    return { audio: audio, subtitles: subs };
+  }
+  function updateTrackControls() {
+    var tracks = trackCapabilities();
+    if (els['osd-audio']) els['osd-audio'].style.display = tracks.audio > 1 ? '' : 'none';
+    if (els['osd-subs']) els['osd-subs'].style.display = tracks.subtitles ? '' : 'none';
+  }
+  function capabilities() {
+    var can = function (mime) { try { return !!(video && video.canPlayType && video.canPlayType(mime)); } catch (e) { return false; } }, tracks = trackCapabilities();
+    return { nativeHls: can('application/vnd.apple.mpegurl'), mp4: can('video/mp4'), mpegts: can('video/mp2t'), dash: can('application/dash+xml'), hlsjs: canUseHls(), audioTracks: tracks.audio > 1, subtitleTracks: tracks.subtitles > 0, fullscreen: !!(video && (video.requestFullscreen || video.webkitRequestFullscreen)) };
+  }
   /* Resolution badge in OSD (4K / FHD / HD / SD) from the decoded video size */
   function updateQualityBadge() {
-    var w = video.videoWidth, h = video.videoHeight, el = els['osd-quality']; if (!el) return;
+    var w = video.videoWidth, h = video.videoHeight, el = els['osd-quality']; updateTrackControls(); if (!el) return;
     var b = [], nm = current ? String((current.title || '') + ' ' + (current.subtitle || '') + ' ' + (current.name || '')) : '';
     if (w && h) { var uhd = (w >= 3800 || h >= 2100); b.push('<span class="osd-badge' + (uhd ? ' uhd' : '') + '">' + (uhd ? '4K UHD' : (h >= 1000 || w >= 1900) ? 'FHD' : (h >= 700 || w >= 1200) ? 'HD' : 'SD') + '</span>'); b.push('<span class="osd-badge">' + w + '×' + h + '</span>'); }
     else if (/\b(4k|uhd|2160p)\b/i.test(nm)) b.push('<span class="osd-badge uhd">4K</span>');
@@ -194,7 +223,7 @@ var Player = (function () {
     if (current && current.type === 'live' && item && item.type === 'live' && String(current.id) !== String(item.id)) { lastLive = current; lastLiveAccount = App.account && App.account.id; }
     current = item; applyPictureMode();
     if (opt.list) { playlist = opt.list; index = opt.index != null ? opt.index : playlist.indexOf(item); }
-    error(null); loading(true, T('loading'));
+    transition(true, item); error(null); loading(true, T('loading'));
     els['osd-title'].textContent = item.title || item.name || '';
     els['osd-sub'].textContent = item.subtitle || ''; if (els['osd-quality']) { els['osd-quality'].innerHTML = ''; els['osd-quality'].style.display = 'none'; }
     els['osd-epg'].classList.remove('show'); els['osd-epg'].innerHTML = ''; hideAutoNext();
@@ -206,18 +235,19 @@ var Player = (function () {
     U.$('.osd-times').style.visibility = isLive ? 'hidden' : 'visible';
     posKey = (isLive || item.type === 'catchup') ? null : (item.type + ':' + item.id);
     showOsd(); lastTime = -1; lastBufferEnd = -1;
+    if (!opt.provider && App.provider) opt.provider = App.provider.type;
     return manager.play(item, opt);
   }
   function stop(clearCurrent) {
     savePos(); clearInterval(posTimer);
     if (manager) manager.stop(clearCurrent);
     if (clearCurrent !== false) current = null;
-    loading(false);
+    transition(false); loading(false);
   }
   function togglePlay() {
     if (manager && manager.state === PlaybackManager.STATES.ERROR && current) { error(null); loading(true, T('retrying')); manager.retryNow(); return; }
-    if (video.paused) { if (manager) manager.setUserPaused(false); video.play().catch(function (e) { if (manager) manager.mediaError({ message: e && e.message || 'Unable to resume playback' }); }); }
-    else { if (manager) manager.setUserPaused(true); video.pause(); }
+    if (video.paused) resume();
+    else pause();
     showOsd();
   }
 
@@ -603,7 +633,9 @@ var Player = (function () {
       if (metric.streamResolveTime) rows.push([T('stats.resolve'), metric.streamResolveTime + ' ms']);
       if (metric.startupDuration) rows.push([T('stats.startup'), metric.startupDuration + ' ms']);
       if (metric.bufferingCount) rows.push([T('stats.bufferEvents'), String(metric.bufferingCount), 'warn']);
+      if (metric.bufferingDuration) rows.push([T('stats.bufferTime'), (metric.bufferingDuration / 1000).toFixed(1) + ' s', 'warn']);
       if (metric.recoveryCount) rows.push([T('stats.recoveries'), String(metric.recoveryCount), 'warn']);
+      if (metric.lastErrorCode) rows.push([T('stats.error'), metric.lastErrorCode, 'warn']);
     }
     if (lat != null && lat < 90) rows.push([T('stats.latency'), lat.toFixed(1) + ' s']);
     if (manager && manager.attempts()) rows.push(['Retries', String(manager.attempts())]);
@@ -684,5 +716,9 @@ var Player = (function () {
   function reset() { zapOpen = false; trackMenuOpen = false; trackMenuKind = ''; trackReturnEl = null; toggleStats(false); cancelZap(); hideAutoNext(); els['zap-list'].classList.remove('show'); els['track-menu'].classList.remove('show'); els['track-menu'].classList.remove('picture-menu'); hideOsd(); }
 
   function setCanPlay(fn) { canPlay = fn; }
-  return { init: init, play: play, stop: stop, handleKey: handleKey, action: action, setOnEnded: setOnEnded, setCanPlay: setCanPlay, current: getCurrent, state: function () { return manager ? manager.state : 'IDLE'; }, session: function () { return manager ? manager.currentSession() : 0; }, showOsd: showOsd, reset: reset, autoNext: autoNext, hideAutoNext: hideAutoNext, video: function () { return video; } };
+  function pause() { if (!video) return false; if (manager) manager.setUserPaused(true); video.pause(); return true; }
+  function resume() { if (!video) return false; if (manager) manager.setUserPaused(false); video.play().catch(function (e) { if (manager) manager.mediaError({ message: e && e.message || 'Unable to resume playback' }); }); return true; }
+  function retry() { return manager ? manager.retryNow() : false; }
+  function setAspectRatio(mode) { var names = ['fit', 'fill', 'stretch'], i = names.indexOf(String(mode || '').toLowerCase()); if (i < 0) return false; ratioMode = i; Store.setSetting('aspectRatio', names[i]); applyRatio(); return true; }
+  return { init: init, play: play, switchChannel: play, stop: stop, pause: pause, resume: resume, retry: retry, handleKey: handleKey, action: action, setOnEnded: setOnEnded, setCanPlay: setCanPlay, current: getCurrent, state: function () { return manager ? manager.state : 'IDLE'; }, getState: function () { return manager ? manager.state : 'IDLE'; }, session: function () { return manager ? manager.currentSession() : 0; }, diagnostics: function () { return manager && manager.diagnostics ? manager.diagnostics() : {}; }, getDiagnostics: function () { return manager && manager.diagnostics ? manager.diagnostics() : {}; }, capabilities: capabilities, getCapabilities: capabilities, setAspectRatio: setAspectRatio, showOsd: showOsd, reset: reset, autoNext: autoNext, hideAutoNext: hideAutoNext, video: function () { return video; } };
 })();

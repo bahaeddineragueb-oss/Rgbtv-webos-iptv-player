@@ -134,8 +134,11 @@ async function testPlayerFallback(parsed) {
   var stream = parsed.list[0];
   var native = playerHarness('probably');
   await native.player.play({ type: 'live', id: stream.id, name: stream.name, url: stream.url, streamHeaders: stream.streamHeaders });
+  assert.strictEqual(native.nodes['player-transition'].classList.contains('show'), true, 'channel handoff presents a transition layer instead of a featureless black frame');
   assert.strictEqual(native.video.src, stream.url, 'auto mode must keep the direct M3U channel on native webOS first');
   assert.strictEqual(native.hls.length, 0, 'native-capable webOS must not eagerly create an hls.js pipeline');
+  native.emit('playing');
+  assert.strictEqual(native.nodes['player-transition'].classList.contains('show'), false, 'transition layer clears exactly when playback starts');
   native.video.error = { code: 4 };
   native.emit('error');
   assert.strictEqual(native.hls.length, 1, 'a rejected native HLS source must hand over once instead of beginning reconnects');

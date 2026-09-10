@@ -79,9 +79,11 @@ function PlaybackErrorClassifier(raw, stream) {
   if (!retryAfter && retryValue && !/^\d+(?:\.\d+)?$/.test(String(retryValue))) { var retryDate = Date.parse(retryValue); if (!isNaN(retryDate)) retryAfter = Math.max(0, retryDate - Date.now()); }
   if (retryAfter > 0 && retryAfter < 1000) retryAfter *= 1000;
   if (raw.name === 'AbortError' || raw.code === 'USER_CANCELLED' || /cancelled|canceled/i.test(text)) return new PlaybackError('USER_CANCELLED', 'Playback request cancelled', false, false, raw);
-  if (status === 401 || status === 403 || /HTTP\s*(401|403)|unauthori[sz]ed|forbidden|token.*(?:expired|invalid)/i.test(text)) return new PlaybackError(status === 401 ? 'AUTH_ERROR' : 'AUTH_ERROR', 'Access to this stream was denied', false, false, raw, status);
+  if (raw.code === 'TOKEN_EXPIRED' || /token.*(?:expired|invalid)|expired.*token/i.test(text)) return new PlaybackError('TOKEN_EXPIRED', 'Stream authorization expired', true, true, raw, status, retryAfter);
+  if (status === 401 || status === 403 || /HTTP\s*(401|403)|unauthori[sz]ed|forbidden/i.test(text)) return new PlaybackError('AUTH_ERROR', 'Access to this stream was denied', false, false, raw, status);
   if (status === 404 || /HTTP\s*404|not found/i.test(text)) return new PlaybackError('HTTP_ERROR', 'Stream was not found', false, false, raw, status);
   if (status === 429 || /HTTP\s*429|too many requests|rate limit/i.test(text)) return new PlaybackError('HTTP_ERROR', 'Stream server is rate limiting requests', true, true, raw, status, retryAfter);
+  if (status === 408 || status >= 500 && status <= 504 || /HTTP\s*(408|5\d\d)|server (?:temporarily )?unavailable|gateway/i.test(text)) return new PlaybackError('HTTP_ERROR', 'Stream server is temporarily unavailable', true, true, raw, status, retryAfter);
   if (raw.hls && raw.type === 'mediaError') return new PlaybackError('MEDIA_ERROR', 'Media decoder error', true, true, raw, status);
   if (raw.nativeCode === 4 || /not supported|unsupported format|demux|manifest incompatible/i.test(text)) return new PlaybackError('UNSUPPORTED_FORMAT', 'This stream format is not supported by this TV', false, false, raw, status);
   if (raw.code === 'TIMEOUT' || /timeout|timed out/i.test(text)) return new PlaybackError('TIMEOUT', 'Stream request timed out', true, true, raw, status, retryAfter);
@@ -124,15 +126,46 @@ PlaybackMetrics.prototype = {
     this.startupStartedAt = startedAt || 0; this.streamResolveStartedAt = 0; this.sourceAssignedAt = 0;
     this.loadStartedAt = 0; this.metadataLoadedAt = 0; this.canPlayAt = 0; this.playingAt = 0;
     this.startupDuration = 0; this.streamResolveTime = 0; this.bufferingCount = 0; this.recoveryCount = 0;
-    this.retryCount = 0; this.networkErrors = 0; this.lastErrorCode = ''; this.networkState = 0;
+    this.retryCount = 0; this.networkErrors = 0; this.failureCount = 0; this.lastErrorCode = ''; this.networkState = 0;
+    this.channelSwitchDuration = 0; this.timeToFirstFrame = 0; this.bufferingDuration = 0;
+    this.lastCurrentTime = 0; this.lastCurrentTimeAt = 0; this.sameStreamResolutions = 0;
   },
   snapshot: function () {
     return { startupStartedAt: this.startupStartedAt, sourceAssignedAt: this.sourceAssignedAt, loadStartedAt: this.loadStartedAt,
       metadataLoadedAt: this.metadataLoadedAt, canPlayAt: this.canPlayAt, playingAt: this.playingAt, startupDuration: this.startupDuration,
       streamResolveTime: this.streamResolveTime, bufferingCount: this.bufferingCount, recoveryCount: this.recoveryCount,
-      retryCount: this.retryCount, networkErrors: this.networkErrors, lastErrorCode: this.lastErrorCode, networkState: this.networkState };
+      retryCount: this.retryCount, networkErrors: this.networkErrors, failureCount: this.failureCount, lastErrorCode: this.lastErrorCode, networkState: this.networkState,
+      channelSwitchDuration: this.channelSwitchDuration, timeToFirstFrame: this.timeToFirstFrame, bufferingDuration: this.bufferingDuration,
+      lastCurrentTime: this.lastCurrentTime, lastCurrentTimeAt: this.lastCurrentTimeAt, sameStreamResolutions: this.sameStreamResolutions };
   }
 };
+
+/* Short local circuit breaker: a broken channel/portal must not turn repeated
+ * remote Retry presses into a 429-producing request storm. It never stores URLs
+ * or credentials and automatically reopens after its small cooldown. */
+function PlaybackCircuitBreaker() { this.entries = {}; this.windowMs = 90000; this.cooldownMs = 30000; this.threshold = 4; this.maxEntries = 120; }
+PlaybackCircuitBreaker.prototype = {
+  allow: function (key, now) { var item = this.entries[key]; now = now || Date.now(); return !item || item.openUntil <= now; },
+  failure: function (key, now) {
+    var self = this, item = this.entries[key] || { times: [], openUntil: 0 }; now = now || Date.now();
+    item.times = item.times.filter(function (time) { return now - time <= self.windowMs; }); item.times.push(now); item.lastAt = now;
+    if (item.times.length >= this.threshold) item.openUntil = now + this.cooldownMs;
+    this.entries[key] = item;
+    var keys = Object.keys(this.entries);
+    if (keys.length > this.maxEntries) { keys.sort(function (a, b) { return self.entries[a].lastAt - self.entries[b].lastAt; }); keys.slice(0, keys.length - this.maxEntries).forEach(function (old) { delete self.entries[old]; }); }
+    return item.openUntil > now;
+  },
+  success: function (key) { delete this.entries[key]; }
+};
+
+function streamFingerprint(stream) {
+  var input = String(stream && stream.url || ''), headers = stream && stream.headers || {}, key, hash = 2166136261;
+  /* A non-cryptographic private in-memory fingerprint: sufficient to detect a
+     changed token/source without exposing it in UI, logs or persisted storage. */
+  for (key in headers) if (Object.prototype.hasOwnProperty.call(headers, key)) input += '\n' + key + ':' + headers[key];
+  for (var i = 0; i < input.length; i++) { hash ^= input.charCodeAt(i); hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24); }
+  return (hash >>> 0).toString(36);
+}
 
 function PlaybackRecoveryManager(callbacks) {
   this.callbacks = callbacks || {}; this.session = 0; this.attempt = 0; this.timer = null;
@@ -165,7 +198,7 @@ PlaybackRecoveryManager.prototype = {
 };
 
 var PlaybackManager = (function () {
-  var STATES = { IDLE: 'IDLE', LOADING: 'LOADING', READY: 'READY', PLAYING: 'PLAYING', BUFFERING: 'BUFFERING', RECOVERING: 'RECOVERING', STOPPING: 'STOPPING', ERROR: 'ERROR' };
+  var STATES = { IDLE: 'IDLE', RESOLVING: 'RESOLVING', LOADING: 'LOADING', STARTING: 'STARTING', READY: 'READY', PLAYING: 'PLAYING', PAUSED: 'PAUSED', BUFFERING: 'BUFFERING', RECOVERING: 'RECOVERING', STOPPING: 'STOPPING', ERROR: 'ERROR', STOPPED: 'STOPPED' };
   function makeAbortController() {
     if (typeof AbortController !== 'undefined') return new AbortController();
     return { signal: { aborted: false }, abort: function () { this.signal.aborted = true; } };
@@ -184,8 +217,8 @@ var PlaybackManager = (function () {
     this.adapter = options.adapter; this.resolve = options.resolve; this.onState = options.onState || function () {};
     this.onSource = options.onSource || function () {}; this.onError = options.onError || function () {};
     this.sessionId = 0; this.state = STATES.IDLE; this.current = null; this.options = null; this.stream = null; this.engine = 'native';
-    this.abortController = null; this.startedAt = 0; this.lastProgress = 0; this.hasMetadata = false; this.userPaused = false; this.mediaRecovered = false; this.hlsFallbackTried = false; this.networkOffline = false;
-    this.metrics = new PlaybackMetrics();
+    this.abortController = null; this.startedAt = 0; this.lastProgress = 0; this.lastCurrentTime = -1; this.lastCurrentTimeAt = 0; this.hasMetadata = false; this.userPaused = false; this.mediaRecovered = false; this.hlsFallbackTried = false; this.networkOffline = false;
+    this.metrics = new PlaybackMetrics(); this.circuit = new PlaybackCircuitBreaker(); this.streamFingerprint = ''; this.sameSourceReloadTried = false; this.lastError = null; this.providerType = ''; this.tokenRefreshTried = false;
     var self = this;
     this.buffer = new SmartBufferManager(function (detail) {
       if (!self.current || self.userPaused || self.state === STATES.RECOVERING || self.state === STATES.ERROR || self.state === STATES.STOPPING) return;
@@ -194,7 +227,7 @@ var PlaybackManager = (function () {
     });
     this.recovery = new PlaybackRecoveryManager({
       onRecovering: function (session, error, attempt, max, delay) { self.metrics.recoveryCount++; self.metrics.retryCount = attempt; self._setState(STATES.RECOVERING, { error: error, attempt: attempt, max: max, delay: delay }); self._log('Recovering', { retry: attempt + '/' + max, error: error.code }); },
-      onRetry: function (session) { self._retry(session); },
+      onRetry: function (session, attempt, error) { self._retry(session, attempt, error); },
       onGiveUp: function (session, error, attempts) { if (!self.isCurrent(session)) return; self._setState(STATES.ERROR, { error: error, attempt: attempts, max: self.recovery.maxAttempts }); self.onError(error, attempts, self.recovery.maxAttempts); self._log('Error', { code: error && error.code, retries: attempts }); }
     });
     this.watchdogTimer = setInterval(function () { self._watchdog(); }, 3000);
@@ -204,6 +237,7 @@ var PlaybackManager = (function () {
     attempts: function () { return this.recovery.attempt; },
     currentSession: function () { return this.sessionId; },
     diagnostics: function () { return this.metrics.snapshot(); },
+    _circuitKey: function () { return String(this.current && this.current.provider || this.options && this.options.provider || this.stream && this.stream.provider || this.providerType || 'unknown') + ':' + String(this.current && this.current.id || this.stream && this.stream.channelId || ''); },
     _log: function (event, extra) {
       var stream = this.stream || {}, data = { session: this.sessionId, provider: stream.provider || this.current && this.current.provider || '', channelId: stream.channelId || this.current && this.current.id || '', streamType: stream.type || '', engine: this.engine || '' }, key;
       if (stream.url) data.source = redactedSource(stream.url);
@@ -213,6 +247,7 @@ var PlaybackManager = (function () {
     _setState: function (state, detail) { this.state = state; this.onState(state, detail || {}, this.sessionId); },
     _abort: function () { if (this.abortController) { try { this.abortController.abort(); } catch (e) { } } this.abortController = null; },
     _clear: function () { if (this.adapter && this.adapter.clear) this.adapter.clear(); },
+    _bufferProgressed: function (now) { var began = this.buffer.waitingAt, recovered = this.buffer.progressed(); if (recovered && began) this.metrics.bufferingDuration += Math.max(0, now - began); return recovered; },
     play: function (item, opt) {
       /* Advance first so callbacks triggered while the old source is being
          detached cannot belong to, or overwrite, the new channel session. */
@@ -220,16 +255,20 @@ var PlaybackManager = (function () {
       /* Detach ownership before clearing the element: native events triggered by
          pause/removeAttribute are now guaranteed to be ignored as stale. */
       this.current = null; this.stream = null; this._abort(); this.recovery.cancel(); this._clear();
-      this.current = item; this.options = opt; this.engine = 'native'; this.startedAt = Date.now(); this.lastProgress = this.startedAt;
-      this.metrics.reset(this.startedAt); this.buffer.reset(this.startedAt, true);
+      this.current = item; this.options = opt; this.engine = 'native'; this.startedAt = Date.now(); this.lastProgress = this.startedAt; this.lastCurrentTime = -1; this.lastCurrentTimeAt = this.startedAt;
+      this.metrics.reset(this.startedAt); this.metrics.lastCurrentTimeAt = this.startedAt; this.buffer.reset(this.startedAt, true); this.streamFingerprint = ''; this.sameSourceReloadTried = false; this.lastError = null; this.tokenRefreshTried = false;
       this.hasMetadata = false; this.userPaused = false; this.mediaRecovered = false; this.hlsFallbackTried = false; this.networkOffline = false; this.abortController = makeAbortController(); this.recovery.begin(this.sessionId);
+      if (!this.circuit.allow(this._circuitKey(), this.startedAt)) {
+        var blocked = new PlaybackError('CIRCUIT_OPEN', 'This channel is temporarily paused after repeated failures. Please try again shortly.', false, false, null);
+        this.metrics.lastErrorCode = blocked.code; this._setState(STATES.ERROR, { error: blocked, circuitOpen: true }); this.onError(blocked, this.recovery.attempt, this.recovery.maxAttempts); return Promise.resolve(null);
+      }
       this._setState(STATES.LOADING, { initial: true }); this._log('Channel selected', { provider: opt.provider || '' });
       return this._open(this.sessionId, true, 0);
     },
     _open: function (session, initial, resumeAt) {
       var self = this, item = this.current, opt = this.options || {}, request = {};
       if (!this.isCurrent(session)) return Promise.resolve(null);
-      this._setState(STATES.LOADING, { initial: !!initial, retry: !initial, resolving: true, attempt: this.recovery.attempt });
+      this._setState(STATES.RESOLVING, { initial: !!initial, retry: !initial, resolving: true, attempt: this.recovery.attempt });
       this.lastProgress = Date.now(); this.hasMetadata = false; this.metrics.streamResolveStartedAt = this.lastProgress;
       request.signal = this.abortController && this.abortController.signal;
       /* A catch-up URL is already resolved by its provider; normal live retries
@@ -237,18 +276,29 @@ var PlaybackManager = (function () {
       if (opt.url && item.type === 'catchup') request.url = opt.url;
       return this.resolve(item, request).then(function (stream) {
         if (!self.isCurrent(session)) return null;
-        self.stream = stream; if (initial) self.engine = 'native'; self.mediaRecovered = false;
+        var priorFingerprint = self.streamFingerprint, nextFingerprint = streamFingerprint(stream), unchanged = !!priorFingerprint && priorFingerprint === nextFingerprint;
+        self.stream = stream; self.streamFingerprint = nextFingerprint; self.providerType = stream.provider || self.providerType; if (unchanged) self.metrics.sameStreamResolutions++;
+        if (initial) self.engine = 'native'; self.mediaRecovered = false;
         self.metrics.streamResolveTime = Math.max(0, Date.now() - self.metrics.streamResolveStartedAt);
         if (stream.type === 'dash' && (!self.adapter || !self.adapter.canPlayDash || !self.adapter.canPlayDash(stream))) {
           self.fail(new PlaybackError('UNSUPPORTED_FORMAT', 'DASH is not supported by this TV playback engine', false, false, null), session); return null;
         }
-        self._log('Source resolved', { source: redactedSource(stream.url), initial: !!initial });
+        self._log('Source resolved', { source: redactedSource(stream.url), initial: !!initial, sourceChanged: !unchanged });
+        /* A normal re-resolve is worthwhile only when it produced a new signed URL
+           or headers. After the one low-cost same-source reload, do not churn the
+           identical decoder input again: consume the remaining bounded recovery
+           budget without presenting a black reload loop. */
+        if (!initial && unchanged && self.sameSourceReloadTried) {
+          self._log('Unchanged source skipped', { attempt: self.recovery.attempt });
+          self.fail(new PlaybackError('NETWORK_ERROR', 'Fresh stream resolution returned the same source', true, true, null), session); return null;
+        }
         self.onSource(stream, session, { initial: !!initial, resumeAt: resumeAt || 0 });
-        self._setState(STATES.LOADING, { source: true, initial: !!initial, retry: !initial, attempt: self.recovery.attempt });
+        self._setState(STATES.LOADING, { source: true, sourceChanged: !unchanged, initial: !!initial, retry: !initial, attempt: self.recovery.attempt });
         /* Once a native HLS handoff succeeded, recover with that selected engine
            rather than bouncing back and forth between two decoders. */
         var engine = self.engine === 'hls' && self.hlsFallbackTried && stream.type === 'hls' ? 'hls' : 'native';
         self.engine = engine; self.metrics.sourceAssignedAt = Date.now();
+        self._setState(STATES.STARTING, { source: true, sourceChanged: !unchanged, initial: !!initial, retry: !initial, attempt: self.recovery.attempt });
         if (self.adapter && self.adapter.load) self.adapter.load(stream, session, engine);
         return stream;
       }, function (error) {
@@ -261,8 +311,16 @@ var PlaybackManager = (function () {
       if (!this.isCurrent(session) || this.state === STATES.STOPPING) return false;
       var error = PlaybackErrorClassifier(raw, this.stream);
       if (error.code === 'USER_CANCELLED') return false;
-      this.metrics.lastErrorCode = error.code;
+      if (error.code === 'TOKEN_EXPIRED') {
+        if (this.tokenRefreshTried) error = new PlaybackError('AUTH_ERROR', 'Stream authorization could not be refreshed', false, false, error, error.status);
+        else this.tokenRefreshTried = true;
+      }
+      this.metrics.lastErrorCode = error.code; this.metrics.failureCount++; this.lastError = error;
       if (error.code === 'NETWORK_ERROR' || error.code === 'TIMEOUT') this.metrics.networkErrors++;
+      if (this.circuit.failure(this._circuitKey(), Date.now())) {
+        var blocked = new PlaybackError('CIRCUIT_OPEN', 'This channel is temporarily paused after repeated failures. Please try again shortly.', false, false, error);
+        this.metrics.lastErrorCode = blocked.code; this.recovery.cancel(); this._setState(STATES.ERROR, { error: blocked, circuitOpen: true }); this.onError(blocked, this.recovery.attempt, this.recovery.maxAttempts); this._log('Circuit opened', { error: error.code }); return false;
+      }
       /* HLS has one controlled native-to-hls.js handover. It is an engine change,
          not a retry and cannot cycle back to native for the same session. */
       if (this.stream && this.stream.type === 'hls' && this.engine === 'native' && !this.hlsFallbackTried && this.adapter && this.adapter.canUseHls && this.adapter.canUseHls()) {
@@ -285,31 +343,51 @@ var PlaybackManager = (function () {
       if (name === 'loadstart') { this.metrics.loadStartedAt = this.metrics.loadStartedAt || now; this._setState(STATES.LOADING, {}); this._log('Load started'); return; }
       if (name === 'waiting' || name === 'stalled') { if (!this.userPaused && this.state !== STATES.RECOVERING) this.buffer.wait(); return; }
       if (name === 'loadedmetadata') {
-        recovered = this.buffer.progressed(); this.hasMetadata = true; this.lastProgress = now; this.metrics.metadataLoadedAt = this.metrics.metadataLoadedAt || now;
+        recovered = this._bufferProgressed(now); this.hasMetadata = true; this.lastProgress = now; this.metrics.metadataLoadedAt = this.metrics.metadataLoadedAt || now;
         this._setState(STATES.READY, { recovered: recovered }); this._log('Metadata loaded'); return;
       }
       if (name === 'canplay') {
-        recovered = this.buffer.progressed(); this.lastProgress = now; this.metrics.canPlayAt = this.metrics.canPlayAt || now;
+        recovered = this._bufferProgressed(now); this.lastProgress = now; this.metrics.canPlayAt = this.metrics.canPlayAt || now;
         if (this.state !== STATES.PLAYING) this._setState(STATES.READY, { recovered: recovered }); this._log('Can play'); return;
       }
       if (name === 'playing') {
-        this.buffer.progressed(); this.lastProgress = now; this.metrics.playingAt = this.metrics.playingAt || now;
+        this._bufferProgressed(now); this.lastProgress = now; this.lastCurrentTime = Number(detail.currentTime) || this.lastCurrentTime; this.lastCurrentTimeAt = now;
+        this.metrics.lastCurrentTime = this.lastCurrentTime; this.metrics.lastCurrentTimeAt = now; this.metrics.playingAt = this.metrics.playingAt || now;
+        this.circuit.success(this._circuitKey());
         this.metrics.startupDuration = Math.max(0, this.metrics.playingAt - this.metrics.startupStartedAt);
+        this.metrics.timeToFirstFrame = this.metrics.startupDuration; this.metrics.channelSwitchDuration = this.metrics.startupDuration;
         this._setState(STATES.PLAYING, { startupMs: this.metrics.startupDuration }); this._log('Playing', { startupMs: this.metrics.startupDuration, retry: this.recovery.attempt }); return;
       }
-      if (name === 'timeupdate' || name === 'progress') {
-        if (detail.progressed !== false) { recovered = this.buffer.progressed(); this.lastProgress = now; if (this.state === STATES.BUFFERING) this._setState(STATES.PLAYING, { recovered: recovered }); }
+      if (name === 'timeupdate') {
+        if (detail.progressed !== false) {
+          recovered = this._bufferProgressed(now); this.lastProgress = now; this.lastCurrentTime = Number(detail.currentTime) || 0; this.lastCurrentTimeAt = now;
+          this.metrics.lastCurrentTime = this.lastCurrentTime; this.metrics.lastCurrentTimeAt = now;
+          if (!this.metrics.playingAt) { this.metrics.playingAt = now; this.metrics.startupDuration = Math.max(0, now - this.metrics.startupStartedAt); this.metrics.timeToFirstFrame = this.metrics.startupDuration; this.metrics.channelSwitchDuration = this.metrics.startupDuration; }
+          if (this.state !== STATES.PLAYING && this.state !== STATES.RECOVERING) this._setState(STATES.PLAYING, { recovered: recovered, progressSignal: true });
+        }
         return;
       }
-      if (name === 'pause') { return; }
+      if (name === 'progress') { if (detail.progressed !== false) this.lastProgress = now; return; }
+      if (name === 'pause') { if (this.userPaused) this._setState(STATES.PAUSED, {}); return; }
     },
     mediaError: function (detail) { return this.fail(detail || {}, this.sessionId); },
     setUserPaused: function (paused) { this.userPaused = !!paused; if (this.userPaused) this.buffer.progressed(); },
-    _retry: function (session) {
+    _retry: function (session, attempt, error) {
       if (!this.isCurrent(session)) return;
-      var snapshot = this.adapter && this.adapter.snapshot ? this.adapter.snapshot() : {}, item = this.current;
+      var snapshot = this.adapter && this.adapter.snapshot ? this.adapter.snapshot() : {}, item = this.current, now = Date.now();
       var resumeAt = item && item.type !== 'live' && item.type !== 'catchup' && snapshot && Number(snapshot.currentTime) > 5 ? Number(snapshot.currentTime) : 0;
-      this._abort(); this._clear(); this.abortController = makeAbortController(); this.startedAt = Date.now(); this.lastProgress = this.startedAt; this.hasMetadata = false; this.buffer.reset(this.startedAt);
+      error = error || this.lastError || {}; attempt = Number(attempt || this.recovery.attempt);
+      /* Adaptive recovery ladder: a stall gets one decoder-level nudge first;
+         transient transport failures reload the already fingerprinted source once;
+         later attempts re-resolve so expiring provider URLs can rotate. */
+      if (error.code === 'BUFFER_ERROR' && attempt === 1 && this.adapter && this.adapter.recoverBuffer && this.adapter.recoverBuffer(session)) {
+        this.lastProgress = now; this.lastCurrentTimeAt = now; this.buffer.reset(now); this._setState(STATES.BUFFERING, { recoveryLevel: 'buffer' }); this._log('Adaptive buffer recovery'); return;
+      }
+      if ((error.code === 'BUFFER_ERROR' || error.code === 'NETWORK_ERROR' || error.code === 'TIMEOUT') && attempt === 1 && this.stream && this.adapter && this.adapter.reload) {
+        this._abort(); this.abortController = makeAbortController(); this.lastProgress = now; this.lastCurrentTimeAt = now; this.hasMetadata = false; this.sameSourceReloadTried = true; this.buffer.reset(now);
+        this._setState(STATES.LOADING, { recoveryLevel: 'reload', sourceChanged: false, attempt: attempt }); this._log('Adaptive source reload', { sourceChanged: false }); this.adapter.reload(this.stream, session, this.engine); return;
+      }
+      this._abort(); this._clear(); this.abortController = makeAbortController(); this.startedAt = now; this.lastProgress = now; this.lastCurrentTimeAt = now; this.hasMetadata = false; this.buffer.reset(now);
       this._open(session, false, resumeAt);
     },
     retryNow: function () {
@@ -325,16 +403,22 @@ var PlaybackManager = (function () {
     online: function () { this.networkOffline = false; this.recovery.retryNow(this.sessionId); },
     _watchdog: function () {
       if (!this.current || this.userPaused || this.state === STATES.RECOVERING || this.state === STATES.ERROR || this.recovery.pending()) return;
-      var snap = this.adapter && this.adapter.snapshot ? this.adapter.snapshot() : {}, now = Date.now();
+      var snap = this.adapter && this.adapter.snapshot ? this.adapter.snapshot() : {}, now = Date.now(), currentTime = Number(snap.currentTime) || 0;
       if (snap.ended || (snap.paused && Number(snap.readyState) >= 3)) return;
+      /* Independent health check: growing buffered ranges or a stale playing event
+         do not count as healthy playback. The decoded media clock must advance. */
+      if (currentTime > this.lastCurrentTime + 0.05) {
+        this.lastCurrentTime = currentTime; this.lastCurrentTimeAt = now; this.metrics.lastCurrentTime = currentTime; this.metrics.lastCurrentTimeAt = now;
+      }
       var limit = this.current.type === 'live' ? 12000 : this.hasMetadata ? 30000 : 60000;
-      if (now - this.lastProgress > limit && Number(snap.readyState || 0) < 3) this.fail({ code: 'BUFFER_ERROR', message: 'Playback stalled' }, this.sessionId);
+      if ((this.state === STATES.PLAYING || this.state === STATES.BUFFERING) && now - this.lastCurrentTimeAt > limit) this.fail({ code: 'BUFFER_ERROR', message: 'Playback media clock stalled' }, this.sessionId);
+      else if (now - this.lastProgress > limit && Number(snap.readyState || 0) < 3) this.fail({ code: 'BUFFER_ERROR', message: 'Playback loading stalled' }, this.sessionId);
       else if (!this.hasMetadata && this.current.type !== 'live' && now - this.startedAt >= 6000 && this.state === STATES.LOADING) this._setState(STATES.LOADING, { elapsed: Math.round((now - this.startedAt) / 1000) });
     },
     stop: function (clearCurrent) {
       this.sessionId++; this._setState(STATES.STOPPING, {}); this._abort(); this.recovery.cancel(); this.buffer.reset(0); this._clear();
       if (clearCurrent !== false) { this.current = null; this.stream = null; this.options = null; }
-      this._setState(STATES.IDLE, {});
+      this._setState(STATES.STOPPED, {});
     },
     destroy: function () { this.stop(); if (this.watchdogTimer) clearInterval(this.watchdogTimer); this.watchdogTimer = null; }
   };

@@ -88,7 +88,7 @@ var App = (function () {
     OSK.init(U.$('#osk'), U.$('#search-input'), function (val, submit) { doSearch(val); if (submit) { var c = U.$('#search-rows .card'); if (c) Nav.focus(c); } });
     Nav.onFocus(onFocusChange); Nav.onKey(onKey);
     Player.setOnEnded(onPlaybackEnded);
-    document.addEventListener('visibilitychange', function () { if (screen !== 'player') return; if (document.hidden) Player.video().pause(); else Player.video().play().catch(function () { }); });
+    document.addEventListener('visibilitychange', function () { if (screen !== 'player') return; if (document.hidden) Player.pause(); else Player.resume(); });
     var s = Store.settings(), last = Store.lastAccount();
     setTimeout(function () { if (s.autostart && last && Store.getAccount(last)) openAccount(last); else showAccounts(); }, 700);
   }

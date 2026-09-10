@@ -315,7 +315,7 @@
         <div class="setting-row"><div><b data-i18n="pair.btn">Add from phone</b><p class="muted" data-i18n="pair.set.d">Show a QR code; type the server details on your phone instead of the remote.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="pair-phone">📱 QR</button></div>
         <div class="setting-row"><div><b data-i18n="backup.title">Backup &amp; restore</b><p class="muted" data-i18n="backup.settings.d">Create a portable backup code for profiles, favorites and settings.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="backup-open" data-i18n="backup.open">Open</button></div>
         <div class="setting-row"><div><b data-i18n="set.profile">Profile</b><p class="muted" id="settings-account-info"></p></div><div class="setting-actions"><button class="btn ghost focusable" data-nav="settings" data-action="edit-account" data-i18n="edit">Edit</button><button class="btn ghost focusable" data-nav="settings" data-action="switch-account" data-i18n="switch">Switch</button></div></div>
-        <div class="setting-row"><div><b data-i18n="set.about">About</b><p class="muted">RGBTv v2.6.0 · Player V2 for LG webOS · Xtream Codes · Stalker Portal · M3U · Native player + hls.js</p></div><button class="btn ghost focusable" data-nav="settings" data-action="exit-app" data-i18n="set.exit">Exit App</button></div>
+        <div class="setting-row"><div><b data-i18n="set.about">About</b><p class="muted">RGBTv v2.6.1 · Player V2 for LG webOS · Xtream Codes · Stalker Portal · M3U · Native player + hls.js</p></div><button class="btn ghost focusable" data-nav="settings" data-action="exit-app" data-i18n="set.exit">Exit App</button></div>
       </div>
     </section>
   </main>
@@ -358,8 +358,9 @@
   <video id="video" autoplay playsinline disableRemotePlayback></video>
   <!-- Fallback grading layer: native webOS video planes may ignore CSS filters. -->
   <div class="picture-fx" id="picture-fx" aria-hidden="true"></div>
+  <div class="player-transition" id="player-transition" aria-hidden="true"><span data-i18n="p.starting">Starting</span><b id="player-transition-title"></b></div>
   <div class="player-loading" id="player-loading"><div class="loader"></div><span id="player-loading-text">Loading…</span></div>
-  <div class="player-error" id="player-error"><span id="player-error-text"></span><div class="player-error-actions"><button class="btn focusable" data-nav="osd" data-action="p-retry" id="player-retry" data-i18n="retry" style="display:none">Retry</button><button class="btn ghost focusable" data-nav="osd" data-action="p-back" id="player-error-back" data-i18n="p.backChannels" style="display:none">Back to channels</button></div></div>
+  <div class="player-error" id="player-error"><span id="player-error-text"></span><div class="player-error-actions"><button class="btn focusable" data-nav="osd" data-action="p-retry" id="player-retry" data-i18n="retry" style="display:none">Retry</button><button class="btn ghost focusable" data-nav="osd" data-action="p-prev" id="player-error-prev" data-i18n="p.previous" style="display:none">Previous</button><button class="btn ghost focusable" data-nav="osd" data-action="p-next" id="player-error-next" data-i18n="p.next">Next</button><button class="btn ghost focusable" data-nav="osd" data-action="p-back" id="player-error-back" data-i18n="p.backChannels" style="display:none">Back to channels</button></div></div>
   <div class="osd" id="osd">
     <div class="osd-top">
       <div class="osd-logo" id="osd-logo"></div>
