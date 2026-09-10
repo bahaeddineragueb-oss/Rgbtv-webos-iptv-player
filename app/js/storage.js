@@ -30,7 +30,7 @@ var Store = (function () {
   function setLastAccount(id) { set('lastAccount', id); }
 
   /* ---- settings ---- */
-  var DEFAULTS = { liveFormat: 'm3u8', engine: 'auto', parental: true, autostart: false, theme: 'aurora', tmdbKey: '', preview: true, lang: 'en', refreshHours: 6, layout: 'classic', focusStyle: 'glow', largeUi: false, highContrast: false, liveGrid: false, ambient: true, weather: true, autoNext: true, accent: 'auto', pointer: 'click', corners: 'round', glow: true, wxMode: 'auto', wxUnit: 'c', adhan: true, adhanMethod: 'algeria', pictureMode: 'original', pictureBrightness: 100, pictureContrast: 100, pictureSaturation: 100, pictureTone: 0 };
+  var DEFAULTS = { liveFormat: 'm3u8', engine: 'auto', parental: true, autostart: false, theme: 'aurora', tmdbKey: '', preview: true, lang: 'en', refreshHours: 6, layout: 'classic', focusStyle: 'glow', largeUi: false, highContrast: false, liveGrid: false, ambient: true, weather: true, autoNext: true, accent: 'auto', pointer: 'click', corners: 'round', glow: true, wxMode: 'auto', wxUnit: 'c', adhan: true, adhanMethod: 'algeria', pictureMode: 'original', pictureBrightness: 100, pictureContrast: 100, pictureSaturation: 100, pictureTone: 0, pictureBlackLevel: 0, pictureGamma: 0 };
   var THEME_MIGRATE = { dark: 'aurora' }, LAYOUT_MIGRATE = { viu: 'spotlight', ibo: 'trio' };
   function settings() { var s = get('settings', {}); if (Object.prototype.hasOwnProperty.call(s, 'performance')) delete s.performance; for (var k in DEFAULTS) if (!(k in s)) s[k] = DEFAULTS[k]; if (THEME_MIGRATE[s.theme]) s.theme = THEME_MIGRATE[s.theme]; if (LAYOUT_MIGRATE[s.layout]) s.layout = LAYOUT_MIGRATE[s.layout]; return s; }
   /* per-account locked channels (ids) */

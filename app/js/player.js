@@ -1,7 +1,7 @@
 /* RGBTv — Player: native <video> (webOS handles HLS/TS/MP4/MKV natively) with hls.js fallback */
 var Player = (function () {
   var video, hls = null, osdTimer = null, current = null, playlist = [], index = -1, ratioMode = 0, RATIOS = ['Fit', 'Fill', 'Stretch'];
-  var onEnded = null, canPlay = null, posKey = null, posTimer = null, seekAccum = 0, seekTimer = null, numBuf = '', numTimer = null, zapOpen = false, trackMenuOpen = false;
+  var onEnded = null, canPlay = null, posKey = null, posTimer = null, seekAccum = 0, seekTimer = null, numBuf = '', numTimer = null, zapOpen = false, trackMenuOpen = false, trackMenuKind = '', trackReturnEl = null;
   var els = {};
   /* auto-reconnect state */
   var rc = { attempts: 0, timer: null, stallTimer: null, lastTime: -1, lastProgress: 0, lastOpt: null, active: false };
@@ -279,6 +279,9 @@ var Player = (function () {
   /* ---- audio / subtitle tracks ---- */
   function openTrackMenu(kind) {
     var menu = els['track-menu'], list = [];
+    trackMenuKind = kind;
+    trackReturnEl = kind === 'audio' ? els['osd-audio'] : els['osd-subs'];
+    menu.classList.remove('picture-menu');
     menu.innerHTML = '<div class="tm-title">' + (kind === 'audio' ? 'Audio tracks' : 'Subtitles') + '</div>';
     if (hls) {
       if (kind === 'audio') hls.audioTracks.forEach(function (t, i) { list.push({ label: t.name || t.lang || ('Track ' + (i + 1)), active: hls.audioTrack === i, act: function () { hls.audioTrack = i; } }); });
@@ -294,69 +297,163 @@ var Player = (function () {
     });
     menu.classList.add('show'); trackMenuOpen = true; showOsd(true); Nav.focusScope('track');
   }
-  function closeTrackMenu() { els['track-menu'].classList.remove('show'); trackMenuOpen = false; showOsd(); Nav.focus(els['osd-play']); }
+  function closeTrackMenu() {
+    var target = trackReturnEl || els['osd-play'];
+    els['track-menu'].classList.remove('show');
+    els['track-menu'].classList.remove('picture-menu');
+    trackMenuOpen = false; trackMenuKind = ''; trackReturnEl = null;
+    showOsd(); Nav.focus(target);
+  }
 
   /* Picture controls are local only. Some webOS native video planes bypass CSS
      filters, so every grade is also represented by a visible DOM overlay fallback.
      No TV-wide setting, stream URL, canvas copy or second decoder is ever used. */
+  var PICTURE_LIMITS = {
+    brightness: { min: 60, max: 140, step: 2, unit: '%' },
+    contrast: { min: 60, max: 160, step: 2, unit: '%' },
+    saturation: { min: 0, max: 180, step: 2, unit: '%' },
+    tone: { min: -30, max: 30, step: 2, unit: '°' },
+    blackLevel: { min: -20, max: 20, step: 2, unit: '' },
+    gamma: { min: -20, max: 20, step: 2, unit: '' }
+  };
+  var PICTURE_CONTROLS = ['brightness', 'contrast', 'saturation', 'tone', 'blackLevel', 'gamma'];
+  var PICTURE_PRESETS = ['original', 'cinema', 'vivid', 'standard', 'night', 'sports'];
   function pictureValues() {
-    var s = Store.settings(), mode = /^(original|cinema|vivid|standard)$/.test(s.pictureMode) ? s.pictureMode : 'original';
-    return { mode: mode, brightness: U.clamp(Number(s.pictureBrightness) || 100, 60, 140), contrast: U.clamp(Number(s.pictureContrast) || 100, 60, 160), saturation: U.clamp(Number(s.pictureSaturation) || 100, 0, 180), tone: U.clamp(Number(s.pictureTone) || 0, -30, 30) };
+    var s = Store.settings(), mode = /^(original|cinema|vivid|standard|night|sports|custom)$/.test(s.pictureMode) ? s.pictureMode : 'original';
+    return {
+      mode: mode,
+      brightness: U.clamp(Number(s.pictureBrightness) || 100, 60, 140),
+      contrast: U.clamp(Number(s.pictureContrast) || 100, 60, 160),
+      saturation: U.clamp(Number(s.pictureSaturation) || 100, 0, 180),
+      tone: U.clamp(Number(s.pictureTone) || 0, -30, 30),
+      blackLevel: U.clamp(Number(s.pictureBlackLevel) || 0, -20, 20),
+      gamma: U.clamp(Number(s.pictureGamma) || 0, -20, 20)
+    };
   }
   function picturePreset(mode) {
-    return { original: [100, 100, 100, 0], cinema: [88, 128, 74, 12], vivid: [112, 138, 146, -4], standard: [100, 108, 108, 0] }[mode] || [100, 100, 100, 0];
+    return {
+      original: [100, 100, 100, 0, 0, 0],
+      cinema: [88, 128, 74, 12, -4, -3],
+      vivid: [112, 138, 146, -4, -2, 2],
+      standard: [100, 108, 108, 0, 0, 0],
+      night: [76, 112, 78, 16, -6, -5],
+      sports: [108, 124, 132, -8, 2, 3],
+      custom: [100, 100, 100, 0, 0, 0]
+    }[mode] || [100, 100, 100, 0, 0, 0];
+  }
+  function pictureEffectiveValues(p) {
+    var preset = picturePreset(p.mode);
+    return {
+      mode: p.mode,
+      brightness: U.clamp(Math.round(p.brightness * preset[0] / 100), 60, 160),
+      contrast: U.clamp(Math.round(p.contrast * preset[1] / 100), 60, 180),
+      saturation: U.clamp(Math.round(p.saturation * preset[2] / 100), 0, 220),
+      tone: U.clamp(p.tone + preset[3], -30, 30),
+      blackLevel: U.clamp(p.blackLevel + preset[4], -20, 20),
+      gamma: U.clamp(p.gamma + preset[5], -20, 20)
+    };
   }
   function pictureButton(p) {
     var b = els['osd-picture']; if (!b) return;
     b.textContent = T('p.picture') + (p.mode === 'original' ? '' : ' · ' + T('p.picture.' + p.mode));
   }
+  function isPictureNeutral(p) { return p.brightness === 100 && p.contrast === 100 && p.saturation === 100 && !p.tone && !p.blackLevel && !p.gamma; }
   function applyPictureMode() {
     if (!video) return;
-    var p = pictureValues(), preset = picturePreset(p.mode), b = p.brightness * preset[0] / 100, c = p.contrast * preset[1] / 100, s = p.saturation * preset[2] / 100, tone = U.clamp(p.tone + preset[3], -30, 30), fx = els['picture-fx'], layers = [], alpha;
+    var base = pictureValues(), p = pictureEffectiveValues(base), b = p.brightness, c = p.contrast, s = p.saturation, fx = els['picture-fx'], layers = [], alpha;
     /* Filter gives a true grade on browser/Android renderers. */
-    var filter = p.mode === 'original' ? '' : 'brightness(' + b.toFixed(1) + '%) contrast(' + c.toFixed(1) + '%) saturate(' + s.toFixed(1) + '%)';
+    var filter = base.mode === 'original' ? '' : 'brightness(' + b.toFixed(1) + '%) contrast(' + c.toFixed(1) + '%) saturate(' + s.toFixed(1) + '%)';
     video.style.webkitFilter = filter; video.style.filter = filter;
     /* Overlay is intentionally pronounced enough to prove the action immediately
        on LG native video planes where the filter itself has no visible effect. */
-    if (p.mode !== 'original') {
+    if (base.mode !== 'original' && !isPictureNeutral(p)) {
       if (b < 100) { alpha = Math.min(.28, (100 - b) / 115); layers.push('linear-gradient(rgba(0,0,0,' + alpha.toFixed(3) + '),rgba(0,0,0,' + alpha.toFixed(3) + '))'); }
       else if (b > 100) { alpha = Math.min(.20, (b - 100) / 185); layers.push('linear-gradient(rgba(255,255,255,' + alpha.toFixed(3) + '),rgba(255,255,255,' + alpha.toFixed(3) + '))'); }
       if (c > 100) { alpha = Math.min(.22, (c - 100) / 175); layers.push('radial-gradient(ellipse at center,rgba(0,0,0,0) 38%,rgba(0,0,0,' + alpha.toFixed(3) + ') 100%)'); }
       else if (c < 100) { alpha = Math.min(.16, (100 - c) / 230); layers.push('linear-gradient(rgba(255,255,255,' + alpha.toFixed(3) + '),rgba(255,255,255,' + alpha.toFixed(3) + '))'); }
       if (s < 100) { alpha = Math.min(.34, (100 - s) / 190); layers.push('linear-gradient(rgba(128,128,128,' + alpha.toFixed(3) + '),rgba(128,128,128,' + alpha.toFixed(3) + '))'); }
       else if (s > 100) { alpha = Math.min(.12, (s - 100) / 650); layers.push('linear-gradient(105deg,rgba(255,35,85,' + alpha.toFixed(3) + '),rgba(0,0,0,0) 48%,rgba(20,155,255,' + alpha.toFixed(3) + '))'); }
-      if (tone) { alpha = Math.min(.18, Math.abs(tone) / 155); layers.push('linear-gradient(rgba(' + (tone > 0 ? '255,120,24' : '24,128,255') + ',' + alpha.toFixed(3) + '),rgba(' + (tone > 0 ? '255,120,24' : '24,128,255') + ',' + alpha.toFixed(3) + '))'); }
+      if (p.tone) { alpha = Math.min(.18, Math.abs(p.tone) / 155); layers.push('linear-gradient(rgba(' + (p.tone > 0 ? '255,120,24' : '24,128,255') + ',' + alpha.toFixed(3) + '),rgba(' + (p.tone > 0 ? '255,120,24' : '24,128,255') + ',' + alpha.toFixed(3) + '))'); }
+      /* Black level and gamma are visible overlay grades when the native video plane
+         is isolated from filters. Negative values deepen shadows; positive values lift them. */
+      if (p.blackLevel) { alpha = Math.min(.17, Math.abs(p.blackLevel) / 125); layers.push('linear-gradient(rgba(' + (p.blackLevel < 0 ? '0,0,0' : '255,255,255') + ',' + alpha.toFixed(3) + '),rgba(' + (p.blackLevel < 0 ? '0,0,0' : '255,255,255') + ',' + alpha.toFixed(3) + '))'); }
+      if (p.gamma) { alpha = Math.min(.14, Math.abs(p.gamma) / 165); layers.push('radial-gradient(ellipse at center,rgba(' + (p.gamma > 0 ? '255,255,255' : '0,0,0') + ',' + alpha.toFixed(3) + ') 0%,rgba(' + (p.gamma > 0 ? '255,255,255' : '0,0,0') + ',0) 72%)'); }
     }
     if (fx) { fx.style.background = layers.length ? layers.join(',') : 'transparent'; fx.style.opacity = layers.length ? '1' : '0'; }
-    pictureButton(p);
+    pictureButton(base);
   }
-  function setPictureMode(mode) {
+  function resetPictureControls() {
+    Store.setSetting('pictureBrightness', 100); Store.setSetting('pictureContrast', 100); Store.setSetting('pictureSaturation', 100);
+    Store.setSetting('pictureTone', 0); Store.setSetting('pictureBlackLevel', 0); Store.setSetting('pictureGamma', 0);
+  }
+  function setPictureMode(mode, resetControls) {
     Store.setSetting('pictureMode', mode);
-    if (mode === 'original') { Store.setSetting('pictureBrightness', 100); Store.setSetting('pictureContrast', 100); Store.setSetting('pictureSaturation', 100); Store.setSetting('pictureTone', 0); }
+    if (resetControls || mode === 'original') resetPictureControls();
     applyPictureMode();
   }
+  function pictureMeter(key, value) {
+    var limit = PICTURE_LIMITS[key], percent = Math.round((value - limit.min) / (limit.max - limit.min) * 100);
+    return '<span class="pic-meter"><i style="width:' + U.clamp(percent, 0, 100) + '%"></i></span>';
+  }
+  function syncPictureMenu() {
+    if (trackMenuKind !== 'picture') return;
+    var p = pictureEffectiveValues(pictureValues()), menu = els['track-menu'];
+    U.$$('.track-item[data-picture-preset]', menu).forEach(function (item) { item.classList.toggle('active', item.getAttribute('data-picture-preset') === p.mode); });
+    U.$$('.track-item[data-picture-key]', menu).forEach(function (item) {
+      var key = item.getAttribute('data-picture-key');
+      var label = U.$('.pic-label', item), value = U.$('.pic-value', item), meter = U.$('.pic-meter i', item);
+      if (label) label.textContent = T('p.' + key);
+      if (value) value.textContent = (p[key] > 0 && PICTURE_LIMITS[key].min < 0 ? '+' : '') + p[key] + PICTURE_LIMITS[key].unit;
+      if (meter) meter.style.width = U.clamp(Math.round((p[key] - PICTURE_LIMITS[key].min) / (PICTURE_LIMITS[key].max - PICTURE_LIMITS[key].min) * 100), 0, 100) + '%';
+    });
+    pictureButton(p);
+  }
+  function adjustPicture(key, delta) {
+    var limit = PICTURE_LIMITS[key]; if (!limit) return false;
+    var base = pictureValues(), effective = pictureEffectiveValues(base);
+    /* A direct adjustment becomes Custom while retaining the exact visible grade
+       of the selected preset before adding this key press. */
+    if (base.mode !== 'custom') {
+      Store.setSetting('pictureMode', 'custom');
+      PICTURE_CONTROLS.forEach(function (name) { Store.setSetting('picture' + name.charAt(0).toUpperCase() + name.slice(1), U.clamp(effective[name], PICTURE_LIMITS[name].min, PICTURE_LIMITS[name].max)); });
+    }
+    var now = pictureValues(), value = U.clamp(now[key] + delta * limit.step, limit.min, limit.max);
+    if (value === now[key]) return true;
+    Store.setSetting('picture' + key.charAt(0).toUpperCase() + key.slice(1), value);
+    applyPictureMode(); syncPictureMenu(); showOsd(true);
+    return true;
+  }
+  function adjustFocusedPicture(delta) {
+    var currentFocus = Nav.current();
+    if (!currentFocus || currentFocus.getAttribute('data-nav') !== 'track') return false;
+    var key = currentFocus.getAttribute('data-picture-key');
+    return key ? adjustPicture(key, delta) : false;
+  }
   function openPictureMenu() {
-    var p = pictureValues(), menu = els['track-menu'];
-    menu.innerHTML = '<div class="tm-title">' + U.esc(T('p.picture')) + '</div>';
-    function add(label, active, act, reopen) {
-      var d = U.el('div', 'track-item focusable' + (active ? ' active' : ''), U.esc(label)); d.setAttribute('data-nav', 'track');
-      d.onclick = function () { act(); closeTrackMenu(); UI.toast(label); if (reopen) setTimeout(openPictureMenu, 0); }; menu.appendChild(d);
+    var p = pictureEffectiveValues(pictureValues()), menu = els['track-menu'];
+    trackMenuKind = 'picture'; trackReturnEl = els['osd-picture'];
+    menu.className = 'track-menu picture-menu';
+    menu.innerHTML = '<div class="tm-title">' + U.esc(T('p.picture')) + '</div><div class="tm-hint">' + U.esc(T('p.pictureHint')) + '</div><div class="tm-divider"></div>';
+    function preset(mode) {
+      var d = U.el('div', 'track-item picture-preset focusable' + (p.mode === mode ? ' active' : ''), U.esc(T('p.picture.' + mode)));
+      d.setAttribute('data-nav', 'track'); d.setAttribute('data-picture-preset', mode);
+      d.onclick = function () { setPictureMode(mode, true); syncPictureMenu(); showOsd(true); UI.toast(T('p.picture.' + mode)); };
+      menu.appendChild(d);
     }
-    ['original', 'cinema', 'vivid', 'standard'].forEach(function (mode) { add(T('p.picture.' + mode), p.mode === mode, function () { setPictureMode(mode); }); });
-    function adjust(key, delta, min, max) {
-      var now = pictureValues(), value = U.clamp(now[key] + delta, min, max);
-      if (now.mode === 'original') Store.setSetting('pictureMode', 'standard');
-      Store.setSetting('picture' + key.charAt(0).toUpperCase() + key.slice(1), value); applyPictureMode();
-    }
-    add(T('p.brightness') + ': ' + p.brightness + '%  −', false, function () { adjust('brightness', -5, 60, 140); }, true);
-    add(T('p.brightness') + ': ' + p.brightness + '%  +', false, function () { adjust('brightness', 5, 60, 140); }, true);
-    add(T('p.contrast') + ': ' + p.contrast + '%  −', false, function () { adjust('contrast', -5, 60, 160); }, true);
-    add(T('p.contrast') + ': ' + p.contrast + '%  +', false, function () { adjust('contrast', 5, 60, 160); }, true);
-    add(T('p.saturation') + ': ' + p.saturation + '%  −', false, function () { adjust('saturation', -5, 0, 180); }, true);
-    add(T('p.saturation') + ': ' + p.saturation + '%  +', false, function () { adjust('saturation', 5, 0, 180); }, true);
-    add(T('p.tone') + ': ' + (p.tone > 0 ? '+' : '') + p.tone + '  −', false, function () { adjust('tone', -5, -30, 30); }, true);
-    add(T('p.tone') + ': ' + (p.tone > 0 ? '+' : '') + p.tone + '  +', false, function () { adjust('tone', 5, -30, 30); }, true);
-    add(T('p.resetPicture'), false, function () { setPictureMode('original'); });
+    PICTURE_PRESETS.forEach(preset);
+    menu.appendChild(U.el('div', 'tm-divider'));
+    PICTURE_CONTROLS.forEach(function (key) {
+      var d = U.el('div', 'track-item picture-adjust focusable');
+      d.setAttribute('data-nav', 'track'); d.setAttribute('data-picture-key', key);
+      d.innerHTML = '<span class="pic-label">' + U.esc(T('p.' + key)) + '</span><span class="pic-value">' + (p[key] > 0 && PICTURE_LIMITS[key].min < 0 ? '+' : '') + p[key] + PICTURE_LIMITS[key].unit + '</span>' + pictureMeter(key, p[key]) + '<span class="pic-arrows">◀ − &nbsp; + ▶</span>';
+      d.onclick = function () { UI.toast(T('p.adjustHint')); showOsd(true); };
+      menu.appendChild(d);
+    });
+    menu.appendChild(U.el('div', 'tm-divider'));
+    var reset = U.el('div', 'track-item picture-reset focusable', U.esc(T('p.resetPicture')));
+    reset.setAttribute('data-nav', 'track'); reset.setAttribute('data-picture-reset', '1');
+    reset.onclick = function () { setPictureMode('original', true); syncPictureMenu(); showOsd(true); UI.toast(T('p.resetPicture')); };
+    menu.appendChild(reset);
     menu.classList.add('show'); trackMenuOpen = true; showOsd(true); Nav.focusScope('track');
   }
 
@@ -410,7 +507,15 @@ var Player = (function () {
   function handleKey(name, code) {
     if (!App.isScreen('player')) return false;
     var K = Nav.KEYS;
-    if (trackMenuOpen) { if (name === 'BACK' || name === 'BACK2') { closeTrackMenu(); return true; } if (name === 'UP' || name === 'DOWN' || name === 'ENTER') return false; return true; }
+    if (trackMenuOpen) {
+      if (name === 'BACK' || name === 'BACK2') { closeTrackMenu(); return true; }
+      /* Picture sliders are adjusted directly with the remote arrows. They never
+         require OK and the menu deliberately stays open after every change. */
+      if (trackMenuKind === 'picture' && name === 'LEFT' && adjustFocusedPicture(-1)) return true;
+      if (trackMenuKind === 'picture' && name === 'RIGHT' && adjustFocusedPicture(1)) return true;
+      if (name === 'UP' || name === 'DOWN' || name === 'ENTER') { showOsd(true); return false; }
+      return true;
+    }
     if (zapOpen) {
       if (name === 'BACK' || name === 'BACK2' || name === 'LEFT') { toggleZapList(); return true; }
       if (name === 'UP' || name === 'DOWN') { Nav.move(name.toLowerCase()); var c = Nav.current(); if (c && c.getAttribute('data-nav') === 'zap') scrollZap(c); return true; }
@@ -439,7 +544,9 @@ var Player = (function () {
       case 'GREEN': cycleRatio(); return true;
       case 'ENTER':
         if (!rc.active && current && els['player-error'].classList.contains('show')) { rc.active = true; rc.attempts = 0; error(null); loading(true, T('retrying')); doReconnect(); return true; }
-        if (!osdVisible()) { showOsd(); Nav.focus(els['osd-play']); return true; }
+        /* The first OK always reveals the complete player bar and lands on Picture,
+           so its remote-only LEFT / RIGHT controls are immediately discoverable. */
+        if (!osdVisible() || !Nav.current() || Nav.current().getAttribute('data-nav') !== 'osd') { showOsd(); Nav.focus(els['osd-picture'] || els['osd-play']); return true; }
         return false;
       case 'UP': if (!osdVisible()) { if (current && current.type === 'live') next(); else { showOsd(); Nav.focus(els['osd-play']); } return true; } showOsd(); return false;
       case 'DOWN': if (!osdVisible()) { showOsd(); Nav.focus(els['osd-play']); return true; } showOsd(); return false;
@@ -460,7 +567,7 @@ var Player = (function () {
   }
   function setOnEnded(fn) { onEnded = fn; }
   function getCurrent() { return current; }
-  function reset() { zapOpen = false; trackMenuOpen = false; toggleStats(false); cancelZap(); hideAutoNext(); els['zap-list'].classList.remove('show'); els['track-menu'].classList.remove('show'); hideOsd(); }
+  function reset() { zapOpen = false; trackMenuOpen = false; trackMenuKind = ''; trackReturnEl = null; toggleStats(false); cancelZap(); hideAutoNext(); els['zap-list'].classList.remove('show'); els['track-menu'].classList.remove('show'); els['track-menu'].classList.remove('picture-menu'); hideOsd(); }
 
   function setCanPlay(fn) { canPlay = fn; }
   return { init: init, play: play, stop: stop, handleKey: handleKey, action: action, setOnEnded: setOnEnded, setCanPlay: setCanPlay, current: getCurrent, showOsd: showOsd, reset: reset, autoNext: autoNext, hideAutoNext: hideAutoNext, video: function () { return video; } };

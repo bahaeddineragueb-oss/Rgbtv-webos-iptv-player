@@ -448,6 +448,21 @@ video::-webkit-media-controls{display:none!important}
 .track-item{padding:14px 18px;border-radius:10px;font-size:24px}
 .track-item.active{color:var(--g)}
 .track-item.focus{background:rgba(255,255,255,.14);transform:none;box-shadow:inset 0 0 0 3px #fff}
+/* Picture setup is remote-first: presets are selected with OK, while every
+   slider uses LEFT / RIGHT and remains visible for immediate feedback. */
+.track-menu.picture-menu{min-width:500px;max-height:850px;padding:14px 16px;box-sizing:border-box;overflow:hidden;border:1px solid rgba(255,255,255,.18);box-shadow:0 22px 56px rgba(0,0,0,.58)}
+.track-menu .tm-hint{padding:0 14px 8px;color:#cbd5e1;font-size:16px;line-height:1.25}
+.track-menu .tm-divider{height:1px;margin:7px 5px;background:rgba(255,255,255,.14)}
+.track-menu.picture-menu .track-item{font-size:21px}
+.track-menu.picture-menu .picture-preset{padding:7px 14px;line-height:25px}
+.track-menu.picture-menu .picture-adjust{position:relative;min-height:57px;padding:7px 16px 28px;box-sizing:border-box}
+.picture-adjust .pic-label{display:inline-block;max-width:235px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.picture-adjust .pic-value{float:right;color:#f8fafc;font-weight:800;font-variant-numeric:tabular-nums;direction:ltr}
+.picture-adjust .pic-meter{position:absolute;left:16px;right:144px;bottom:11px;height:5px;overflow:hidden;border-radius:4px;background:rgba(255,255,255,.18)}
+.picture-adjust .pic-meter i{display:block;height:100%;border-radius:4px;background:var(--accent2);box-shadow:0 0 8px var(--fglow)}
+.picture-adjust .pic-arrows{position:absolute;right:16px;bottom:6px;color:#b9c9d9;font-size:13px;font-weight:700;letter-spacing:.2px;direction:ltr}
+.track-menu.picture-menu .picture-reset{padding:7px 14px;color:#fecaca}
+.track-menu.picture-menu .picture-reset.focus{background:rgba(239,68,68,.22);box-shadow:inset 0 0 0 3px #fff}
 
 /* ===== MODAL / TOAST ===== */
 .modal{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:50}
