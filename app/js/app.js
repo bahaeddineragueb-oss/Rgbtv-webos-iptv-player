@@ -52,7 +52,7 @@ var App = (function () {
   function isHub(lay) { return lay === 'spotlight' || lay === 'trio' || lay === 'mosaic' || lay === 'dashboard'; }
   function applyUi() {
     var s = Store.settings();
-    document.body.setAttribute('data-focus', s.focusStyle || 'glow'); document.body.classList.toggle('large', !!s.largeUi); document.body.classList.toggle('high-contrast', !!s.highContrast); document.body.classList.toggle('perf-fast', (s.performance || 'fast') === 'fast');
+    document.body.setAttribute('data-focus', s.focusStyle || 'glow'); document.body.classList.toggle('large', !!s.largeUi); document.body.classList.toggle('high-contrast', !!s.highContrast);
     U.$('#sec-home').setAttribute('data-layout', s.layout || 'classic');
     document.body.classList.toggle('hubmode', isHub(s.layout)); // hub content layout; the final theme contract keeps the real menu visible and reachable
     Nav.setPointerMode(s.pointer || 'click');
@@ -631,7 +631,7 @@ var App = (function () {
     live.epgTimer = setTimeout(function () { epgFor(ch, 12).then(function (l) { if (live.selected === ch) UI.renderEpg(l); }); }, 600);
     /* M3U browsing stays decoder-free: on many TVs an invisible preview competes with the
        requested channel and is the main cause of a long first-buffer delay. */
-    if (Store.settings().preview && Store.settings().performance !== 'fast' && App.provider && App.provider.type !== 'm3u' && !needsUnlock(ch) && !Nav.byPointer()) live.previewTimer = setTimeout(function () { startPreview(ch); }, 1200);
+    if (Store.settings().preview && App.provider && App.provider.type !== 'm3u' && !needsUnlock(ch) && !Nav.byPointer()) live.previewTimer = setTimeout(function () { startPreview(ch); }, 1200);
   }
   function startPreview(ch) {
     stopPreview(); var generation = ++live.previewGeneration, box = U.$('#live-preview'); box.innerHTML = '';
@@ -1011,7 +1011,6 @@ var App = (function () {
     var pb = U.$('[data-setting="parental"]'); pb.textContent = account.kids ? T('set.lockedKids') : (s.parental ? T('on') : T('off'));
     U.$('[data-setting="autostart"]').textContent = s.autostart ? T('on') : T('off');
     U.$('[data-setting="preview"]').textContent = s.preview ? T('on') : T('off');
-    U.$('[data-setting="performance"]').textContent = T('performance.' + (s.performance || 'fast'));
     U.$('#tmdb-key').value = s.tmdbKey || '';
     U.$$('#layout-swatches .swatch').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-layout-pick') === (s.layout || 'classic')); });
     U.$('[data-setting="focusStyle"]').textContent = T('focus.' + (s.focusStyle || 'glow'));
@@ -1045,7 +1044,6 @@ var App = (function () {
     else if (k === 'largeUi') { Store.setSetting(k, !s.largeUi); applyUi(); live.cats = []; movies.cats = []; series.cats = []; }
     else if (k === 'highContrast') { Store.setSetting(k, !s.highContrast); applyUi(); }
     else if (k === 'liveGrid') { Store.setSetting(k, !s.liveGrid); live.cats = []; U.$('#live-channels')._vlist = null; }
-    else if (k === 'performance') { Store.setSetting(k, (s.performance || 'fast') === 'fast' ? 'balanced' : 'fast'); applyUi(); stopPreview(); }
     else if (k === 'weather') { Store.setSetting(k, !s.weather); Weather.refresh(); if (!Store.settings().weather) U.$('#weather').className = 'weather focusable'; }
     else if (k === 'adhan') { Store.setSetting(k, !s.adhan); Adhan.invalidate(); }
     else if (k === 'wxUnit') { Store.setSetting(k, s.wxUnit === 'f' ? 'c' : 'f'); Weather.invalidate(); Weather.refresh(); }

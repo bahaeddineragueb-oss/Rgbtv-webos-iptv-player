@@ -1,39 +1,29 @@
 /* RGBTv — Player: native <video> (webOS handles HLS/TS/MP4/MKV natively) with hls.js fallback */
 var Player = (function () {
   var video, hls = null, osdTimer = null, current = null, playlist = [], index = -1, ratioMode = 0, RATIOS = ['Fit', 'Fill', 'Stretch'];
-  /* Live TV opens with a short receiver-style information banner. Controls remain
-     available on OK, while the channel list stays a separate panel over the video. */
-  var osdInteractive = false, zapVList = null, zapRequest = 0;
-  var onEnded = null, canPlay = null, posKey = null, posTimer = null, seekAccum = 0, seekTimer = null, numBuf = '', numTimer = null, zapOpen = false, trackMenuOpen = false, playGeneration = 0;
+  var onEnded = null, canPlay = null, posKey = null, posTimer = null, seekAccum = 0, seekTimer = null, numBuf = '', numTimer = null, zapOpen = false, trackMenuOpen = false;
   var els = {};
   /* auto-reconnect state */
   var rc = { attempts: 0, timer: null, stallTimer: null, lastTime: -1, lastProgress: 0, lastOpt: null, active: false };
   function T(k, v) { return I18n.t(k, v); }
-  var RC_MAX = 5, RC_DELAYS = [800, 1500, 2500, 4000, 6500], STALL_LIVE = 8500, STALL_VOD = 30000, START_VOD = 60000;
+  var RC_MAX = 8, RC_DELAYS = [1000, 2000, 3000, 5000, 8000, 10000, 15000, 20000], STALL_LIVE = 12000, STALL_VOD = 30000, START_VOD = 60000;
   var ICON_PLAY = '<svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M7 4v16l14-8z"/></svg>', ICON_PAUSE = '<svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';
-  /* Providers often hide an HLS manifest behind a PHP route; do not rely only on a .m3u8 suffix. */
-  function isHlsStream(url) { return /\.m3u8(?:[?#]|$)|[?&](?:type|output|format|extension)=m3u8(?:[&#]|$)|\/(?:hls|playlist)(?:[/?#]|$)/i.test(String(url || '')); }
 
   function init() {
     video = U.$('#video'); try { video.preload = 'auto'; } catch (e) { }
-    ['osd', 'osd-title', 'osd-sub', 'osd-logo', 'osd-clock', 'osd-played', 'osd-buffer', 'osd-cur', 'osd-dur', 'osd-play', 'player-loading', 'player-loading-text', 'player-error', 'zap-list', 'channel-number', 'track-menu', 'osd-fav', 'osd-ratio', 'osd-list-btn', 'osd-audio', 'osd-subs', 'osd-quality-btn', 'osd-quality', 'osd-picture', 'stats-box', 'zap-preview', 'osd-stats', 'osd-epg', 'autonext', 'an-bar', 'an-count', 'an-title'].forEach(function (id) { els[id] = document.getElementById(id); });
+    ['osd', 'osd-title', 'osd-sub', 'osd-logo', 'osd-clock', 'osd-played', 'osd-buffer', 'osd-cur', 'osd-dur', 'osd-play', 'player-loading', 'player-loading-text', 'player-error', 'zap-list', 'channel-number', 'track-menu', 'osd-fav', 'osd-ratio', 'osd-list-btn', 'osd-audio', 'osd-subs', 'osd-quality', 'osd-picture', 'stats-box', 'zap-preview', 'osd-stats', 'osd-epg', 'autonext', 'an-bar', 'an-count', 'an-title'].forEach(function (id) { els[id] = document.getElementById(id); });
     /* Buffering indicator: webOS fires 'waiting'/'stalled' very often on live TS/HLS even while the picture keeps
        moving, and sometimes never fires 'playing' afterwards -> spinner stuck in the middle. So: show it only if the
        stall lasts > 800ms, and hide it as soon as currentTime advances again (real progress), not only on 'playing'. */
     var bufTimer = null;
     function bufferingSoon() { if (bufTimer || !current) return; bufTimer = setTimeout(function () { bufTimer = null; if (current && !video.paused && Date.now() - rc.lastProgress > 700) loading(true, T('buffering')); }, 800); }
-    function bufferingDone() {
-      clearTimeout(bufTimer); bufTimer = null;
-      /* Never infer player state from translated UI text: Arabic and reconnect messages used to leave the spinner stuck. */
-      if (els['player-loading'].classList.contains('show') && video.readyState >= 2) loading(false);
-    }
+    function bufferingDone() { clearTimeout(bufTimer); bufTimer = null; if (els['player-loading'].classList.contains('show') && /Buffering|Loading|Opening/.test(els['player-loading-text'].textContent)) loading(false); }
     video.addEventListener('waiting', bufferingSoon);
     video.addEventListener('stalled', bufferingSoon);
     video.addEventListener('playing', function () { bufferingDone(); error(null); els['osd-play'].innerHTML = ICON_PAUSE; });
     video.addEventListener('canplay', bufferingDone);
     video.addEventListener('timeupdate', function () { if (video.currentTime !== rc.lastTime && video.currentTime > 0) bufferingDone(); });
     video.addEventListener('loadedmetadata', updateQualityBadge);
-    video.addEventListener('loadedmetadata', function () { setTimeout(applyTrackPrefs, 150); });
     video.addEventListener('resize', updateQualityBadge);
     video.addEventListener('pause', function () { els['osd-play'].innerHTML = ICON_PLAY; });
     video.addEventListener('timeupdate', updateProgress);
@@ -84,12 +74,9 @@ var Player = (function () {
   function destroyHls() { if (hls) { try { hls.destroy(); } catch (e) { } hls = null; } }
   function startHls(url) {
     destroyHls();
-    var liveNow = current && current.type === 'live';
-    /* Keep only a short live buffer. It starts substantially sooner and avoids the long
-       "Buffering" phase caused by preloading 30–60 seconds before rendering a frame. */
-    hls = new Hls({ maxBufferLength: liveNow ? 8 : 30, maxMaxBufferLength: liveNow ? 16 : 60, backBufferLength: liveNow ? 12 : 60, liveSyncDurationCount: liveNow ? 2 : 3, enableWorker: false, fragLoadingTimeOut: liveNow ? 9000 : 20000, manifestLoadingTimeOut: liveNow ? 8000 : 10000, manifestLoadingMaxRetry: 1, levelLoadingMaxRetry: 1, fragLoadingMaxRetry: liveNow ? 2 : 3 });
+    hls = new Hls({ maxBufferLength: 30, maxMaxBufferLength: 60, liveSyncDurationCount: 3, enableWorker: false, fragLoadingTimeOut: 20000, manifestLoadingTimeOut: 10000, manifestLoadingMaxRetry: 1, levelLoadingMaxRetry: 2, fragLoadingMaxRetry: 3 });
     hls.loadSource(url); hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED, function () { video.play().catch(function () { }); setTimeout(updateQualityBadge, 1500); setTimeout(applyTrackPrefs, 450); });
+    hls.on(Hls.Events.MANIFEST_PARSED, function () { video.play().catch(function () { }); setTimeout(updateQualityBadge, 1500); });
     hls.on(Hls.Events.ERROR, function (ev, data) {
       if (!data.fatal) return;
       if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { if (/manifest|level/i.test(data.details)) scheduleReconnect(T('p.cannotLoad') + ' (' + data.details + ')'); else hls.startLoad(); }
@@ -98,26 +85,9 @@ var Player = (function () {
     });
   }
 
-  /* Keep every player-originated channel change behind the same parental gate
-     as a direct selection in the Live screen. */
-  function permit(item, done) {
-    if (!canPlay) { done(); return; }
-    var allowed;
-    try { allowed = canPlay(item); } catch (e) { return; }
-    if (allowed && typeof allowed.then === 'function') allowed.then(function (ok) { if (ok) done(); });
-    else if (allowed !== false) done();
-  }
-
   /* ---- auto-reconnect ---- */
   function scheduleReconnect(reason) {
     if (!current || !rc.active || rc.timer) return;
-    /* A number of webOS native players accept an HLS URL yet never produce a first frame.
-       Switch engines once instead of repeatedly waiting for the same native decoder. */
-    if (current.type === 'live' && current._engine === 'native' && isHlsStream(current.url) && window.Hls && Hls.isSupported() && !current._triedHls) {
-      current._triedHls = true; current._engine = 'hls'; rc.lastProgress = Date.now(); rc.started = false;
-      try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) { }
-      loading(true, T('p.engineFallback')); startHls(current.url); return;
-    }
     if (rc.attempts >= RC_MAX) { rc.active = false; loading(false); error(reason + ' ' + T('p.retryHint', { max: RC_MAX })); return; }
     var delay = RC_DELAYS[Math.min(rc.attempts, RC_DELAYS.length - 1)]; rc.attempts++;
     error(null); loading(true, T('reconnecting', { n: rc.attempts, max: RC_MAX }));
@@ -139,18 +109,16 @@ var Player = (function () {
     }).catch(function () { rc.attempts = keepAttempts; scheduleReconnect('Cannot resolve stream'); });
   }
   function startSource(url, item) {
-    var eng = Store.settings().engine, isHlsUrl = isHlsStream(url), hlsOk = isHlsUrl && window.Hls && Hls.isSupported();
+    var eng = Store.settings().engine, isHlsUrl = /\.m3u8(\?|$)/i.test(url), hlsOk = isHlsUrl && window.Hls && Hls.isSupported();
     var useHls = hlsOk && (eng === 'hlsjs' || (eng === 'auto' && !video.canPlayType('application/vnd.apple.mpegurl')) || item._engine === 'hls');
     if (useHls) { item._triedHls = true; item._engine = 'hls'; startHls(url); }
-    else { item._engine = 'native'; video.src = url; video.load(); video.play().catch(function () { }); setTimeout(applyTrackPrefs, 800); }
+    else { item._engine = 'native'; video.src = url; video.load(); video.play().catch(function () { }); }
   }
   function cancelReconnect() { clearTimeout(rc.timer); rc.timer = null; rc.attempts = 0; }
 
   /* play(item, {list, index, url, resume}) */
   function play(item, opt) {
     opt = opt || {};
-    /* Ignore a late URL resolution from a channel the user has already left. */
-    var generation = ++playGeneration;
     cancelReconnect(); rc.active = true; rc.userPaused = false; rc.lastOpt = opt; rc.lastProgress = Date.now(); rc.lastTime = -1;
     current = item; current._triedHls = false; current._engine = null; applyPictureMode();
     if (opt.list) { playlist = opt.list; index = opt.index != null ? opt.index : playlist.indexOf(item); }
@@ -164,16 +132,13 @@ var Player = (function () {
     els['osd-list-btn'].style.display = item.type === 'live' ? '' : 'none';
     updateFavBtn();
     var isLive = item.type === 'live';
-    U.$('#screen-player').classList.toggle('classic-live', isLive);
     U.$('.osd-progress').style.visibility = isLive ? 'hidden' : 'visible';
     U.$('.osd-times').style.visibility = isLive ? 'hidden' : 'visible';
     posKey = (isLive || item.type === 'catchup') ? null : (item.type + ':' + item.id);
-    /* Channel changes start with concise receiver information, not a wall of controls. */
-    showOsd(false, false);
+    showOsd();
 
     var p = opt.url ? Promise.resolve(opt.url) : App.provider.streamUrl(item);
     return p.then(function (url) {
-      if (generation !== playGeneration || current !== item) return;
       if (!url) throw new Error('No stream URL');
       item.url = url; current.url = url;
       startSource(url, item);
@@ -182,14 +147,11 @@ var Player = (function () {
         if (saved && saved.pos > 10) { var once = function () { video.removeEventListener('loadedmetadata', once); try { video.currentTime = saved.pos; } catch (e) { } }; video.addEventListener('loadedmetadata', once); }
       }
       if (posKey) { clearInterval(posTimer); posTimer = setInterval(savePos, 5000); }
-      /* M3U cannot reconstruct an item URL from its id, unlike Xtream/Stalker. Keep the resolved
-         URL for that provider so Recent/Continue watching remains playable. */
-      if (item.type !== 'catchup') { Store.pushHistory(App.account.id, { type: item.type, id: item.id, name: item.name, logo: item.logo, poster: item.poster, seriesId: item.seriesId, ext: item.ext, cmd: item.cmd, url: App.provider && App.provider.type === 'm3u' ? url : undefined, catId: item.catId, season: item.season, episode: item.episode }); if (Store.recordWatch) Store.recordWatch(App.account.id, item); }
-    }).catch(function (e) { if (generation === playGeneration && current === item) scheduleReconnect('Cannot start stream: ' + e.message); });
+      if (item.type !== 'catchup') Store.pushHistory(App.account.id, { type: item.type, id: item.id, name: item.name, logo: item.logo, poster: item.poster, seriesId: item.seriesId, ext: item.ext, cmd: item.cmd, url: item.type === 'm3u' ? url : undefined, catId: item.catId, season: item.season, episode: item.episode });
+    }).catch(function (e) { scheduleReconnect('Cannot start stream: ' + e.message); });
   }
   function savePos() { if (posKey && video.duration && !isNaN(video.duration)) Store.setPos(App.account.id, posKey, video.currentTime, video.duration); }
   function stop(clearCurrent) {
-    if (clearCurrent !== false) playGeneration++;
     cancelReconnect(); rc.active = false;
     savePos(); clearInterval(posTimer);
     destroyHls();
@@ -212,11 +174,7 @@ var Player = (function () {
     els['osd-dur'].innerHTML = U.fmtTime(video.duration) + '<span class="osd-rem">−' + U.fmtTime(Math.max(0, video.duration - video.currentTime)) + '</span>';
     try { if (video.buffered.length) els['osd-buffer'].style.width = (video.buffered.end(video.buffered.length - 1) / video.duration * 100) + '%'; } catch (e) { }
   }
-  function showOsd(persist, interactive) {
-    /* A live channel zap looks like a receiver's info bar until the user asks for
-       controls. VOD keeps the regular playback-control overlay. */
-    osdInteractive = interactive !== false;
-    els.osd.classList.toggle('classic-info', !osdInteractive && !!(current && current.type === 'live'));
+  function showOsd(persist) {
     els.osd.classList.add('show'); clearTimeout(osdTimer);
     if (!persist) osdTimer = setTimeout(hideOsd, 5000);
     if (current && current.type === 'live') fillMiniEpg();
@@ -246,28 +204,27 @@ var Player = (function () {
   }
   function hideAutoNext() { clearInterval(an.timer); an.timer = null; if (els.autonext) els.autonext.classList.remove('show'); }
   function autoNextOpen() { return !!an.timer; }
-  function hideOsd() { els.osd.classList.remove('show'); els.osd.classList.remove('classic-info'); osdInteractive = false; if (Nav.current() && Nav.current().getAttribute('data-nav') === 'osd') Nav.blur(); }
+  function hideOsd() { els.osd.classList.remove('show'); if (Nav.current() && Nav.current().getAttribute('data-nav') === 'osd') Nav.blur(); }
   function osdVisible() { return els.osd.classList.contains('show'); }
   function ratioName(i) { return T(['p.fit', 'p.fill', 'p.stretch'][i]); }
   function cycleRatio() { ratioMode = (ratioMode + 1) % 3; video.className = ['', 'fill', 'stretch'][ratioMode]; els['osd-ratio'].textContent = ratioName(ratioMode); UI.toast(T('p.aspect', { m: ratioName(ratioMode) })); }
   function updateFavBtn() { if (!current) return; els['osd-fav'].textContent = Store.isFav(App.account.id, current.type === 'episode' ? 'series' : current.type, current.type === 'episode' ? current.seriesId : current.id) ? '★' : '☆'; }
 
   /* ---- channel zapping ---- */
+  /* Keep the application-level parental gate for all player-originated changes. */
+  function permit(item, done) {
+    if (!canPlay) { done(); return; }
+    var allowed;
+    try { allowed = canPlay(item); } catch (e) { return; }
+    if (allowed && typeof allowed.then === 'function') allowed.then(function (ok) { if (ok) done(); });
+    else if (allowed !== false) done();
+  }
   function next() { if (playlist.length && current && current.type === 'live') zapTo(index + 1); else if (playlist.length) playIndex(index + 1); }
   function prev() { if (playlist.length && current && current.type === 'live') zapTo(index - 1); else if (playlist.length) playIndex(index - 1); }
   function zapTo(i) { if (!playlist.length) return; i = (i + playlist.length) % playlist.length; playIndex(i); }
-  function playIndexNow(i) {
-    if (i < 0 || i >= playlist.length) return;
-    var it = playlist[i]; index = i;
-    play(UI.toPlayable(it), { list: playlist, index: i });
-  }
   function playIndex(i) {
     if (i < 0 || i >= playlist.length) return;
-    var it = playlist[i];
-    /* All player-side entry points (number zapping, CH+/-, and the zap list) must
-       pass the same parental gate as direct channel selection. */
-    if (it && it.type === 'live') { permit(it, function () { playIndexNow(i); }); return; }
-    playIndexNow(i);
+    var it = playlist[i]; permit(it, function () { index = i; play(UI.toPlayable(it), { list: playlist, index: i }); });
   }
   function numberKey(d) {
     if (!current || current.type !== 'live') return;
@@ -299,63 +256,48 @@ var Player = (function () {
       U.$('.zp-next-t', box).textContent = nxt ? U.hm(nxt.start) + '  ' + nxt.title : '—';
     });
   }
-  /* ---- classic receiver channel panel ---------------------------------
-     The player never builds one node per channel: providers can expose thousands
-     of services, so this right-side panel uses the same virtual-list model as Live
-     and the Guide. UP/DOWN browses; only OK commits a channel change. */
-  function zapProgrammes(ch, i) {
-    var box = els['zap-list']; if (!box || !ch) return;
-    var token = ++zapRequest, title = U.$('.zap-head-name', box), number = U.$('.zap-head-number', box), count = U.$('.zap-head-count', box);
-    var nowEl = U.$('.zap-epg-now b', box), nextEl = U.$('.zap-epg-next b', box), bar = U.$('.zap-epg-bar i', box);
-    if (title) title.textContent = ch.name || '—';
-    if (number) number.textContent = String(ch.num || i + 1);
-    if (count) count.textContent = (i + 1) + ' / ' + playlist.length;
-    if (nowEl) nowEl.textContent = '…'; if (nextEl) nextEl.textContent = '—'; if (bar) bar.style.width = '0';
-    function paint(list) {
-      if (!zapOpen || token !== zapRequest) return;
-      var now = Date.now() / 1000, cur = null, nxt = null;
-      (list || []).forEach(function (p) { if (p.start <= now && p.end > now) cur = p; else if (p.start > now && !nxt) nxt = p; });
-      if (nowEl) nowEl.textContent = cur ? U.hm(cur.start) + '  ' + cur.title : T('noEpg');
-      if (nextEl) nextEl.textContent = nxt ? U.hm(nxt.start) + '  ' + nxt.title : '—';
-      if (bar) bar.style.width = cur ? Math.max(0, Math.min(100, Math.round((now - cur.start) / (cur.end - cur.start) * 100))) + '%' : '0';
-    }
-    var saved = epgCache[ch.id];
-    if (saved && Date.now() - saved.at < 5 * 60000) { paint(saved.list); return; }
-    if (!App.provider || !App.provider.shortEPG) { paint([]); return; }
-    App.provider.shortEPG(ch.epgId || ch.id, 4).then(function (list) { epgCache[ch.id] = { at: Date.now(), list: list || [] }; paint(list || []); }).catch(function () { paint([]); });
-  }
-  function closeZapList(showInfo) {
-    zapOpen = false; zapRequest++;
-    if (zapVList) zapVList = null;
-    els['zap-list'].classList.remove('show'); els['zap-list'].innerHTML = '';
-    Nav.blur();
-    if (showInfo && current) showOsd(false, false);
-  }
   function toggleZapList() {
-    if (zapOpen) { closeZapList(true); return; }
-    if (!current || current.type !== 'live' || !playlist.length) return;
-    zapOpen = true; hideOsd();
-    var box = els['zap-list'];
-    box.innerHTML = '<div class="zap-head"><span class="zap-head-kicker">' + U.esc(T('p.receiverList')) + '</span><span class="zap-head-count"></span><div class="zap-head-service"><span class="zap-head-number"></span><div class="zap-head-name"></div></div></div>' +
-      '<div class="zap-epg"><div class="zap-epg-now"><span>' + U.esc(T('nowLbl')) + '</span><b>…</b></div><div class="zap-epg-bar"><i></i></div><div class="zap-epg-next"><span>' + U.esc(T('next')) + '</span><b>—</b></div></div><div class="zap-inner"></div><div class="zap-foot">' + U.esc(T('p.receiverHint')) + '</div>';
-    box.classList.add('show');
-    var inner = U.$('.zap-inner', box);
-    zapVList = new VList({
-      container: inner, itemH: 82, nav: 'zap', overscan: 3,
-      render: function (ch, i) {
-        var row = U.el('button', 'receiver-channel focusable' + (i === index ? ' selected' : ''));
-        row.innerHTML = '<span class="rc-num">' + U.esc(ch.num || i + 1) + '</span><span class="rc-logo" style="' + (ch.logo ? 'background-image:url(\'' + U.esc(ch.logo) + '\')' : '') + '"></span><span class="rc-info"><b>' + U.esc(ch.name || '—') + '</b><small>' + U.esc(ch.catName || '') + '</small></span>';
-        return row;
-      },
-      onFocus: function (ch, i) { zapProgrammes(ch, i); },
-      onSelect: function (ch, i) { closeZapList(false); playIndex(i); }
-    });
-    zapVList.setItems(playlist);
-    zapVList.setSelected(current.id);
-    zapVList.focusIndex(index >= 0 ? index : 0);
+    zapOpen = !zapOpen; els['zap-list'].classList.toggle('show', zapOpen);
+    if (zapOpen) {
+      hideOsd(); var inner = U.el('div', 'zap-inner'); els['zap-list'].innerHTML = '';
+      playlist.forEach(function (c, i) {
+        var d = U.el('div', 'ch-item focusable' + (i === index ? ' selected' : ''));
+        d.setAttribute('data-nav', 'zap'); d.setAttribute('data-i', i);
+        d.innerHTML = '<span class="num">' + (c.num || i + 1) + '</span><div class="logo-img" style="background-image:url(\'' + U.esc(c.logo || '') + '\')"></div><div class="info"><div class="name">' + U.esc(c.name) + '</div></div>';
+        d.onclick = function () { playIndex(i); toggleZapList(); };
+        inner.appendChild(d);
+      });
+      els['zap-list'].appendChild(inner);
+      var target = inner.children[index >= 0 ? index : 0]; if (target) { scrollZap(target); Nav.focus(target); }
+    } else Nav.blur();
+  }
+  function scrollZap(elm) {
+    var inner = els['zap-list'].firstChild; if (!inner) return; var i = Number(elm.getAttribute('data-i')), h = 80, viewH = 1080 - 60;
+    var off = Math.max(0, i * h - viewH / 2 + h / 2); inner.style.transform = 'translateY(-' + off + 'px)';
   }
 
-  /* ---- audio / subtitle / adaptive-quality tracks ---- */
+  /* ---- audio / subtitle tracks ---- */
+  function openTrackMenu(kind) {
+    var menu = els['track-menu'], list = [];
+    menu.innerHTML = '<div class="tm-title">' + (kind === 'audio' ? 'Audio tracks' : 'Subtitles') + '</div>';
+    if (hls) {
+      if (kind === 'audio') hls.audioTracks.forEach(function (t, i) { list.push({ label: t.name || t.lang || ('Track ' + (i + 1)), active: hls.audioTrack === i, act: function () { hls.audioTrack = i; } }); });
+      else { list.push({ label: 'Off', active: hls.subtitleTrack === -1, act: function () { hls.subtitleTrack = -1; } }); hls.subtitleTracks.forEach(function (t, i) { list.push({ label: t.name || t.lang || ('Sub ' + (i + 1)), active: hls.subtitleTrack === i, act: function () { hls.subtitleTrack = i; } }); }); }
+    } else {
+      if (kind === 'audio' && video.audioTracks) for (var i = 0; i < video.audioTracks.length; i++) (function (t, i) { list.push({ label: t.label || t.language || ('Track ' + (i + 1)), active: t.enabled, act: function () { for (var j = 0; j < video.audioTracks.length; j++) video.audioTracks[j].enabled = j === i; } }); })(video.audioTracks[i], i);
+      if (kind === 'subs' && video.textTracks) { list.push({ label: 'Off', active: true, act: function () { for (var j = 0; j < video.textTracks.length; j++) video.textTracks[j].mode = 'disabled'; } }); for (var k = 0; k < video.textTracks.length; k++) (function (t, k) { list.push({ label: t.label || t.language || ('Sub ' + (k + 1)), active: t.mode === 'showing', act: function () { for (var j = 0; j < video.textTracks.length; j++) video.textTracks[j].mode = j === k ? 'showing' : 'disabled'; } }); })(video.textTracks[k], k); }
+    }
+    if (!list.length) { UI.toast(kind === 'audio' ? 'No alternate audio tracks' : 'No subtitles available'); return; }
+    list.forEach(function (t) {
+      var d = U.el('div', 'track-item focusable' + (t.active ? ' active' : ''), U.esc(t.label)); d.setAttribute('data-nav', 'track');
+      d.onclick = function () { t.act(); closeTrackMenu(); UI.toast(t.label); }; menu.appendChild(d);
+    });
+    menu.classList.add('show'); trackMenuOpen = true; showOsd(true); Nav.focusScope('track');
+  }
+  function closeTrackMenu() { els['track-menu'].classList.remove('show'); trackMenuOpen = false; showOsd(); Nav.focus(els['osd-play']); }
+
+  /* Picture controls are local CSS/video filters only. They never change TV-wide
+     picture settings or create another playback pipeline. */
   function pictureValues() {
     var s = Store.settings(), mode = /^(original|cinema|vivid|standard)$/.test(s.pictureMode) ? s.pictureMode : 'original';
     return { mode: mode, brightness: U.clamp(Number(s.pictureBrightness) || 100, 70, 130), contrast: U.clamp(Number(s.pictureContrast) || 100, 70, 140), saturation: U.clamp(Number(s.pictureSaturation) || 100, 0, 150) };
@@ -363,94 +305,36 @@ var Player = (function () {
   function applyPictureMode() {
     if (!video) return;
     var p = pictureValues(), preset = { original: [100, 100, 100], cinema: [94, 112, 86], vivid: [106, 116, 124], standard: [100, 105, 100] }[p.mode] || [100, 100, 100], b = p.brightness * preset[0] / 100, c = p.contrast * preset[1] / 100, s = p.saturation * preset[2] / 100;
-    /* CSS filtering is a local compositor operation: it changes neither the TV's
-       global picture settings nor the stream/decoder route. Original is exact. */
     var filter = p.mode === 'original' ? '' : 'brightness(' + b + '%) contrast(' + c + '%) saturate(' + s + '%)';
     video.style.webkitFilter = filter; video.style.filter = filter;
   }
-  function pictureModeLabel(mode) { return T('p.picture.' + mode); }
-  function changePicture(key, delta) {
-    var p = pictureValues(), value = U.clamp(p[key] + delta, key === 'saturation' ? 0 : 70, key === 'contrast' ? 140 : (key === 'saturation' ? 150 : 130));
-    /* Any slider adjustment intentionally leaves a true Original mode and uses
-       the neutral Standard preset, so Original always restores an untouched image. */
-    if (p.mode === 'original') Store.setSetting('pictureMode', 'standard');
-    Store.setSetting('picture' + key.charAt(0).toUpperCase() + key.slice(1), value); applyPictureMode();
-    setTimeout(openPictureMenu, 0);
-  }
   function openPictureMenu() {
-    var p = pictureValues(), list = [], modes = ['original', 'cinema', 'vivid', 'standard'];
-    modes.forEach(function (mode) { list.push({ label: pictureModeLabel(mode), active: p.mode === mode, act: function () { Store.setSetting('pictureMode', mode); if (mode === 'original') { Store.setSetting('pictureBrightness', 100); Store.setSetting('pictureContrast', 100); Store.setSetting('pictureSaturation', 100); } applyPictureMode(); } }); });
-    list.push({ label: T('p.brightness') + ': ' + p.brightness + '%  −', act: function () { changePicture('brightness', -5); } });
-    list.push({ label: T('p.brightness') + ': ' + p.brightness + '%  +', act: function () { changePicture('brightness', 5); } });
-    list.push({ label: T('p.contrast') + ': ' + p.contrast + '%  −', act: function () { changePicture('contrast', -5); } });
-    list.push({ label: T('p.contrast') + ': ' + p.contrast + '%  +', act: function () { changePicture('contrast', 5); } });
-    list.push({ label: T('p.saturation') + ': ' + p.saturation + '%  −', act: function () { changePicture('saturation', -5); } });
-    list.push({ label: T('p.saturation') + ': ' + p.saturation + '%  +', act: function () { changePicture('saturation', 5); } });
-    showPlayerMenu(T('p.picture'), list);
-  }
-  function trackLabel(t, fallback) { return (t && (t.name || t.label || t.lang || t.language)) || fallback; }
-  function saveTrackPref(kind, i, t, off) {
-    if (!current || !App.account || !Store.setTrackPref) return;
-    Store.setTrackPref(App.account.id, current, kind, { i: i, label: trackLabel(t, ''), lang: t && (t.lang || t.language) || '', off: !!off });
-  }
-  function preferredTrackIndex(list, pref) {
-    var i, label = String(pref && pref.label || '').toLowerCase(), lang = String(pref && pref.lang || '').toLowerCase();
-    if (!list || !list.length || !pref || pref.off) return -1;
-    for (i = 0; i < list.length; i++) if ((lang && String(list[i].lang || list[i].language || '').toLowerCase() === lang) || (label && trackLabel(list[i], '').toLowerCase() === label)) return i;
-    i = Number(pref.i); return i >= 0 && i < list.length ? i : -1;
-  }
-  function applyTrackPrefs() {
-    if (!current || !App.account || !Store.trackPref) return;
-    var pref = Store.trackPref(App.account.id, current), ai, si, i;
-    if (!pref) return;
-    try {
-      if (hls) {
-        ai = preferredTrackIndex(hls.audioTracks, pref.audio); if (ai >= 0) hls.audioTrack = ai;
-        if (pref.subs) { si = pref.subs.off ? -1 : preferredTrackIndex(hls.subtitleTracks, pref.subs); if (si >= 0 || pref.subs.off) hls.subtitleTrack = si; }
-      } else {
-        ai = preferredTrackIndex(video.audioTracks, pref.audio); if (ai >= 0 && video.audioTracks) for (i = 0; i < video.audioTracks.length; i++) video.audioTracks[i].enabled = i === ai;
-        if (video.textTracks && pref.subs) { si = pref.subs.off ? -1 : preferredTrackIndex(video.textTracks, pref.subs); if (si >= 0 || pref.subs.off) for (i = 0; i < video.textTracks.length; i++) video.textTracks[i].mode = i === si ? 'showing' : 'disabled'; }
-      }
-    } catch (e) { /* Track APIs vary across old webOS firmware; playback must continue. */ }
-  }
-  function showPlayerMenu(title, list) {
-    var menu = els['track-menu']; menu.innerHTML = '<div class="tm-title">' + U.esc(title) + '</div>';
-    list.forEach(function (t) {
-      var d = U.el('div', 'track-item focusable' + (t.active ? ' active' : ''), U.esc(t.label)); d.setAttribute('data-nav', 'track');
-      d.onclick = function () { t.act(); closeTrackMenu(); UI.toast(t.label); }; menu.appendChild(d);
+    var p = pictureValues(), menu = els['track-menu'];
+    menu.innerHTML = '<div class="tm-title">' + U.esc(T('p.picture')) + '</div>';
+    function add(label, active, act) {
+      var d = U.el('div', 'track-item focusable' + (active ? ' active' : ''), U.esc(label)); d.setAttribute('data-nav', 'track');
+      d.onclick = function () { act(); closeTrackMenu(); UI.toast(label); }; menu.appendChild(d);
+    }
+    ['original', 'cinema', 'vivid', 'standard'].forEach(function (mode) {
+      add(T('p.picture.' + mode), p.mode === mode, function () {
+        Store.setSetting('pictureMode', mode);
+        if (mode === 'original') { Store.setSetting('pictureBrightness', 100); Store.setSetting('pictureContrast', 100); Store.setSetting('pictureSaturation', 100); }
+        applyPictureMode();
+      });
     });
+    function adjust(key, delta, min, max) {
+      var now = pictureValues(), value = U.clamp(now[key] + delta, min, max);
+      if (now.mode === 'original') Store.setSetting('pictureMode', 'standard');
+      Store.setSetting('picture' + key.charAt(0).toUpperCase() + key.slice(1), value); applyPictureMode(); setTimeout(openPictureMenu, 0);
+    }
+    add(T('p.brightness') + ': ' + p.brightness + '%  −', false, function () { adjust('brightness', -5, 70, 130); });
+    add(T('p.brightness') + ': ' + p.brightness + '%  +', false, function () { adjust('brightness', 5, 70, 130); });
+    add(T('p.contrast') + ': ' + p.contrast + '%  −', false, function () { adjust('contrast', -5, 70, 140); });
+    add(T('p.contrast') + ': ' + p.contrast + '%  +', false, function () { adjust('contrast', 5, 70, 140); });
+    add(T('p.saturation') + ': ' + p.saturation + '%  −', false, function () { adjust('saturation', -5, 0, 150); });
+    add(T('p.saturation') + ': ' + p.saturation + '%  +', false, function () { adjust('saturation', 5, 0, 150); });
     menu.classList.add('show'); trackMenuOpen = true; showOsd(true); Nav.focusScope('track');
   }
-  function openTrackMenu(kind) {
-    var list = [], title = kind === 'audio' ? T('p.audioTracks') : T('p.subTracks'), i, t;
-    if (hls) {
-      if (kind === 'audio') hls.audioTracks.forEach(function (t, i) { list.push({ label: trackLabel(t, T('p.track', { n: i + 1 })), active: hls.audioTrack === i, act: function () { hls.audioTrack = i; saveTrackPref('audio', i, t, false); } }); });
-      else { list.push({ label: T('off'), active: hls.subtitleTrack === -1, act: function () { hls.subtitleTrack = -1; saveTrackPref('subs', -1, null, true); } }); hls.subtitleTracks.forEach(function (t, i) { list.push({ label: trackLabel(t, T('p.subTrack', { n: i + 1 })), active: hls.subtitleTrack === i, act: function () { hls.subtitleTrack = i; saveTrackPref('subs', i, t, false); } }); }); }
-    } else {
-      if (kind === 'audio' && video.audioTracks) for (i = 0; i < video.audioTracks.length; i++) (function (track, n) { list.push({ label: trackLabel(track, T('p.track', { n: n + 1 })), active: track.enabled, act: function () { for (var j = 0; j < video.audioTracks.length; j++) video.audioTracks[j].enabled = j === n; saveTrackPref('audio', n, track, false); } }); })(video.audioTracks[i], i);
-      if (kind === 'subs' && video.textTracks) { var noSub = true; for (i = 0; i < video.textTracks.length; i++) if (video.textTracks[i].mode === 'showing') noSub = false; list.push({ label: T('off'), active: noSub, act: function () { for (var j = 0; j < video.textTracks.length; j++) video.textTracks[j].mode = 'disabled'; saveTrackPref('subs', -1, null, true); } }); for (i = 0; i < video.textTracks.length; i++) (function (track, n) { list.push({ label: trackLabel(track, T('p.subTrack', { n: n + 1 })), active: track.mode === 'showing', act: function () { for (var j = 0; j < video.textTracks.length; j++) video.textTracks[j].mode = j === n ? 'showing' : 'disabled'; saveTrackPref('subs', n, track, false); } }); })(video.textTracks[i], i); }
-    }
-    if (!list.length) { UI.toast(kind === 'audio' ? T('p.noAudio') : T('p.noSubs')); return; }
-    showPlayerMenu(title, list);
-  }
-  function hlsQualityLabel(level, n) {
-    var h = Number(level && level.height) || 0, w = Number(level && level.width) || 0, label;
-    if (h >= 2100 || w >= 3800) label = '4K'; else if (h >= 1000 || w >= 1900) label = '1080p'; else if (h >= 700 || w >= 1200) label = '720p'; else if (h >= 450 || w >= 700) label = '480p'; else label = h ? h + 'p' : T('p.qualityLevel', { n: n + 1 });
-    return label + (level && level.bitrate ? ' · ' + Math.round(level.bitrate / 1000) + ' kbps' : '');
-  }
-  function openQualityMenu() {
-    var list = [], levels, i;
-    /* hls.js exposes the manifest's real variants. Native webOS HLS is still
-       allowed to adapt automatically, but does not expose fake 4K/1080 choices. */
-    if (!hls || !hls.levels || !hls.levels.length) { UI.toast(T('p.qualityNeedHls')); return; }
-    levels = hls.levels;
-    list.push({ label: T('p.qualityAuto'), active: hls.currentLevel === -1, act: function () { hls.currentLevel = -1; hls.nextLevel = -1; } });
-    for (i = 0; i < levels.length; i++) (function (level, n) {
-      list.push({ label: hlsQualityLabel(level, n), active: hls.currentLevel === n, act: function () { hls.currentLevel = n; hls.nextLevel = n; } });
-    })(levels[i], i);
-    showPlayerMenu(T('p.quality'), list);
-  }
-  function closeTrackMenu() { els['track-menu'].classList.remove('show'); trackMenuOpen = false; showOsd(); Nav.focus(els['osd-play']); }
 
   /* ---- stream statistics overlay (INFO / BLUE) ---- */
   var statsOpen = false, statsTimer = null, statsPrev = null, brHist = [];
@@ -504,10 +388,9 @@ var Player = (function () {
     var K = Nav.KEYS;
     if (trackMenuOpen) { if (name === 'BACK' || name === 'BACK2') { closeTrackMenu(); return true; } if (name === 'UP' || name === 'DOWN' || name === 'ENTER') return false; return true; }
     if (zapOpen) {
-      if (name === 'BACK' || name === 'BACK2' || name === 'LEFT') { closeZapList(true); return true; }
-      var zapMove = { UP: 'up', DOWN: 'down', CH_UP: 'pgup', CH_DOWN: 'pgdown', REW: 'pgup', FF: 'pgdown' }[name];
-      if (zapMove && zapVList) { zapVList.move(zapMove); return true; }
-      if (name === 'ENTER' && zapVList) { var selected = zapVList.index; closeZapList(false); playIndex(selected); return true; }
+      if (name === 'BACK' || name === 'BACK2' || name === 'LEFT') { toggleZapList(); return true; }
+      if (name === 'UP' || name === 'DOWN') { Nav.move(name.toLowerCase()); var c = Nav.current(); if (c && c.getAttribute('data-nav') === 'zap') scrollZap(c); return true; }
+      if (name === 'ENTER') return false;
       return true;
     }
     if (code >= 48 && code <= 57) { numberKey(String(code - 48)); return true; }
@@ -519,8 +402,8 @@ var Player = (function () {
     }
     switch (name) {
       case 'BACK': case 'BACK2': if (osdVisible() && Nav.current() && Nav.current().getAttribute('data-nav') === 'osd') { hideOsd(); return true; } App.closePlayer(); return true;
-      case 'PLAY': rc.userPaused = false; video.play(); showOsd(true, true); return true;
-      case 'PAUSE': rc.userPaused = true; video.pause(); showOsd(true, true); return true;
+      case 'PLAY': rc.userPaused = false; video.play(); showOsd(); return true;
+      case 'PAUSE': rc.userPaused = true; video.pause(); showOsd(); return true;
       case 'PLAYPAUSE': togglePlay(); return true;
       case 'STOP': App.closePlayer(); return true;
       case 'REW': seek(-30); return true;
@@ -530,28 +413,14 @@ var Player = (function () {
       case 'INFO': toggleStats(); return true;
       case 'BLUE': toggleStats(); return true;
       case 'GREEN': cycleRatio(); return true;
-      case 'YELLOW': return false;
       case 'ENTER':
         if (!rc.active && current && els['player-error'].classList.contains('show')) { rc.active = true; rc.attempts = 0; error(null); loading(true, T('retrying')); doReconnect(); return true; }
-        /* First OK expands the short live banner into normal player controls. */
-        if (!osdVisible() || !osdInteractive) { showOsd(true, true); Nav.focus(els['osd-play']); return true; }
+        if (!osdVisible()) { showOsd(); Nav.focus(els['osd-play']); return true; }
         return false;
-      case 'UP':
-        if (!osdVisible()) { if (current && current.type === 'live') next(); else { showOsd(true, true); Nav.focus(els['osd-play']); } return true; }
-        if (!osdInteractive) { showOsd(true, true); Nav.focus(els['osd-play']); return true; }
-        showOsd(true, true); return false;
-      case 'DOWN':
-        if (!osdVisible() || !osdInteractive) { showOsd(true, true); Nav.focus(els['osd-play']); return true; }
-        showOsd(true, true); return false;
-      case 'LEFT':
-        /* LEFT is the familiar receiver shortcut for the channel list. */
-        if (current && current.type === 'live' && (!osdVisible() || !osdInteractive)) { toggleZapList(); return true; }
-        if (!osdVisible()) { if (current) seek(-30); return true; }
-        showOsd(true, true); return false;
-      case 'RIGHT':
-        if (!osdVisible()) { if (current && current.type !== 'live') seek(30); else { showOsd(true, true); Nav.focus(els['osd-play']); } return true; }
-        if (!osdInteractive) { showOsd(true, true); Nav.focus(els['osd-play']); return true; }
-        showOsd(true, true); return false;
+      case 'UP': if (!osdVisible()) { if (current && current.type === 'live') next(); else { showOsd(); Nav.focus(els['osd-play']); } return true; } showOsd(); return false;
+      case 'DOWN': if (!osdVisible()) { showOsd(); Nav.focus(els['osd-play']); return true; } showOsd(); return false;
+      case 'LEFT': if (!osdVisible()) { if (current && current.type !== 'live') seek(-30); else if (current) toggleZapList(); return true; } showOsd(); return false;
+      case 'RIGHT': if (!osdVisible()) { if (current && current.type !== 'live') seek(30); else showOsd(); return true; } showOsd(); return false;
     }
     return false;
   }
@@ -559,16 +428,16 @@ var Player = (function () {
     switch (a) {
       case 'p-play': togglePlay(); break; case 'p-rew': seek(-30); break; case 'p-ffw': seek(30); break;
       case 'p-next': next(); break; case 'p-prev': prev(); break; case 'p-ratio': cycleRatio(); break;
-      case 'p-audio': openTrackMenu('audio'); break; case 'p-subs': openTrackMenu('subs'); break; case 'p-quality': openQualityMenu(); break; case 'p-picture': openPictureMenu(); break;
-      case 'p-list': toggleZapList(); return;
-      case 'p-stats': toggleStats(); break;
+      case 'p-audio': openTrackMenu('audio'); break; case 'p-subs': openTrackMenu('subs'); break; case 'p-picture': openPictureMenu(); break;
+      case 'p-list': toggleZapList(); break; case 'p-stats': toggleStats(); break;
       case 'p-fav': if (current && current.type !== 'catchup') { var t = current.type === 'episode' ? 'series' : current.type; var id = current.type === 'episode' ? current.seriesId : current.id; var on = Store.toggleFav(App.account.id, { type: t, id: id, name: current.seriesName || current.name, logo: current.logo, poster: current.poster, ext: current.ext, cmd: current.cmd, url: current.url, catId: current.catId, num: current.num, epgId: current.epgId }); UI.toast(on ? 'Added to favorites' : 'Removed from favorites'); updateFavBtn(); } break;
     }
-    showOsd(true, true);
+    showOsd();
   }
   function setOnEnded(fn) { onEnded = fn; }
   function getCurrent() { return current; }
-  function reset() { zapOpen = false; zapVList = null; zapRequest++; trackMenuOpen = false; toggleStats(false); cancelZap(); hideAutoNext(); els['zap-list'].classList.remove('show'); els['zap-list'].innerHTML = ''; els['track-menu'].classList.remove('show'); U.$('#screen-player').classList.remove('classic-live'); hideOsd(); }
+  function reset() { zapOpen = false; trackMenuOpen = false; toggleStats(false); cancelZap(); hideAutoNext(); els['zap-list'].classList.remove('show'); els['track-menu'].classList.remove('show'); hideOsd(); }
+
   function setCanPlay(fn) { canPlay = fn; }
   return { init: init, play: play, stop: stop, handleKey: handleKey, action: action, setOnEnded: setOnEnded, setCanPlay: setCanPlay, current: getCurrent, showOsd: showOsd, reset: reset, autoNext: autoNext, hideAutoNext: hideAutoNext, video: function () { return video; } };
 })();

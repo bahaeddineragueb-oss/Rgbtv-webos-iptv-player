@@ -1,10 +1,4 @@
-/* RGBTv 2.3 — performance-first library, schedule and health surfaces. */
-
-/* Fast is the default: reserve the decoder for the channel the user actually chose,
-   stop expensive decorative motion and leave the existing list virtualization intact. */
-body.perf-fast #bg-fx,body.perf-fast #spot{display:none}
-body.perf-fast .hero-bg{-webkit-animation:none;animation:none;transform:none}
-body.perf-fast .section,body.perf-fast .rows,body.perf-fast .row-items,body.perf-fast .card,body.perf-fast .tile,body.perf-fast .nav-item,body.perf-fast .vl-inner{transition:none!important}
+/* RGBTv — library, schedule and health surfaces. */
 
 /* Accessibility stays outside the video plane and uses variables so every theme keeps
    its layout while the reading contrast changes immediately. */
