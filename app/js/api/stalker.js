@@ -48,7 +48,9 @@ StalkerProvider.prototype = {
     /* Self-signed TLS remains opt-in per trusted portal; secure verification is the default.
        A VOD/series page can be slow on a busy portal, so do not apply the tiny
        handshake timeout to catalogue data that is still arriving normally. */
-    var opt = { insecureTls: this.acc.insecureTls === true };
+    /* Give a rate-limited portal enough time to honour Retry-After once. The
+       service keeps this bounded and serialised; this is not a request burst. */
+    var opt = { insecureTls: this.acc.insecureTls === true, timeout: 45000 };
     if (params && (params.action === 'get_ordered_list' || params.action === 'get_all_channels' || (params.action === 'get_categories' && params.type !== 'itv'))) opt.timeout = 120000;
     return U.getJSON(this._url(params), this._headers(), opt).then(function (r) {
       var result = r && typeof r === 'object' && 'js' in r ? r.js : r;
@@ -57,7 +59,11 @@ StalkerProvider.prototype = {
       if (typeof result === 'string' && /Authorization failed|invalid token/i.test(result)) throw new Error('AUTH');
       return result;
     }).catch(function (e) {
-      if (!noRetry && (/AUTH|HTTP 401|HTTP 403|HTTP 406|HTTP 444|Invalid JSON/.test(e.message))) {
+      var message = String(e && e.message || e);
+      /* A 429 is already retried calmly by the service. Do not launch another
+         handshake / endpoint sweep, because that would immediately re-trigger the limit. */
+      if (/HTTP 429|rate limited/i.test(message)) throw new Error(I18n.t('provider.http429'));
+      if (!noRetry && (/AUTH|HTTP 401|HTTP 403|HTTP 406|HTTP 444|Invalid JSON/.test(message))) {
         return self._handshake().then(function () { return self._call(params, true); });
       }
       throw e;
@@ -72,7 +78,7 @@ StalkerProvider.prototype = {
       }
       var currentMode = mode;
       self.endpoint = self.endpoints[endpointIndex]; self.agentMode = currentMode;
-      return U.getJSON(self._url({ type: 'stb', action: 'handshake', token: '', prehash: '' }), self._headers(), { insecureTls: self.acc && self.acc.insecureTls === true }).then(function (r) {
+      return U.getJSON(self._url({ type: 'stb', action: 'handshake', token: '', prehash: '' }), self._headers(), { insecureTls: self.acc && self.acc.insecureTls === true, timeout: 45000 }).then(function (r) {
         var js = r && r.js != null ? r.js : r;
         if (typeof js === 'string') { try { js = JSON.parse(js); } catch (e) { } }
         if (!js || !js.token) throw new Error('No token returned by ' + self.endpoint);
@@ -81,7 +87,11 @@ StalkerProvider.prototype = {
         delete self.acc.token; self.acc.endpoint = self.endpoint; Store.updateAccount(self.acc);
         return js;
       }).catch(function (e) {
-        var denied = /HTTP 444|HTTP 403|HTTP 406/.test(String(e && e.message));
+        var message = String(e && e.message || e);
+        /* Stop here on rate limiting. Cycling endpoint paths and MAG identities is
+           useful for 403/406/444 only; for 429 it makes the provider block longer. */
+        if (/HTTP 429|rate limited/i.test(message)) return Promise.reject(new Error(I18n.t('provider.http429')));
+        var denied = /HTTP 444|HTTP 403|HTTP 406/.test(message);
         if (denied) rejected = true;
         lastError = e;
         /* Only a clear server-side rejection merits trying another device identity. Other endpoint

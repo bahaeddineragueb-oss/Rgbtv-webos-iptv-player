@@ -8,9 +8,17 @@ var service = new Service('com.rgbtv.app.service');
 var MAX_REQUEST_BODY = 1024 * 1024, MAX_RESPONSE_BODY = 64 * 1024 * 1024, MAX_TIMEOUT = 120000;
 var DEFAULT_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3',
-  'Accept': '*/*', 'Accept-Encoding': 'identity', 'Connection': 'close'
+  'Accept': '*/*', 'Accept-Encoding': 'identity', 'Connection': 'keep-alive'
 };
 var ALLOWED_HEADERS = { 'accept': 1, 'accept-language': 1, 'authorization': 1, 'content-type': 1, 'cookie': 1, 'referer': 1, 'user-agent': 1, 'x-user-agent': 1 };
+/* A Stalker login is several small, authenticated requests. Reusing a bounded
+   connection pool prevents a new TCP connection for every handshake/profile call,
+   which is a common trigger for anti-flood rules on older portals. */
+var httpAgent = new http.Agent({ keepAlive: true, maxSockets: 4 });
+var httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 4 });
+/* HTTP 429 is a server instruction to slow down, not an alternate-endpoint error.
+   Keep this state service-wide so Retry cannot create a second request storm. */
+var rateLimits = {}, MAX_RATE_RETRIES = 3, MIN_RATE_DELAY = 2500, MAX_RATE_DELAY = 60000;
 
 function copy(o) { var r = {}, k; for (k in o || {}) if (Object.prototype.hasOwnProperty.call(o, k)) r[k] = o[k]; return r; }
 function clampTimeout(n) { n = Number(n) || 20000; return Math.max(1000, Math.min(MAX_TIMEOUT, n)); }
@@ -69,20 +77,53 @@ function decodeResponse(body, encoding, cb) {
   if (encoding === 'deflate') { zlib.inflate(body, cb); return; }
   cb(null, body);
 }
+function originKey(u) { return String(u.protocol || '').toLowerCase() + '//' + String(u.hostname || '').toLowerCase() + ':' + String(u.port || (u.protocol === 'https:' ? 443 : 80)); }
+function retryDelay(headers, attempt) {
+  var raw = headers && headers['retry-after'], delay = 0, n, at;
+  if (raw != null) {
+    n = Number(raw);
+    if (isFinite(n) && n >= 0) delay = Math.round(n * 1000);
+    else { at = Date.parse(raw); if (!isNaN(at)) delay = Math.max(0, at - Date.now()); }
+  }
+  /* A provider that omits Retry-After still gets a calm exponential backoff. */
+  if (!delay) delay = MIN_RATE_DELAY * Math.pow(2, attempt || 0);
+  return Math.max(MIN_RATE_DELAY, Math.min(MAX_RATE_DELAY, delay));
+}
+function rateError(delay) { return new Error('HTTP 429 rate limited — retry in ' + Math.max(1, Math.ceil(delay / 1000)) + ' seconds'); }
 
-function doFetch(opts, cb, redirects) {
-  redirects = redirects || 0;
+function doFetch(opts, cb, redirects, rateRetries, startedAt, skipRateGate) {
+  redirects = redirects || 0; rateRetries = rateRetries || 0; startedAt = startedAt || Date.now();
   var u = validHttpUrl(opts.url), body = opts.body == null ? null : String(opts.body), finished = false;
   if (!u) { cb(new Error('Only absolute HTTP(S) URLs are allowed')); return; }
   if (unsafeTarget(u.hostname)) { cb(new Error('Loopback and link-local proxy targets are blocked')); return; }
   if (['GET', 'HEAD', 'POST'].indexOf(String(opts.method || 'GET').toUpperCase()) < 0) { cb(new Error('HTTP method not allowed')); return; }
   if (body && Buffer.byteLength(body, 'utf8') > MAX_REQUEST_BODY) { cb(new Error('Request body too large')); return; }
+  var timeout = clampTimeout(opts.timeout), origin = originKey(u), cooldown = Number(rateLimits[origin]) || 0, wait = cooldown - Date.now();
+  /* A second UI request during a Retry-After window joins the cooldown instead of
+     hitting the portal again. Never wait past the caller's own timeout. */
+  if (!skipRateGate && wait > 0) {
+    if (Date.now() - startedAt + wait >= timeout) { cb(rateError(wait)); return; }
+    setTimeout(function () { doFetch(opts, cb, redirects, rateRetries, startedAt, true); }, wait);
+    return;
+  }
   function finish(err, result) { if (finished) return; finished = true; cb(err, result); }
   var mod = u.protocol === 'https:' ? https : http;
   var req = mod.request({
     hostname: u.hostname, port: u.port, path: u.path || '/', method: String(opts.method || 'GET').toUpperCase(),
-    headers: safeHeaders(opts.headers), rejectUnauthorized: opts.insecureTls !== true, timeout: clampTimeout(opts.timeout)
+    headers: safeHeaders(opts.headers), rejectUnauthorized: opts.insecureTls !== true, timeout: timeout,
+    agent: u.protocol === 'https:' ? httpsAgent : httpAgent
   }, function (res) {
+    /* Do not let the endpoint discovery code turn one 429 into seven rapid requests.
+       Retry only idempotent reads, on the same endpoint, after the provider's delay. */
+    if (res.statusCode === 429) {
+      var delay = retryDelay(res.headers, rateRetries), elapsed = Date.now() - startedAt;
+      rateLimits[origin] = Math.max(Number(rateLimits[origin]) || 0, Date.now() + delay);
+      res.resume();
+      if (rateRetries >= MAX_RATE_RETRIES || elapsed + delay >= timeout) { finish(rateError(delay)); return; }
+      setTimeout(function () { doFetch(opts, finish, redirects, rateRetries + 1, startedAt, true); }, delay);
+      return;
+    }
+    if (rateLimits[origin] && rateLimits[origin] <= Date.now()) delete rateLimits[origin];
     if ([301, 302, 303, 307, 308].indexOf(res.statusCode) >= 0 && res.headers.location && redirects < 5) {
       var nextUrl = url.resolve(opts.url, res.headers.location), next = validHttpUrl(nextUrl);
       res.resume();
@@ -95,7 +136,7 @@ function doFetch(opts, cb, redirects) {
         if (cookies) nextOpts.headers.Cookie = cookies;
       }
       if (res.statusCode === 303) { nextOpts.method = 'GET'; nextOpts.body = null; }
-      doFetch(nextOpts, finish, redirects + 1); return;
+      doFetch(nextOpts, finish, redirects + 1, rateRetries, startedAt); return;
     }
     var chunks = [], size = 0;
     res.on('data', function (c) {
