@@ -129,14 +129,38 @@ M3UProvider.prototype = {
     if (/^(?:Network error|no luna|Luna timeout)\b/i.test(msg)) return new Error(I18n.t('m3u.network'));
     return err instanceof Error ? err : new Error(msg || I18n.t('m3u.network'));
   },
+  _normalizeCachedItems: function (items) {
+    /* Existing six-hour caches can contain URL|User-Agent annotations produced by
+       earlier versions. Repair those entries before the first click after upgrade,
+       including episodes nested inside a cached series. */
+    var changed = false;
+    function repair(item) {
+      var source, key, seasons, season;
+      if (!item) return;
+      if (item.url) {
+        source = m3uSource(item.url);
+        if (source.url !== item.url) { item.url = source.url; changed = true; }
+        for (key in source.headers) if (Object.prototype.hasOwnProperty.call(source.headers, key)) {
+          if (!item.streamHeaders) item.streamHeaders = {};
+          if (item.streamHeaders[key] !== source.headers[key]) { item.streamHeaders[key] = source.headers[key]; changed = true; }
+        }
+      }
+      seasons = item.seasons;
+      for (season in seasons || {}) if (Object.prototype.hasOwnProperty.call(seasons, season)) (seasons[season] || []).forEach(repair);
+    }
+    (items || []).forEach(repair);
+    return changed;
+  },
   login: function () {
-    var self = this, cached = Store.cacheGet(this.acc.id, 'm3u_items', 6 * 3600e3), cachedEpg = Store.cacheGet(this.acc.id, 'm3u_epg', 12 * 3600e3);
+    var self = this, cached = Store.cacheGet(this.acc.id, 'm3u_items', 6 * 3600e3), cachedEpg = Store.cacheGet(this.acc.id, 'm3u_epg', 12 * 3600e3), cacheChanged;
     if (cachedEpg) this.epg = cachedEpg;
     if (cached) {
+      cacheChanged = this._normalizeCachedItems(cached);
       this.items = cached;
       /* Cache can predate the Smart Playlist release. Normalize it one time here,
          then write the compact result back so browsing never repeats this work. */
       if (window.SmartPlaylist) { var cachedPrepared = SmartPlaylist.prepare(cached); this.items = cachedPrepared.list; this.smartStats = cachedPrepared.stats; Store.cacheSet(this.acc.id, 'm3u_items', this.items); }
+      else if (cacheChanged) Store.cacheSet(this.acc.id, 'm3u_items', this.items);
       this._scheduleEpg(this.epgUrl);
       return Promise.resolve({ status: 'Loaded (cache)', expires: null, count: this.items.length });
     }

@@ -40,6 +40,12 @@ function parsePlaylist() {
     Referer: 'https://provider.example/'
   }, 'inline URL headers override EXTVLCOPT headers for this stream only');
   assert.strictEqual(list[1].url, 'https://edge.example/get.php?username=user&password=pass&output=m3u8');
+  var stale = [{ type: 'live', url: 'https://cache.example/live.m3u8|User-Agent=Cached%20Player' }, { type: 'series', seasons: { 1: [{ url: 'https://cache.example/episode.m3u8|Referer=https%3A%2F%2Fcache.example%2F' }] } }];
+  assert.strictEqual(provider._normalizeCachedItems(stale), true, 'cached entries from an older release must be migrated on upgrade');
+  assert.strictEqual(stale[0].url, 'https://cache.example/live.m3u8');
+  assert.strictEqual(stale[0].streamHeaders['User-Agent'], 'Cached Player');
+  assert.strictEqual(stale[1].seasons[1][0].url, 'https://cache.example/episode.m3u8');
+  assert.strictEqual(stale[1].seasons[1][0].streamHeaders.Referer, 'https://cache.example/');
   return list;
 }
 
