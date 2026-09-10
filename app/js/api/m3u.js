@@ -3,10 +3,15 @@
 /* IPTV panels sometimes inspect the HTTP client before they return the list.
    The automatic profile covers webOS, native Android/VU-compatible and VLC requests.
    A provider-supplied custom User-Agent always wins and is never overwritten. */
+/* Large provider exports are commonly 5–40 MiB. Do not treat a real playlist
+   download as a short API call; rejected HTTP requests still retry quickly. */
+var M3U_PLAYLIST_TIMEOUT = 120000;
+var M3U_RETRY_STATUSES = /HTTP (?:403|406|429|444|512)\b/i;
 var M3U_CLIENT_PROFILES = {
   auto: [
-    /* Try the working-player compatibility identity first to avoid provoking a panel's
-       rate limiter with several rejected requests before reaching this profile. */
+    /* Try a TV-player identity first. Some panels reject browser UAs before the
+       request reaches the playlist endpoint; provider-supplied UA still wins. */
+    { 'User-Agent': 'RGBTv/2.2 (webOS Smart TV) IPTVSmarters/3.1 ExoPlayerLib/2.18', 'Accept': '*/*' },
     { 'User-Agent': 'VU IPTV Player/1.2.4', 'Accept': '*/*' },
     { 'User-Agent': 'okhttp/4.12.0', 'Accept': '*/*' },
     { 'User-Agent': 'Dart/3.3 (dart:io)', 'Accept': '*/*' },
@@ -39,6 +44,37 @@ function m3uSource(raw) {
   }
   return out;
 }
+/* Return a decoded query parameter without relying on URLSearchParams, which is
+   missing on the older webOS browser engines supported by this application. */
+function m3uQueryValue(query, wanted) {
+  var parts = String(query || '').split('&'), i, p, at, key;
+  wanted = String(wanted || '').toLowerCase();
+  for (i = 0; i < parts.length; i++) {
+    p = parts[i]; at = p.indexOf('='); if (at < 1) continue;
+    key = m3uDecode(p.slice(0, at)).toLowerCase();
+    if (key === wanted) return m3uDecode(p.slice(at + 1));
+  }
+  return null;
+}
+/* A get.php subscription URL often exposes the same credentials as Xtream.
+   Keep this conversion local to the provider: the saved profile remains M3U and
+   can transparently fall back to downloading its playlist if player_api.php is
+   disabled by that provider. */
+function m3uXtreamAccount(acc) {
+  var src, m, path, query, user, pass, base, x;
+  if (!acc || acc.type !== 'm3u') return null;
+  src = m3uSource(acc.url || '');
+  m = /^(https?:\/\/[^\/?#]+)(\/[^?#]*)\?([^#]*)$/i.exec(src.url);
+  if (!m || !/\/get\.php$/i.test(m[2])) return null;
+  path = m[2]; query = m[3]; user = m3uQueryValue(query, 'username'); pass = m3uQueryValue(query, 'password');
+  if (user == null || pass == null || !user || !pass) return null;
+  base = m[1] + path.replace(/\/get\.php$/i, '');
+  x = m3uCopy(acc); x.type = 'xtream'; x.url = base || m[1]; x.username = user; x.password = pass;
+  /* The source was entered as M3U, so use the same Luna/native-safe route for
+     its optional API fast path. The profile itself remains unchanged on disk. */
+  x.apiProxy = true;
+  return x;
+}
 function M3UProvider(acc) {
   var src = m3uSource(acc.url || '');
   this.acc = acc; this.type = 'm3u'; this.url = U.normUrl(src.url);
@@ -60,20 +96,30 @@ M3UProvider.prototype = {
     return out;
   },
   _fetch: function (target, timeout) {
-    var clients = this._clients(), attempt = 0, last, saw444 = false;
+    var clients = this._clients(), attempt = 0, last, wait = Number(timeout) || M3U_PLAYLIST_TIMEOUT;
     function next() {
-      var opt = { timeout: timeout || 18000, proxy: true, headers: clients[attempt] };
+      /* The packaged service is deliberately preferred here: it avoids browser
+         CORS restrictions, preserves documented headers, and asks for identity
+         encoding on old webOS Node builds. If Luna is unavailable, U.http falls
+         back to XHR; Android uses its native fetch bridge. */
+      var opt = { timeout: wait, proxy: true, headers: clients[attempt] };
       return U.http(target, opt).catch(function (err) {
         last = err;
-        /* Rejections are normally fast. Do not multiply a real network timeout by
-           every possible client profile. */
-        if (/HTTP 444/.test(String(err && err.message))) saw444 = true;
-        if (attempt < clients.length - 1 && /HTTP (?:403|406|429|444)/i.test(String(err && err.message))) { attempt++; return next(); }
-        if (saw444) throw new Error(I18n.t('provider.http444'));
+        /* Rejections are normally fast. Never repeat a 120-second network
+           timeout for every compatibility identity, but include 512 because
+           several IPTV panels use it as a browser/client rejection. */
+        if (attempt < clients.length - 1 && M3U_RETRY_STATUSES.test(String(err && err.message))) { attempt++; return next(); }
         throw last;
       });
     }
     return next();
+  },
+  _playlistError: function (err) {
+    var msg = String(err && err.message || err || ''), status = /HTTP\s+(\d{3})\b/i.exec(msg);
+    if (/^Timeout\b/i.test(msg)) return new Error(I18n.t('m3u.timeout'));
+    if (status) return new Error(I18n.t('m3u.httpStatus', { code: status[1] }));
+    if (/^(?:Network error|no luna|Luna timeout)\b/i.test(msg)) return new Error(I18n.t('m3u.network'));
+    return err instanceof Error ? err : new Error(msg || I18n.t('m3u.network'));
   },
   login: function () {
     var self = this, cached = Store.cacheGet(this.acc.id, 'm3u_items', 6 * 3600e3), cachedEpg = Store.cacheGet(this.acc.id, 'm3u_epg', 12 * 3600e3);
@@ -82,9 +128,9 @@ M3UProvider.prototype = {
       this.items = cached; this._scheduleEpg(this.epgUrl);
       return Promise.resolve({ status: 'Loaded (cache)', expires: null, count: cached.length });
     }
-    /* Luna proxy avoids CORS failures on playlists hosted by IPTV panels. A short timeout
-       fails a dead source quickly instead of leaving the profile on the connecting screen. */
-    return this._fetch(this.url, 18000).then(function (txt) {
+    /* A playlist may be tens of megabytes. It is fetched once, cached for six
+       hours, then every channel uses the direct URL parsed from this text. */
+    return this._fetch(this.url, M3U_PLAYLIST_TIMEOUT).then(function (txt) {
       /* A 200 response can still be a captive/login page from a provider. Name
          that case explicitly; calling it merely an invalid M3U hid the fix. */
       if (!/#EXTM3U/i.test(txt) && !/#EXTINF/i.test(txt)) {
@@ -99,7 +145,7 @@ M3UProvider.prototype = {
          opening the first M3U channel never competes with an EPG transfer. */
       self._scheduleEpg(self.epgUrl);
       return { status: 'Loaded', expires: null, count: self.items.length };
-    });
+    }).catch(function (err) { throw self._playlistError(err); });
   },
   _findEpgUrl: function (txt) {
     var head = String(txt || '').split(/\r?\n/)[0] || '', m = /(?:url-tvg|x-tvg-url|tvg-url)\s*=\s*"([^"]+)"/i.exec(head);
@@ -216,8 +262,48 @@ M3UProvider.prototype = {
   streamUrl: function (item) { return Promise.resolve(item && item.url); }
 };
 
+/* Fast path for a genuine Xtream get.php export. If player_api.php is not
+   available, preserve the reliable M3U behavior by falling back to the text
+   playlist instead of rejecting a valid subscription URL. */
+function M3UGetPhpProvider(acc, xtreamAcc) {
+  this.acc = acc; this.type = 'm3u';
+  this.playlist = new M3UProvider(acc); this.xtream = new XtreamProvider(xtreamAcc); this.active = null;
+}
+M3UGetPhpProvider.prototype = {
+  _provider: function () { return this.active || this.playlist; },
+  login: function () {
+    var self = this;
+    return this.xtream.login().then(function (info) {
+      self.active = self.xtream; info.status = info.status || 'Xtream API'; info.source = 'xtream'; return info;
+    }).catch(function () {
+      return self.playlist.login().then(function (info) {
+        self.active = self.playlist; info.source = 'm3u'; return info;
+      });
+    });
+  },
+  liveCategories: function () { return this._provider().liveCategories(); },
+  vodCategories: function () { return this._provider().vodCategories(); },
+  seriesCategories: function () { return this._provider().seriesCategories(); },
+  liveStreams: function (catId) { return this._provider().liveStreams(catId); },
+  vodStreams: function (catId) { return this._provider().vodStreams(catId); },
+  seriesList: function (catId) { return this._provider().seriesList(catId); },
+  vodInfo: function (id, item) { return this._provider().vodInfo(id, item); },
+  seriesInfo: function (id, item) { return this._provider().seriesInfo(id, item); },
+  shortEPG: function (streamId, limit) { return this._provider().shortEPG(streamId, limit); },
+  streamUrl: function (item) { return this._provider().streamUrl(item); },
+  catchupUrl: function (item, startTs, durationMin) {
+    var p = this._provider();
+    return p.catchupUrl ? p.catchupUrl(item, startTs, durationMin) : Promise.reject(new Error('Catch-up is not available for this playlist'));
+  },
+  destroy: function () {
+    if (this.playlist && this.playlist.destroy) this.playlist.destroy();
+    if (this.xtream && this.xtream.destroy) this.xtream.destroy();
+  }
+};
+
 function createProvider(acc) {
+  var xtream;
   if (acc.type === 'stalker') return new StalkerProvider(acc);
-  if (acc.type === 'm3u') return new M3UProvider(acc);
+  if (acc.type === 'm3u') { xtream = m3uXtreamAccount(acc); return xtream ? new M3UGetPhpProvider(acc, xtream) : new M3UProvider(acc); }
   return new XtreamProvider(acc);
 }

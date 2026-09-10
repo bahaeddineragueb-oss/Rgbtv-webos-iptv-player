@@ -10,7 +10,7 @@ function XtreamProvider(acc) {
   this.acc = acc;
   this.base = U.normUrl(acc.url);
   this.user = acc.username; this.pass = acc.password;
-  this.type = 'xtream';
+  this.type = 'xtream'; this.apiProxy = acc.apiProxy === true;
   this.serverInfo = null; this.userInfo = null;
   this._mem = {}; this._pending = {};
 }
@@ -19,7 +19,9 @@ XtreamProvider.prototype = {
     var q = { username: this.user, password: this.pass };
     if (action) q.action = action;
     if (params) for (var k in params) q[k] = params[k];
-    return U.getJSON(this.base + '/player_api.php?' + U.qs(q));
+    /* get.php M3U accounts can use this optional fast path through Luna, which
+       avoids CORS/browser-UA rejection before falling back to their playlist. */
+    return U.getJSON(this.base + '/player_api.php?' + U.qs(q), null, this.apiProxy ? { proxy: true } : null);
   },
   login: function () {
     var self = this;

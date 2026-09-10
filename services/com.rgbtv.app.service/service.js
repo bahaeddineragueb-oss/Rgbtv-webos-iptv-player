@@ -3,8 +3,9 @@
 var Service = require('webos-service');
 var http = require('http'), https = require('https'), url = require('url'), os = require('os'), crypto = require('crypto'), zlib = require('zlib');
 var service = new Service('com.rgbtv.app.service');
-/* A large M3U/XMLTV export can exceed 12 MiB; keep a firm but practical 32 MiB cap. */
-var MAX_REQUEST_BODY = 1024 * 1024, MAX_RESPONSE_BODY = 32 * 1024 * 1024, MAX_TIMEOUT = 60000;
+/* Provider M3U/XMLTV exports commonly reach 5–40 MiB. Keep a bounded 64 MiB
+   response ceiling while allowing the client-facing 120-second playlist timeout. */
+var MAX_REQUEST_BODY = 1024 * 1024, MAX_RESPONSE_BODY = 64 * 1024 * 1024, MAX_TIMEOUT = 120000;
 var DEFAULT_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3',
   'Accept': '*/*', 'Accept-Encoding': 'identity', 'Connection': 'close'

@@ -1,4 +1,4 @@
-# RGBTv — webOS TV source (v2.2.5)
+# RGBTv — webOS TV source (v2.2.6)
 
 Pure HTML5 web app for LG webOS (3.0+): ES5 JavaScript, legacy-safe CSS, native <video> + hls.js.
 
@@ -40,14 +40,14 @@ RGBTv-webOS/
 ```bash
 npm install -g @webos-tools/cli          # once
 ares-package app services/com.rgbtv.app.service -o dist
-# → dist/com.rgbtv.app_2.2.5_all.ipk
+# → dist/com.rgbtv.app_2.2.6_all.ipk
 ```
 
 Install on a TV in Developer Mode:
 
 ```bash
 ares-setup-device            # add the TV (IP + passphrase from the Developer Mode app)
-ares-install -d tv dist/com.rgbtv.app_2.2.5_all.ipk
+ares-install -d tv dist/com.rgbtv.app_2.2.6_all.ipk
 ares-launch  -d tv com.rgbtv.app
 ```
 
@@ -56,7 +56,7 @@ or simply `./build.sh tv`.
 ## Notes
 - Do not add ES6 syntax (arrow functions, let/const, template strings) in `app/js` — older webOS browsers will fail to parse.
 - Avoid CSS `inset`, flex `gap`, `backdrop-filter`, `@supports`, and `Element.closest()` for the same reason.
-- M3U supports quoted/unquoted attributes, relative stream URLs, stable item IDs, and an optional XMLTV EPG URL (or `url-tvg` declared in the playlist). The packaged Luna service is used automatically when a playlist/guide needs a CORS-safe fetch; it follows same-origin login redirects with their session cookies and handles gzip/deflate playlists. The app identifies a returned login page separately from an invalid playlist. Direct browser XHR remains the fallback.
+- M3U supports quoted/unquoted attributes, relative stream URLs, stable item IDs, and an optional XMLTV EPG URL (or `url-tvg` declared in the playlist). It downloads the text playlist once with a 120-second timeout, caches parsed items for six hours, and sends the parsed direct stream URL to the player without a per-channel control request. The packaged Luna service is preferred for CORS-safe playlist/guide fetches; it retains same-origin redirect cookies, requests identity encoding, handles gzip/deflate responses, accepts downloads up to 64 MiB, and allows the full 120-second timeout. The app reports login-page, HTTP-status, network, and timeout failures separately. A credential-bearing `get.php` M3U URL first tries the compatible Xtream API through the same Luna/native-safe path for fast metadata, then falls back automatically to the valid text playlist if that API is unavailable.
 - Stalker/Ministra needs the Luna service for its MAG cookie and bearer-token handshake. It tries common portal roots (`/server/load.php`, `/c/server/load.php`, and `/stalker_portal/...`) before reporting a connection failure. HTTPS certificates are verified by default; a clearly labelled per-profile switch is available only for a self-signed portal you trust.
 - The **Ramadan** theme has a dedicated emerald/gold skin and a Home prayer card. It uses the existing Prayer Times setting and does **not** turn notifications on when they were disabled.
 - Live Player offers **Dual View** for two live channels: pressing Dual opens the next available live channel immediately, while **Choose 2nd** lets you replace it. The secondary channel begins muted and Yellow changes the audio source. It confirms that the second decoder has actually produced a picture, retries through hls.js when native video is black, and restores the main picture with a clear explanation after 20 seconds. Actual availability still depends on the TV and subscription permitting two simultaneous live streams.
