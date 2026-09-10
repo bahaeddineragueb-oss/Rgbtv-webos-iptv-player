@@ -73,14 +73,21 @@ var UI = (function () {
     var wide = it.type === 'live';
     var c = U.el('div', 'card focusable' + (wide ? ' wide' : '') + (opts.mini ? ' mini' : '')); c.setAttribute('data-nav', opts.nav || 'row');
     var img = wide ? it.logo : (it.poster || it.logo);
-    var prog = '', badge = '', fav = '';
-    if (it.type === 'movie' || it.type === 'episode') { var p = Store.getPos(App.account.id, it.type + ':' + it.id); if (p && p.dur) prog = '<div class="progress"><i style="width:' + Math.round(p.pos / p.dur * 100) + '%"></i></div>'; }
+    var prog = '', resume = '', badge = '', fav = '';
+    if (it.type === 'movie' || it.type === 'episode') {
+      var p = Store.getPos(App.account.id, it.type + ':' + it.id), mins, left;
+      if (p && p.dur) {
+        prog = '<div class="progress"><i style="width:' + Math.round(p.pos / p.dur * 100) + '%"></i></div>';
+        left = Math.max(0, Number(p.dur) - Number(p.pos)); mins = Math.max(1, Math.ceil(left / 60));
+        if (left > 15 && left < Number(p.dur) - 10) resume = '<div class="continue-remaining">' + U.esc((mins >= 60 ? Math.floor(mins / 60) + 'h ' + (mins % 60 ? mins % 60 + 'm' : '') : mins + ' ' + I18n.t('home.min')) + ' ' + I18n.t('home.left')) + '</div>';
+      }
+    }
     if (it.rating && Number(it.rating) > 0) badge = '<div class="badge">★ ' + Number(it.rating).toFixed(1) + '</div>';
     if (Store.isFav(App.account.id, it.type, it.id)) fav = '<div class="fav">★</div>';
     if (it.type === 'live' && Store.isLocked(App.account.id, it.id)) fav += '<div class="lock">🔒</div>';
     c.innerHTML = '<div class="thumb" data-src="' + U.esc(img || '') + '">' + badge + fav + prog + '</div><div class="title">' + U.esc(it.name) + '</div>';
     c._item = it; lazyBg(c.querySelector('.thumb'));
-    if (!opts.noClick) c.onclick = function () { App.openItem(it, opts.list); };
+    if (!opts.noClick) c.onclick = function () { if (it._resume && App.resumeItem) App.resumeItem(it, opts.list); else App.openItem(it, opts.list); };
     return c;
   }
   function row(title, items, opts) {
@@ -139,6 +146,7 @@ var UI = (function () {
     if (/relig|islam|quran|coran|christ|دين|قرآن/.test(n)) return CAT_ICONS.religion;
     if (/adult|xxx|18\+|porn/.test(n)) return CAT_ICONS.adult;
     if (/movie|cinema|film|أفلام|افلام|vod|box ?office|series|مسلسل/.test(n)) return CAT_ICONS.movie;
+    if (/favorite|favourite|most watched|recently watched|recently added|مفضلة|الأكثر مشاهدة|شاهدتها/.test(n)) return CAT_ICONS.star;
     if (/top|best|premium|4k|uhd|vip/.test(n)) return CAT_ICONS.star;
     if (/^(fr|uk|us|usa|de|es|it|ar|arab|tr|pt|nl|be|ch|ca|ma|dz|tn|eg|sa|ae|lb|qa|kw)\b|france|english|german|spain|ital|arab|turk|maroc|alger|tunis|egypt|saudi|emirat|world|international|عرب|فرنس|مغرب|جزائر|تونس|مصر/.test(n)) return CAT_ICONS.world;
     return CAT_ICONS.tv;

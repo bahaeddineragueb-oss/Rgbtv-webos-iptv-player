@@ -16,7 +16,7 @@ var Player = (function () {
 
   function init() {
     video = U.$('#video'); try { video.preload = 'auto'; } catch (e) { }
-    ['osd', 'osd-title', 'osd-sub', 'osd-logo', 'osd-clock', 'osd-played', 'osd-buffer', 'osd-cur', 'osd-dur', 'osd-play', 'player-loading', 'player-loading-text', 'player-error', 'zap-list', 'channel-number', 'track-menu', 'osd-fav', 'osd-ratio', 'osd-list-btn', 'osd-audio', 'osd-subs', 'osd-quality-btn', 'osd-quality', 'stats-box', 'zap-preview', 'osd-stats', 'osd-epg', 'autonext', 'an-bar', 'an-count', 'an-title'].forEach(function (id) { els[id] = document.getElementById(id); });
+    ['osd', 'osd-title', 'osd-sub', 'osd-logo', 'osd-clock', 'osd-played', 'osd-buffer', 'osd-cur', 'osd-dur', 'osd-play', 'player-loading', 'player-loading-text', 'player-error', 'zap-list', 'channel-number', 'track-menu', 'osd-fav', 'osd-ratio', 'osd-list-btn', 'osd-audio', 'osd-subs', 'osd-quality-btn', 'osd-quality', 'osd-picture', 'stats-box', 'zap-preview', 'osd-stats', 'osd-epg', 'autonext', 'an-bar', 'an-count', 'an-title'].forEach(function (id) { els[id] = document.getElementById(id); });
     /* Buffering indicator: webOS fires 'waiting'/'stalled' very often on live TS/HLS even while the picture keeps
        moving, and sometimes never fires 'playing' afterwards -> spinner stuck in the middle. So: show it only if the
        stall lasts > 800ms, and hide it as soon as currentTime advances again (real progress), not only on 'playing'. */
@@ -152,7 +152,7 @@ var Player = (function () {
     /* Ignore a late URL resolution from a channel the user has already left. */
     var generation = ++playGeneration;
     cancelReconnect(); rc.active = true; rc.userPaused = false; rc.lastOpt = opt; rc.lastProgress = Date.now(); rc.lastTime = -1;
-    current = item; current._triedHls = false; current._engine = null;
+    current = item; current._triedHls = false; current._engine = null; applyPictureMode();
     if (opt.list) { playlist = opt.list; index = opt.index != null ? opt.index : playlist.indexOf(item); }
     error(null); loading(true, T('loading'));
     stop(false);
@@ -184,7 +184,7 @@ var Player = (function () {
       if (posKey) { clearInterval(posTimer); posTimer = setInterval(savePos, 5000); }
       /* M3U cannot reconstruct an item URL from its id, unlike Xtream/Stalker. Keep the resolved
          URL for that provider so Recent/Continue watching remains playable. */
-      if (item.type !== 'catchup') Store.pushHistory(App.account.id, { type: item.type, id: item.id, name: item.name, logo: item.logo, poster: item.poster, seriesId: item.seriesId, ext: item.ext, cmd: item.cmd, url: App.provider && App.provider.type === 'm3u' ? url : undefined, catId: item.catId, season: item.season, episode: item.episode });
+      if (item.type !== 'catchup') { Store.pushHistory(App.account.id, { type: item.type, id: item.id, name: item.name, logo: item.logo, poster: item.poster, seriesId: item.seriesId, ext: item.ext, cmd: item.cmd, url: App.provider && App.provider.type === 'm3u' ? url : undefined, catId: item.catId, season: item.season, episode: item.episode }); if (Store.recordWatch) Store.recordWatch(App.account.id, item); }
     }).catch(function (e) { if (generation === playGeneration && current === item) scheduleReconnect('Cannot start stream: ' + e.message); });
   }
   function savePos() { if (posKey && video.duration && !isNaN(video.duration)) Store.setPos(App.account.id, posKey, video.currentTime, video.duration); }
@@ -356,6 +356,38 @@ var Player = (function () {
   }
 
   /* ---- audio / subtitle / adaptive-quality tracks ---- */
+  function pictureValues() {
+    var s = Store.settings(), mode = /^(original|cinema|vivid|standard)$/.test(s.pictureMode) ? s.pictureMode : 'original';
+    return { mode: mode, brightness: U.clamp(Number(s.pictureBrightness) || 100, 70, 130), contrast: U.clamp(Number(s.pictureContrast) || 100, 70, 140), saturation: U.clamp(Number(s.pictureSaturation) || 100, 0, 150) };
+  }
+  function applyPictureMode() {
+    if (!video) return;
+    var p = pictureValues(), preset = { original: [100, 100, 100], cinema: [94, 112, 86], vivid: [106, 116, 124], standard: [100, 105, 100] }[p.mode] || [100, 100, 100], b = p.brightness * preset[0] / 100, c = p.contrast * preset[1] / 100, s = p.saturation * preset[2] / 100;
+    /* CSS filtering is a local compositor operation: it changes neither the TV's
+       global picture settings nor the stream/decoder route. Original is exact. */
+    var filter = p.mode === 'original' ? '' : 'brightness(' + b + '%) contrast(' + c + '%) saturate(' + s + '%)';
+    video.style.webkitFilter = filter; video.style.filter = filter;
+  }
+  function pictureModeLabel(mode) { return T('p.picture.' + mode); }
+  function changePicture(key, delta) {
+    var p = pictureValues(), value = U.clamp(p[key] + delta, key === 'saturation' ? 0 : 70, key === 'contrast' ? 140 : (key === 'saturation' ? 150 : 130));
+    /* Any slider adjustment intentionally leaves a true Original mode and uses
+       the neutral Standard preset, so Original always restores an untouched image. */
+    if (p.mode === 'original') Store.setSetting('pictureMode', 'standard');
+    Store.setSetting('picture' + key.charAt(0).toUpperCase() + key.slice(1), value); applyPictureMode();
+    setTimeout(openPictureMenu, 0);
+  }
+  function openPictureMenu() {
+    var p = pictureValues(), list = [], modes = ['original', 'cinema', 'vivid', 'standard'];
+    modes.forEach(function (mode) { list.push({ label: pictureModeLabel(mode), active: p.mode === mode, act: function () { Store.setSetting('pictureMode', mode); if (mode === 'original') { Store.setSetting('pictureBrightness', 100); Store.setSetting('pictureContrast', 100); Store.setSetting('pictureSaturation', 100); } applyPictureMode(); } }); });
+    list.push({ label: T('p.brightness') + ': ' + p.brightness + '%  −', act: function () { changePicture('brightness', -5); } });
+    list.push({ label: T('p.brightness') + ': ' + p.brightness + '%  +', act: function () { changePicture('brightness', 5); } });
+    list.push({ label: T('p.contrast') + ': ' + p.contrast + '%  −', act: function () { changePicture('contrast', -5); } });
+    list.push({ label: T('p.contrast') + ': ' + p.contrast + '%  +', act: function () { changePicture('contrast', 5); } });
+    list.push({ label: T('p.saturation') + ': ' + p.saturation + '%  −', act: function () { changePicture('saturation', -5); } });
+    list.push({ label: T('p.saturation') + ': ' + p.saturation + '%  +', act: function () { changePicture('saturation', 5); } });
+    showPlayerMenu(T('p.picture'), list);
+  }
   function trackLabel(t, fallback) { return (t && (t.name || t.label || t.lang || t.language)) || fallback; }
   function saveTrackPref(kind, i, t, off) {
     if (!current || !App.account || !Store.setTrackPref) return;
@@ -401,14 +433,20 @@ var Player = (function () {
     if (!list.length) { UI.toast(kind === 'audio' ? T('p.noAudio') : T('p.noSubs')); return; }
     showPlayerMenu(title, list);
   }
+  function hlsQualityLabel(level, n) {
+    var h = Number(level && level.height) || 0, w = Number(level && level.width) || 0, label;
+    if (h >= 2100 || w >= 3800) label = '4K'; else if (h >= 1000 || w >= 1900) label = '1080p'; else if (h >= 700 || w >= 1200) label = '720p'; else if (h >= 450 || w >= 700) label = '480p'; else label = h ? h + 'p' : T('p.qualityLevel', { n: n + 1 });
+    return label + (level && level.bitrate ? ' · ' + Math.round(level.bitrate / 1000) + ' kbps' : '');
+  }
   function openQualityMenu() {
-    var list = [], levels, i, l;
+    var list = [], levels, i;
+    /* hls.js exposes the manifest's real variants. Native webOS HLS is still
+       allowed to adapt automatically, but does not expose fake 4K/1080 choices. */
     if (!hls || !hls.levels || !hls.levels.length) { UI.toast(T('p.qualityNeedHls')); return; }
     levels = hls.levels;
     list.push({ label: T('p.qualityAuto'), active: hls.currentLevel === -1, act: function () { hls.currentLevel = -1; hls.nextLevel = -1; } });
     for (i = 0; i < levels.length; i++) (function (level, n) {
-      var label = (level.height ? level.height + 'p' : T('p.qualityLevel', { n: n + 1 })) + (level.bitrate ? ' · ' + Math.round(level.bitrate / 1000) + ' kbps' : '');
-      list.push({ label: label, active: hls.currentLevel === n, act: function () { hls.currentLevel = n; hls.nextLevel = n; } });
+      list.push({ label: hlsQualityLabel(level, n), active: hls.currentLevel === n, act: function () { hls.currentLevel = n; hls.nextLevel = n; } });
     })(levels[i], i);
     showPlayerMenu(T('p.quality'), list);
   }
@@ -521,7 +559,7 @@ var Player = (function () {
     switch (a) {
       case 'p-play': togglePlay(); break; case 'p-rew': seek(-30); break; case 'p-ffw': seek(30); break;
       case 'p-next': next(); break; case 'p-prev': prev(); break; case 'p-ratio': cycleRatio(); break;
-      case 'p-audio': openTrackMenu('audio'); break; case 'p-subs': openTrackMenu('subs'); break; case 'p-quality': openQualityMenu(); break;
+      case 'p-audio': openTrackMenu('audio'); break; case 'p-subs': openTrackMenu('subs'); break; case 'p-quality': openQualityMenu(); break; case 'p-picture': openPictureMenu(); break;
       case 'p-list': toggleZapList(); return;
       case 'p-stats': toggleStats(); break;
       case 'p-fav': if (current && current.type !== 'catchup') { var t = current.type === 'episode' ? 'series' : current.type; var id = current.type === 'episode' ? current.seriesId : current.id; var on = Store.toggleFav(App.account.id, { type: t, id: id, name: current.seriesName || current.name, logo: current.logo, poster: current.poster, ext: current.ext, cmd: current.cmd, url: current.url, catId: current.catId, num: current.num, epgId: current.epgId }); UI.toast(on ? 'Added to favorites' : 'Removed from favorites'); updateFavBtn(); } break;

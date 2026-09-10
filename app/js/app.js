@@ -342,7 +342,7 @@ var App = (function () {
     stopHero(); setHeroWelcome();
     var favLive = favs.filter(function (f) { return f.type === 'live'; }), favVod = favs.filter(function (f) { return f.type !== 'live'; });
     if (favLive.length) rows.appendChild(onNowRow(favLive.slice(0, 12)));
-    if (cont.length) rows.appendChild(UI.row(T('home.continue'), cont.map(hydrate)));
+    if (cont.length) rows.appendChild(UI.row(T('home.continue'), cont.map(resumeCard)));
     if (recentLive.length) rows.appendChild(UI.row(T('home.recentLive'), recentLive.map(hydrate)));
     if (favVod.length) rows.appendChild(UI.row(T('home.mylist'), favVod.map(hydrate)));
     var sk = U.el('div'); UI.skeletonRows(sk, 1); rows.appendChild(sk);
@@ -428,7 +428,7 @@ var App = (function () {
     function strip() {
       var src = cont.length ? cont : recent; if (!src.length) return null;
       var st = U.el('div', 'hub-strip'); st.innerHTML = '<div class="row-title">' + U.esc(cont.length ? T('hub.continue') : T('hub.recent')) + '</div>';
-      var items = U.el('div', 'hub-items'); src.slice(0, 9).forEach(function (h) { items.appendChild(UI.card(hydrate(h), { nav: 'hub', mini: true, list: src })); }); st.appendChild(items); return st;
+      var items = U.el('div', 'hub-items'); src.slice(0, 9).forEach(function (h) { items.appendChild(UI.card(cont.length ? resumeCard(h) : hydrate(h), { nav: 'hub', mini: true, list: src })); }); st.appendChild(items); return st;
     }
     function infoBar() {
       var info = U.el('div', 'hub-info');
@@ -540,13 +540,18 @@ var App = (function () {
     epgFor(ch, 4).then(function (list) { cache[ch.id] = { at: Date.now(), list: list }; if (document.body.contains(c)) paint(list); });
   }
   function hydrate(h) { var it = {}; for (var k in h) it[k] = h[k]; return it; }
+  function resumeCard(h) { var it = hydrate(h); it._resume = 1; return it; }
   function adultCatIds() { var bad = {}; if (!parentalOn()) return bad; [live.cats, movies.cats, series.cats].forEach(function (l) { l.forEach(function (x) { if (U.isAdult(x.name) || x.censored) bad[x.id] = 1; }); }); return bad; }
   /* Personal hiding and ordering are applied after the provider result, so they work
      identically for M3U, Xtream and Stalker without ever modifying the source list. */
-  function prepareLiveList(list) {
-    var bad = adultCatIds();
+  function prepareLiveList(list, preserveOrder) {
+    var bad = adultCatIds(), prepared, m3uReady = App.provider && App.provider.type === 'm3u' && (!App.provider.active || App.provider.active === App.provider.playlist);
     list = (list || []).filter(function (x) { return !bad[x.catId] && !Store.isCategoryHidden(account.id, x.catId) && !Store.isChannelHidden(account.id, x.id); });
-    return Store.sortChannels(account.id, list);
+    /* Text M3U is cleaned once before its six-hour cache is written. Avoid a
+       second full-list sort whenever All Channels is reopened; portal results
+       are decorated only when their current category is actually opened. */
+    if (window.SmartPlaylist && !m3uReady) { prepared = SmartPlaylist.prepare(list, { urls: false }); list = prepared.list; live.smartStats = prepared.stats; }
+    return preserveOrder ? list : Store.sortChannels(account.id, list);
   }
   function withAll(cats, name) { return [{ id: null, name: name }].concat(cats.filter(function (c) { return !(parentalOn() && (U.isAdult(c.name) || c.censored)); })); }
 
@@ -573,22 +578,50 @@ var App = (function () {
       live.cats = cats; U.$('#live-cats').classList.remove('sk-list');
       /* Xtream category endpoints return quickly; opening "All" first can make a TV
          allocate thousands of channel objects before it paints anything. */
-      var visibleCats = cats.filter(function (x) { return !Store.isCategoryHidden(account.id, x.id); });
+      var visibleCats = cats.filter(function (x) { return !Store.isCategoryHidden(account.id, x.id); }), displayCats = withAll(visibleCats, T('allChannels'));
+      /* Smart groups are derived from category labels, so this is instant and never
+         forces a full Xtream/Stalker catalogue solely to paint the left rail. */
+      if (window.SmartPlaylist) displayCats = [displayCats[0]].concat(SmartPlaylist.categoryHints(visibleCats)).concat(displayCats.slice(1));
       var first = visibleCats.length ? visibleCats[0] : { id: null, name: T('allChannels') };
-      UI.renderCats(U.$('#live-cats'), withAll(visibleCats, T('allChannels')), first.id, 'lcat', function (c) { selectLiveCat(c); });
+      UI.renderCats(U.$('#live-cats'), displayCats, first.id, 'lcat', function (c) { selectLiveCat(c); });
       selectLiveCat(first); Nav.focus(U.$('#live-cats .cat-item.selected') || U.$('#live-cats .cat-item'));
     }).catch(function (e) { UI.toast('Failed to load categories: ' + e.message, 3000, '⚠'); });
   }
+  function loadLiveCategorySet(ids) {
+    /* A Smart group can map to several provider folders. Limit the work to four
+       category requests at once: this is fast, but does not overload weak portals. */
+    var out = [], at = 0, width = 4;
+    function next() {
+      var batch = ids.slice(at, at + width); at += width; if (!batch.length) return Promise.resolve(out);
+      return Promise.all(batch.map(function (id) { return provider.liveStreams(id).catch(function () { return []; }); })).then(function (sets) {
+        sets.forEach(function (set) { Array.prototype.push.apply(out, set || []); }); return next();
+      });
+    }
+    return next();
+  }
+  function savedSmartLive(kind) {
+    if (kind === 'favorites') return Store.favorites(account.id).filter(function (x) { return x.type === 'live'; });
+    return Store.history(account.id).filter(function (x) { return x.type === 'live'; });
+  }
   function selectLiveCat(c) {
-    var request = ++live.request, categoryId = c.id, categoryName = c.name;
+    var request = ++live.request, categoryId = c.id, categoryName = c.name, smart = c && c.smart, p, names = {};
+    live.cats.forEach(function (x) { names[String(x.id)] = x.name; });
     live.catId = categoryId; U.$('#live-cat-title').textContent = categoryName; U.$('#live-channels')._vlist = null; live.vl = null; UI.skeletonList(U.$('#live-channels'), 9);
-    provider.liveStreams(categoryId).then(function (list) {
+    if (smart && (smart === 'favorites' || smart === 'recent' || smart === 'most')) p = Promise.resolve(savedSmartLive(smart));
+    else if (smart && c.sourceIds && c.sourceIds.length) p = loadLiveCategorySet(c.sourceIds);
+    else p = provider.liveStreams(smart ? null : categoryId);
+    p.then(function (list) {
       if (request !== live.request || live.catId !== categoryId) return;
-      list = prepareLiveList(list);
-      live.list = list; list.forEach(function (x) { x.catName = categoryName; });
+      /* A get.php fast path can fall back to text M3U after this request. Its
+         category ids differ, so rebuild instead of painting an empty Smart rail. */
+      if (provider && provider.catalogFallback) { provider.catalogFallback = false; live.cats = []; loadLive(); return; }
+      (list || []).forEach(function (x) { if (!x.catName) x.catName = names[String(x.catId)] || categoryName; });
+      if (smart && window.SmartPlaylist) list = SmartPlaylist.filter(list, smart, account.id);
+      list = prepareLiveList(list, !!smart);
+      live.list = list;
       U.$('#live-channels').classList.remove('sk-list');
       live.vl = UI.renderChannels(U.$('#live-channels'), list, live.selected && live.selected.id, function (ch) { previewChannel(ch); }, function (ch, i) { playLive(ch, i); });
-      if (!list.length) U.$('#live-channels').innerHTML = '<div class="empty">' + T('noChannels') + '</div>';
+      if (!list.length) U.$('#live-channels').innerHTML = '<div class="empty">' + U.esc(T('smart.empty')) + '</div>';
     }).catch(function (e) { if (request === live.request) U.$('#live-channels').innerHTML = '<div class="empty">' + U.esc(e.message) + '</div>'; });
   }
   function previewChannel(ch) {
@@ -677,6 +710,15 @@ var App = (function () {
     Player.play(UI.toPlayable(ch), { list: live.list.length ? live.list : [ch], index: i != null ? i : live.list.indexOf(ch) });
   }
   function playLiveFrom(ch, list) { live.list = list; var i = list.indexOf(ch); playLive(ch, i < 0 ? 0 : i); }
+  /* Continue Watching is intentionally a direct resume action. It reuses the one
+     existing player and its saved-position key; no preview/second decoder is made. */
+  function resumeItem(item, list) {
+    if (!item) return;
+    if (item.type === 'live') { playLive(item, list ? list.indexOf(item) : 0); return; }
+    var playable = UI.toPlayable(item), all = list || [item], at = all.indexOf(item);
+    playerReturn = { screen: 'home' }; Player.reset(); showScreen('player');
+    Player.play(playable, { list: all, index: at < 0 ? 0 : at, resume: true });
+  }
 
   /* ---------- full TV guide ---------- */
   var guide = { open: false, list: [], request: 0, vl: null };
@@ -795,6 +837,7 @@ var App = (function () {
     diagnosticRow(T('diagnostics.provider'), account.type.toUpperCase() + (health.source && health.source !== account.type ? ' · ' + health.source : ''), 'ok');
     diagnosticRow(T('diagnostics.capabilities'), capabilities, 'ok');
     diagnosticRow(T('diagnostics.cache'), T('diagnostics.cacheValue', { n: cache.entries, kb: Math.max(0, Math.round(cache.bytes / 1024)) }), cache.entries ? 'ok' : 'muted');
+    if (provider.smartStats && window.SmartPlaylist) { var clean = SmartPlaylist.summary(provider.smartStats); diagnosticRow(T('diagnostics.smart'), T('diagnostics.smartValue', clean), clean.duplicates || clean.broken ? 'ok' : 'muted'); }
     diagnosticRow(T('diagnostics.lastLogin'), health.status === 'ok' ? T('diagnostics.lastLoginOk', { ms: health.loginMs || 0 }) : (health.error || T('diagnostics.notChecked')), health.status === 'ok' ? 'ok' : (health.error ? 'bad' : 'muted'));
     diagnosticRow(T('diagnostics.playback'), T('diagnostics.playbackSafe'), 'muted');
     U.$('#diagnostics-overlay').classList.add('show'); Nav.setContainer(U.$('#diagnostics-overlay')); Nav.focus(U.$('[data-action="diagnostics-run"]'));
@@ -899,9 +942,17 @@ var App = (function () {
   }
   function renderFavorites() {
     var rows = U.$('#fav-rows'); rows.innerHTML = ''; rows.style.transform = ''; renderFavoriteToolbar();
-    var f = Store.favorites(account.id, favoriteListId), l = f.filter(function (x) { return x.type === 'live'; }), m = f.filter(function (x) { return x.type === 'movie'; }), s = f.filter(function (x) { return x.type === 'series'; });
+    var f = Store.favorites(account.id, favoriteListId), l = f.filter(function (x) { return x.type === 'live'; }), m = f.filter(function (x) { return x.type === 'movie'; }), s = f.filter(function (x) { return x.type === 'series'; }), personal = false;
     if (l.length) rows.appendChild(UI.row(T('fav.channels'), l.map(hydrate))); if (m.length) rows.appendChild(UI.row(T('fav.movies'), m.map(hydrate))); if (s.length) rows.appendChild(UI.row(T('fav.series'), s.map(hydrate)));
-    if (!f.length) rows.appendChild(U.el('div', 'empty', favoriteListId === 'all' ? T('fav.empty') : T('favs.empty', { n: favoriteListName(favoriteListId) })));
+    /* The All Collections tab is also the personal-library dashboard. These rows
+       are entirely local: no catalogue load is triggered just to show history. */
+    if (favoriteListId === 'all') {
+      var hist = Store.history(account.id), cont = hist.filter(function (h) { return h.type !== 'live' && Store.getPos(account.id, h.type + ':' + h.id); }), stats = Store.watchStats ? Store.watchStats(account.id) : {}, most = hist.slice().sort(function (a, b) { var aa = stats[a.type + ':' + a.id] || {}, bb = stats[b.type + ':' + b.id] || {}; return (bb.count || 0) - (aa.count || 0) || (bb.last || 0) - (aa.last || 0) || (b.at || 0) - (a.at || 0); });
+      if (cont.length) { rows.appendChild(UI.row(T('home.continue'), cont.map(resumeCard), { max: 20 })); personal = true; }
+      if (hist.length) { rows.appendChild(UI.row(T('hub.recent'), hist.slice(0, 20).map(resumeCard), { max: 20 })); personal = true; }
+      if (most.length && (stats[most[0].type + ':' + most[0].id] || {}).count) { rows.appendChild(UI.row(T('smart.most'), most.slice(0, 20).map(resumeCard), { max: 20 })); personal = true; }
+    }
+    if (!f.length && !personal) rows.appendChild(U.el('div', 'empty', favoriteListId === 'all' ? T('fav.empty') : T('favs.empty', { n: favoriteListName(favoriteListId) })));
     Nav.focus(U.$('#fav-rows .card') || U.$('#fav-toolbar .fav-tab.active') || U.$('.nav-item[data-section="favorites"]'));
   }
   function openFavoriteListEditor(id, item) {
@@ -1160,7 +1211,7 @@ var App = (function () {
       if (name === 'RED' && (section === 'movies' || section === 'series' || section === 'home' || section === 'favorites' || section === 'search')) { var c = Nav.current(); if (c && c._item) { toggleFavItem(c._item); if (c._vlist) c._vlist.refreshItem(Number(c.getAttribute('data-i'))); else { var f = c.querySelector('.fav'); if (f) f.remove(); else if (c.querySelector('.thumb')) c.querySelector('.thumb').appendChild(U.el('div', 'fav', '★')); } return true; } }
       if (name === 'GREEN') { showSection('favorites'); Nav.focus(U.$('.nav-item[data-section="favorites"]')); return true; }
       if (name === 'YELLOW' && section === 'live' && live.selected) { toggleLockChannel(live.selected); return true; }
-      if (name === 'BLUE' && section === 'live') { var focused = Nav.current(); if (focused && focused.getAttribute('data-nav') === 'lcat') { var cid = focused._item && focused._item.id; openLiveCategoryTools(cid == null ? { id: null, name: T('allChannels') } : (live.cats.filter(function (x) { return String(x.id) === String(cid); })[0] || { id: cid, name: focused.textContent })); } else if (live.selected) openChannelTools(live.selected); else openGuide(); return true; }
+      if (name === 'BLUE' && section === 'live') { var focused = Nav.current(); if (focused && focused.getAttribute('data-nav') === 'lcat') { if (focused._item && focused._item.smart) return true; var cid = focused._item && focused._item.id; openLiveCategoryTools(cid == null ? { id: null, name: T('allChannels') } : (live.cats.filter(function (x) { return String(x.id) === String(cid); })[0] || { id: cid, name: focused.textContent })); } else if (live.selected) openChannelTools(live.selected); else openGuide(); return true; }
       if (name === 'YELLOW') { showSection('search'); return true; }
       if ((name === 'CH_UP' || name === 'CH_DOWN') && !(Nav.current() && Nav.current()._vlist)) { var order = NAV_ORDER, i = order.indexOf(section); showSection(order[(i + (name === 'CH_UP' ? 1 : order.length - 1)) % order.length]); Nav.focus(U.$('.nav-item[data-section="' + section + '"]')); return true; }
     }
@@ -1265,5 +1316,5 @@ var App = (function () {
   }
 
   window.addEventListener('load', init);
-  return { openAccount: openAccount, openItem: openItem, closePlayer: closePlayer, isScreen: isScreen, activeScreen: activeScreen, account: null, provider: null, accountMenu: accountMenu, showAddForm: showAddForm, playLiveFrom: playLiveFrom, playCatchup: playCatchup };
+  return { openAccount: openAccount, openItem: openItem, resumeItem: resumeItem, closePlayer: closePlayer, isScreen: isScreen, activeScreen: activeScreen, account: null, provider: null, accountMenu: accountMenu, showAddForm: showAddForm, playLiveFrom: playLiveFrom, playCatchup: playCatchup };
 })();

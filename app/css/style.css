@@ -227,6 +227,7 @@ img{display:block}
 .card .badge{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.7);padding:4px 10px;border-radius:8px;font-size:18px;font-weight:700;color:#fbbf24;z-index:1}
 .card .progress{position:absolute;left:0;right:0;bottom:0;height:6px;background:rgba(0,0,0,.6);z-index:1}
 .card .progress i{display:block;height:100%;background:var(--accent2)}
+.card .continue-remaining{position:absolute;right:9px;bottom:12px;z-index:2;max-width:88%;padding:4px 7px;border-radius:6px;background:rgba(0,0,0,.78);color:#fff;font-size:14px;font-weight:700;line-height:1.1}
 .card .fav{position:absolute;top:10px;left:10px;color:#fbbf24;font-size:22px;text-shadow:0 0 6px #000;z-index:1}
 .card .lock{position:absolute;right:10px;bottom:10px;background:rgba(0,0,0,.7);border-radius:8px;padding:2px 8px;font-size:18px;z-index:1}
 .card.focus{transform:scale(1.08);border-color:var(--fring);box-shadow:0 0 0 4px var(--fring),0 0 36px var(--fglow),0 18px 50px rgba(0,0,0,.7)}
@@ -599,7 +600,7 @@ body.rtl .row-title{padding-left:0;padding-right:18px}
 body.rtl .row-title:before{left:auto;right:0}
 body.rtl .row-title>*{margin-right:0;margin-left:14px}
 body.rtl .row-items>*{margin-right:0;margin-left:24px}body.rtl .row-items>*:last-child{margin-left:0}
-body.rtl .card .badge{right:auto;left:10px}body.rtl .card .fav{left:auto;right:10px}body.rtl .card .lock{right:auto;left:10px}
+body.rtl .card .badge{right:auto;left:10px}body.rtl .card .fav{left:auto;right:10px}body.rtl .card .lock{right:auto;left:10px}body.rtl .card .continue-remaining{right:auto;left:9px}
 body.rtl .card .title,body.rtl .ch-item .name,body.rtl .ch-item .now{text-align:right}
 body.rtl .ch-item .num{text-align:left}
 body.rtl .ch-item>*,body.rtl .card.now .nw-head>*,body.rtl .g-ch>*{margin-right:0;margin-left:18px}body.rtl .ch-item>*:last-child,body.rtl .card.now .nw-head>*:last-child{margin-left:0}

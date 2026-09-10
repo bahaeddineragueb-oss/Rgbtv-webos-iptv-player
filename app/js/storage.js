@@ -30,7 +30,7 @@ var Store = (function () {
   function setLastAccount(id) { set('lastAccount', id); }
 
   /* ---- settings ---- */
-  var DEFAULTS = { liveFormat: 'm3u8', engine: 'auto', parental: true, autostart: false, theme: 'aurora', tmdbKey: '', preview: true, performance: 'fast', lang: 'en', refreshHours: 6, layout: 'classic', focusStyle: 'glow', largeUi: false, highContrast: false, liveGrid: false, ambient: true, weather: true, autoNext: true, accent: 'auto', pointer: 'click', corners: 'round', glow: true, wxMode: 'auto', wxUnit: 'c', adhan: true, adhanMethod: 'algeria' };
+  var DEFAULTS = { liveFormat: 'm3u8', engine: 'auto', parental: true, autostart: false, theme: 'aurora', tmdbKey: '', preview: true, performance: 'fast', lang: 'en', refreshHours: 6, layout: 'classic', focusStyle: 'glow', largeUi: false, highContrast: false, liveGrid: false, ambient: true, weather: true, autoNext: true, accent: 'auto', pointer: 'click', corners: 'round', glow: true, wxMode: 'auto', wxUnit: 'c', adhan: true, adhanMethod: 'algeria', pictureMode: 'original', pictureBrightness: 100, pictureContrast: 100, pictureSaturation: 100 };
   var THEME_MIGRATE = { dark: 'aurora' }, LAYOUT_MIGRATE = { viu: 'spotlight', ibo: 'trio' };
   function settings() { var s = get('settings', {}); for (var k in DEFAULTS) if (!(k in s)) s[k] = DEFAULTS[k]; if (THEME_MIGRATE[s.theme]) s.theme = THEME_MIGRATE[s.theme]; if (LAYOUT_MIGRATE[s.layout]) s.layout = LAYOUT_MIGRATE[s.layout]; return s; }
   /* per-account locked channels (ids) */
@@ -138,6 +138,16 @@ name = String(name || '').replace(/^\s+|\s+$/g, '').slice(0, 32);
     var l = history(accId).filter(function (h) { return !(h.type === item.type && String(h.id) === String(item.id)); });
     item.at = Date.now(); l.unshift(item); set(accKey(accId, 'history'), l.slice(0, 60));
   }
+  /* Counts are local ranking hints, not analytics. They are bounded to keep storage
+     and Smart Playlist sorting fast even after years of use. */
+  function watchStats(accId) { var w = get(accKey(accId, 'watchStats'), {}); return w && typeof w === 'object' ? w : {}; }
+  function recordWatch(accId, item) {
+    if (!accId || !item || !item.id) return false;
+    var w = watchStats(accId), key = String(item.type || '') + ':' + String(item.id), keys;
+    w[key] = w[key] || { count: 0, last: 0 }; w[key].count = Math.min(9999, Number(w[key].count || 0) + 1); w[key].last = Date.now();
+    keys = Object.keys(w); if (keys.length > 500) { keys.sort(function (a, b) { return (w[a].last || 0) - (w[b].last || 0); }); delete w[keys[0]]; }
+    return set(accKey(accId, 'watchStats'), w);
+  }
   function positions(accId) { return get(accKey(accId, 'pos'), {}); }
   function getPos(accId, key) { return positions(accId)[key] || null; }
   function setPos(accId, key, pos, dur) {
@@ -216,7 +226,7 @@ name = String(name || '').replace(/^\s+|\s+$/g, '').slice(0, 32);
     var data = { schema: 'rgbtv-backup', version: 1, createdAt: Date.now(), settings: settings(), accounts: [], data: {} };
     accounts().forEach(function (a) {
       data.accounts.push(safeAccountCopy(a, !!includeSecrets));
-      data.data[a.id] = { favs: favorites(a.id), favLists: favoriteLists(a.id), history: history(a.id), locked: lockedIds(a.id), hiddenChannels: hiddenChannels(a.id), hiddenCategories: hiddenCategories(a.id), channelOrder: channelOrder(a.id), pos: positions(a.id), tracks: trackPrefs(a.id), reminders: reminders(a.id) };
+      data.data[a.id] = { favs: favorites(a.id), favLists: favoriteLists(a.id), history: history(a.id), locked: lockedIds(a.id), hiddenChannels: hiddenChannels(a.id), hiddenCategories: hiddenCategories(a.id), channelOrder: channelOrder(a.id), pos: positions(a.id), tracks: trackPrefs(a.id), reminders: reminders(a.id), watchStats: watchStats(a.id) };
     });
     return utf8b64(JSON.stringify(data));
   }
@@ -242,11 +252,12 @@ name = String(name || '').replace(/^\s+|\s+$/g, '').slice(0, 32);
       set(accKey(newId, 'pos'), state.pos && typeof state.pos === 'object' ? state.pos : {});
       set(accKey(newId, 'tracks'), state.tracks && typeof state.tracks === 'object' ? state.tracks : {});
       set(accKey(newId, 'reminders'), Array.isArray(state.reminders) ? state.reminders.slice(0, 80) : []);
+      set(accKey(newId, 'watchStats'), state.watchStats && typeof state.watchStats === 'object' ? state.watchStats : {});
     }
     if (!imported.length) throw new Error('Backup has no valid profiles');
     saveAccounts(imported); set('settings', data.settings && typeof data.settings === 'object' ? data.settings : settings()); del('lastAccount');
     return { count: imported.length, needsCredentials: imported.some(function (x) { return x.needsCredentials; }) };
   }
 
-  return { get: get, set: set, del: del, device: device, accounts: accounts, addAccount: addAccount, updateAccount: updateAccount, removeAccount: removeAccount, getAccount: getAccount, lastAccount: lastAccount, setLastAccount: setLastAccount, settings: settings, setSetting: setSetting, favoriteLists: favoriteLists, createFavoriteList: createFavoriteList, renameFavoriteList: renameFavoriteList, removeFavoriteList: removeFavoriteList, favorites: favorites, isFav: isFav, toggleFav: toggleFav, toggleFavInList: toggleFavInList, history: history, pushHistory: pushHistory, getPos: getPos, setPos: setPos, trackPref: trackPref, setTrackPref: setTrackPref, reminders: reminders, isReminder: isReminder, toggleReminder: toggleReminder, dueReminders: dueReminders, upcomingReminders: upcomingReminders, health: health, setHealth: setHealth, cacheInfo: cacheInfo, cacheGet: cacheGet, cacheSet: cacheSet, clearCache: clearCache, isLocked: isLocked, toggleLock: toggleLock, lockedIds: lockedIds, hiddenChannels: hiddenChannels, isChannelHidden: isChannelHidden, toggleChannelHidden: toggleChannelHidden, clearHiddenChannels: clearHiddenChannels, hiddenCategories: hiddenCategories, isCategoryHidden: isCategoryHidden, toggleCategoryHidden: toggleCategoryHidden, clearHiddenCategories: clearHiddenCategories, sortChannels: sortChannels, moveChannel: moveChannel, clearChannelOrder: clearChannelOrder, snapshot: snapshot, setSnapshot: setSnapshot, exportBackup: exportBackup, importBackup: importBackup };
+  return { get: get, set: set, del: del, device: device, accounts: accounts, addAccount: addAccount, updateAccount: updateAccount, removeAccount: removeAccount, getAccount: getAccount, lastAccount: lastAccount, setLastAccount: setLastAccount, settings: settings, setSetting: setSetting, favoriteLists: favoriteLists, createFavoriteList: createFavoriteList, renameFavoriteList: renameFavoriteList, removeFavoriteList: removeFavoriteList, favorites: favorites, isFav: isFav, toggleFav: toggleFav, toggleFavInList: toggleFavInList, history: history, pushHistory: pushHistory, watchStats: watchStats, recordWatch: recordWatch, getPos: getPos, setPos: setPos, trackPref: trackPref, setTrackPref: setTrackPref, reminders: reminders, isReminder: isReminder, toggleReminder: toggleReminder, dueReminders: dueReminders, upcomingReminders: upcomingReminders, health: health, setHealth: setHealth, cacheInfo: cacheInfo, cacheGet: cacheGet, cacheSet: cacheSet, clearCache: clearCache, isLocked: isLocked, toggleLock: toggleLock, lockedIds: lockedIds, hiddenChannels: hiddenChannels, isChannelHidden: isChannelHidden, toggleChannelHidden: toggleChannelHidden, clearHiddenChannels: clearHiddenChannels, hiddenCategories: hiddenCategories, isCategoryHidden: isCategoryHidden, toggleCategoryHidden: toggleCategoryHidden, clearHiddenCategories: clearHiddenCategories, sortChannels: sortChannels, moveChannel: moveChannel, clearChannelOrder: clearChannelOrder, snapshot: snapshot, setSnapshot: setSnapshot, exportBackup: exportBackup, importBackup: importBackup };
 })();

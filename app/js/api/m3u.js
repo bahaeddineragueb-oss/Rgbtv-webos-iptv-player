@@ -125,8 +125,12 @@ M3UProvider.prototype = {
     var self = this, cached = Store.cacheGet(this.acc.id, 'm3u_items', 6 * 3600e3), cachedEpg = Store.cacheGet(this.acc.id, 'm3u_epg', 12 * 3600e3);
     if (cachedEpg) this.epg = cachedEpg;
     if (cached) {
-      this.items = cached; this._scheduleEpg(this.epgUrl);
-      return Promise.resolve({ status: 'Loaded (cache)', expires: null, count: cached.length });
+      this.items = cached;
+      /* Cache can predate the Smart Playlist release. Normalize it one time here,
+         then write the compact result back so browsing never repeats this work. */
+      if (window.SmartPlaylist) { var cachedPrepared = SmartPlaylist.prepare(cached); this.items = cachedPrepared.list; this.smartStats = cachedPrepared.stats; Store.cacheSet(this.acc.id, 'm3u_items', this.items); }
+      this._scheduleEpg(this.epgUrl);
+      return Promise.resolve({ status: 'Loaded (cache)', expires: null, count: this.items.length });
     }
     /* A playlist may be tens of megabytes. It is fetched once, cached for six
        hours, then every channel uses the direct URL parsed from this text. */
@@ -190,6 +194,9 @@ M3UProvider.prototype = {
         cur = null;
       }
     }
+    /* Clean only demonstrably broken URLs and exact duplicates before caching. This
+       turns a large text playlist into a smaller, stable in-memory catalogue. */
+    if (window.SmartPlaylist) { var prepared = SmartPlaylist.prepare(out); this.smartStats = prepared.stats; return prepared.list; }
     return out;
   },
   _guessType: function (c) {
@@ -283,7 +290,7 @@ M3UGetPhpProvider.prototype = {
     var self = this;
     if (this.active === this.playlist) return Promise.resolve({ status: 'Loaded', source: 'm3u' });
     if (this._playlistPending) return this._playlistPending;
-    var p = this.playlist.login().then(function (info) { self.active = self.playlist; info.source = 'm3u'; self._playlistPending = null; return info; }, function (e) { self._playlistPending = null; throw e; });
+    var p = this.playlist.login().then(function (info) { self.active = self.playlist; self.smartStats = self.playlist.smartStats; info.source = 'm3u'; self._playlistPending = null; return info; }, function (e) { self._playlistPending = null; throw e; });
     this._playlistPending = p; return p;
   },
   /* A get.php URL remains a valid M3U subscription even when player_api.php
