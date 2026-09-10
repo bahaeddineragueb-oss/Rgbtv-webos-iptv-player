@@ -355,6 +355,8 @@
 <!-- ================= PLAYER ================= -->
 <div id="screen-player" class="screen"><button class="host-back" data-action="host-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg></button>
   <video id="video" autoplay playsinline disableRemotePlayback></video>
+  <!-- Fallback grading layer: native webOS video planes may ignore CSS filters. -->
+  <div class="picture-fx" id="picture-fx" aria-hidden="true"></div>
   <div class="player-loading" id="player-loading"><div class="loader"></div><span id="player-loading-text">Loading…</span></div>
   <div class="player-error" id="player-error"></div>
   <div class="osd" id="osd">

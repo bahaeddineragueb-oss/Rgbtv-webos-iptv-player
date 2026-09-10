@@ -11,7 +11,7 @@ var Player = (function () {
 
   function init() {
     video = U.$('#video'); try { video.preload = 'auto'; } catch (e) { }
-    ['osd', 'osd-title', 'osd-sub', 'osd-logo', 'osd-clock', 'osd-played', 'osd-buffer', 'osd-cur', 'osd-dur', 'osd-play', 'player-loading', 'player-loading-text', 'player-error', 'zap-list', 'channel-number', 'track-menu', 'osd-fav', 'osd-ratio', 'osd-list-btn', 'osd-audio', 'osd-subs', 'osd-quality', 'osd-picture', 'stats-box', 'zap-preview', 'osd-stats', 'osd-epg', 'autonext', 'an-bar', 'an-count', 'an-title'].forEach(function (id) { els[id] = document.getElementById(id); });
+    ['osd', 'osd-title', 'osd-sub', 'osd-logo', 'osd-clock', 'osd-played', 'osd-buffer', 'osd-cur', 'osd-dur', 'osd-play', 'player-loading', 'player-loading-text', 'player-error', 'zap-list', 'channel-number', 'track-menu', 'osd-fav', 'osd-ratio', 'osd-list-btn', 'osd-audio', 'osd-subs', 'osd-quality', 'osd-picture', 'picture-fx', 'stats-box', 'zap-preview', 'osd-stats', 'osd-epg', 'autonext', 'an-bar', 'an-count', 'an-title'].forEach(function (id) { els[id] = document.getElementById(id); });
     /* Buffering indicator: webOS fires 'waiting'/'stalled' very often on live TS/HLS even while the picture keeps
        moving, and sometimes never fires 'playing' afterwards -> spinner stuck in the middle. So: show it only if the
        stall lasts > 800ms, and hide it as soon as currentTime advances again (real progress), not only on 'playing'. */
@@ -296,43 +296,67 @@ var Player = (function () {
   }
   function closeTrackMenu() { els['track-menu'].classList.remove('show'); trackMenuOpen = false; showOsd(); Nav.focus(els['osd-play']); }
 
-  /* Picture controls are local CSS/video filters only. They never change TV-wide
-     picture settings or create another playback pipeline. */
+  /* Picture controls are local only. Some webOS native video planes bypass CSS
+     filters, so every grade is also represented by a visible DOM overlay fallback.
+     No TV-wide setting, stream URL, canvas copy or second decoder is ever used. */
   function pictureValues() {
     var s = Store.settings(), mode = /^(original|cinema|vivid|standard)$/.test(s.pictureMode) ? s.pictureMode : 'original';
-    return { mode: mode, brightness: U.clamp(Number(s.pictureBrightness) || 100, 70, 130), contrast: U.clamp(Number(s.pictureContrast) || 100, 70, 140), saturation: U.clamp(Number(s.pictureSaturation) || 100, 0, 150) };
+    return { mode: mode, brightness: U.clamp(Number(s.pictureBrightness) || 100, 60, 140), contrast: U.clamp(Number(s.pictureContrast) || 100, 60, 160), saturation: U.clamp(Number(s.pictureSaturation) || 100, 0, 180), tone: U.clamp(Number(s.pictureTone) || 0, -30, 30) };
+  }
+  function picturePreset(mode) {
+    return { original: [100, 100, 100, 0], cinema: [88, 128, 74, 12], vivid: [112, 138, 146, -4], standard: [100, 108, 108, 0] }[mode] || [100, 100, 100, 0];
+  }
+  function pictureButton(p) {
+    var b = els['osd-picture']; if (!b) return;
+    b.textContent = T('p.picture') + (p.mode === 'original' ? '' : ' · ' + T('p.picture.' + p.mode));
   }
   function applyPictureMode() {
     if (!video) return;
-    var p = pictureValues(), preset = { original: [100, 100, 100], cinema: [94, 112, 86], vivid: [106, 116, 124], standard: [100, 105, 100] }[p.mode] || [100, 100, 100], b = p.brightness * preset[0] / 100, c = p.contrast * preset[1] / 100, s = p.saturation * preset[2] / 100;
-    var filter = p.mode === 'original' ? '' : 'brightness(' + b + '%) contrast(' + c + '%) saturate(' + s + '%)';
+    var p = pictureValues(), preset = picturePreset(p.mode), b = p.brightness * preset[0] / 100, c = p.contrast * preset[1] / 100, s = p.saturation * preset[2] / 100, tone = U.clamp(p.tone + preset[3], -30, 30), fx = els['picture-fx'], layers = [], alpha;
+    /* Filter gives a true grade on browser/Android renderers. */
+    var filter = p.mode === 'original' ? '' : 'brightness(' + b.toFixed(1) + '%) contrast(' + c.toFixed(1) + '%) saturate(' + s.toFixed(1) + '%)';
     video.style.webkitFilter = filter; video.style.filter = filter;
+    /* Overlay is intentionally pronounced enough to prove the action immediately
+       on LG native video planes where the filter itself has no visible effect. */
+    if (p.mode !== 'original') {
+      if (b < 100) { alpha = Math.min(.28, (100 - b) / 115); layers.push('linear-gradient(rgba(0,0,0,' + alpha.toFixed(3) + '),rgba(0,0,0,' + alpha.toFixed(3) + '))'); }
+      else if (b > 100) { alpha = Math.min(.20, (b - 100) / 185); layers.push('linear-gradient(rgba(255,255,255,' + alpha.toFixed(3) + '),rgba(255,255,255,' + alpha.toFixed(3) + '))'); }
+      if (c > 100) { alpha = Math.min(.22, (c - 100) / 175); layers.push('radial-gradient(ellipse at center,rgba(0,0,0,0) 38%,rgba(0,0,0,' + alpha.toFixed(3) + ') 100%)'); }
+      else if (c < 100) { alpha = Math.min(.16, (100 - c) / 230); layers.push('linear-gradient(rgba(255,255,255,' + alpha.toFixed(3) + '),rgba(255,255,255,' + alpha.toFixed(3) + '))'); }
+      if (s < 100) { alpha = Math.min(.34, (100 - s) / 190); layers.push('linear-gradient(rgba(128,128,128,' + alpha.toFixed(3) + '),rgba(128,128,128,' + alpha.toFixed(3) + '))'); }
+      else if (s > 100) { alpha = Math.min(.12, (s - 100) / 650); layers.push('linear-gradient(105deg,rgba(255,35,85,' + alpha.toFixed(3) + '),rgba(0,0,0,0) 48%,rgba(20,155,255,' + alpha.toFixed(3) + '))'); }
+      if (tone) { alpha = Math.min(.18, Math.abs(tone) / 155); layers.push('linear-gradient(rgba(' + (tone > 0 ? '255,120,24' : '24,128,255') + ',' + alpha.toFixed(3) + '),rgba(' + (tone > 0 ? '255,120,24' : '24,128,255') + ',' + alpha.toFixed(3) + '))'); }
+    }
+    if (fx) { fx.style.background = layers.length ? layers.join(',') : 'transparent'; fx.style.opacity = layers.length ? '1' : '0'; }
+    pictureButton(p);
+  }
+  function setPictureMode(mode) {
+    Store.setSetting('pictureMode', mode);
+    if (mode === 'original') { Store.setSetting('pictureBrightness', 100); Store.setSetting('pictureContrast', 100); Store.setSetting('pictureSaturation', 100); Store.setSetting('pictureTone', 0); }
+    applyPictureMode();
   }
   function openPictureMenu() {
     var p = pictureValues(), menu = els['track-menu'];
     menu.innerHTML = '<div class="tm-title">' + U.esc(T('p.picture')) + '</div>';
-    function add(label, active, act) {
+    function add(label, active, act, reopen) {
       var d = U.el('div', 'track-item focusable' + (active ? ' active' : ''), U.esc(label)); d.setAttribute('data-nav', 'track');
-      d.onclick = function () { act(); closeTrackMenu(); UI.toast(label); }; menu.appendChild(d);
+      d.onclick = function () { act(); closeTrackMenu(); UI.toast(label); if (reopen) setTimeout(openPictureMenu, 0); }; menu.appendChild(d);
     }
-    ['original', 'cinema', 'vivid', 'standard'].forEach(function (mode) {
-      add(T('p.picture.' + mode), p.mode === mode, function () {
-        Store.setSetting('pictureMode', mode);
-        if (mode === 'original') { Store.setSetting('pictureBrightness', 100); Store.setSetting('pictureContrast', 100); Store.setSetting('pictureSaturation', 100); }
-        applyPictureMode();
-      });
-    });
+    ['original', 'cinema', 'vivid', 'standard'].forEach(function (mode) { add(T('p.picture.' + mode), p.mode === mode, function () { setPictureMode(mode); }); });
     function adjust(key, delta, min, max) {
       var now = pictureValues(), value = U.clamp(now[key] + delta, min, max);
       if (now.mode === 'original') Store.setSetting('pictureMode', 'standard');
-      Store.setSetting('picture' + key.charAt(0).toUpperCase() + key.slice(1), value); applyPictureMode(); setTimeout(openPictureMenu, 0);
+      Store.setSetting('picture' + key.charAt(0).toUpperCase() + key.slice(1), value); applyPictureMode();
     }
-    add(T('p.brightness') + ': ' + p.brightness + '%  −', false, function () { adjust('brightness', -5, 70, 130); });
-    add(T('p.brightness') + ': ' + p.brightness + '%  +', false, function () { adjust('brightness', 5, 70, 130); });
-    add(T('p.contrast') + ': ' + p.contrast + '%  −', false, function () { adjust('contrast', -5, 70, 140); });
-    add(T('p.contrast') + ': ' + p.contrast + '%  +', false, function () { adjust('contrast', 5, 70, 140); });
-    add(T('p.saturation') + ': ' + p.saturation + '%  −', false, function () { adjust('saturation', -5, 0, 150); });
-    add(T('p.saturation') + ': ' + p.saturation + '%  +', false, function () { adjust('saturation', 5, 0, 150); });
+    add(T('p.brightness') + ': ' + p.brightness + '%  −', false, function () { adjust('brightness', -5, 60, 140); }, true);
+    add(T('p.brightness') + ': ' + p.brightness + '%  +', false, function () { adjust('brightness', 5, 60, 140); }, true);
+    add(T('p.contrast') + ': ' + p.contrast + '%  −', false, function () { adjust('contrast', -5, 60, 160); }, true);
+    add(T('p.contrast') + ': ' + p.contrast + '%  +', false, function () { adjust('contrast', 5, 60, 160); }, true);
+    add(T('p.saturation') + ': ' + p.saturation + '%  −', false, function () { adjust('saturation', -5, 0, 180); }, true);
+    add(T('p.saturation') + ': ' + p.saturation + '%  +', false, function () { adjust('saturation', 5, 0, 180); }, true);
+    add(T('p.tone') + ': ' + (p.tone > 0 ? '+' : '') + p.tone + '  −', false, function () { adjust('tone', -5, -30, 30); }, true);
+    add(T('p.tone') + ': ' + (p.tone > 0 ? '+' : '') + p.tone + '  +', false, function () { adjust('tone', 5, -30, 30); }, true);
+    add(T('p.resetPicture'), false, function () { setPictureMode('original'); });
     menu.classList.add('show'); trackMenuOpen = true; showOsd(true); Nav.focusScope('track');
   }
 
