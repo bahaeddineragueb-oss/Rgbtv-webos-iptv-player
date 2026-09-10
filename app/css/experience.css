@@ -34,6 +34,5 @@ body.high-contrast .card,body.high-contrast .tile,body.high-contrast .setting-ro
 
 body.rtl #sec-favorites .fav-toolbar{left:60px;right:60px}body.rtl .fav-tab{margin-right:0;margin-left:10px}body.rtl .fav-tab small{margin-left:0;margin-right:9px}body.rtl .schedule-program{text-align:right}body.rtl .schedule-program.focus{box-shadow:inset -5px 0 var(--accent)}body.rtl .schedule-reminder{border-left:0;border-right:1px solid var(--line)}body.rtl .fav-list-shell footer .btn{margin-left:0;margin-right:14px}
 
-/* Match the stronger theme identities without creating distinct geometry contracts. */
-body[data-theme="cyberpunk"] .schedule-shell,body[data-theme="cyberpunk"] .diagnostics-shell,body[data-theme="cyberpunk"] .fav-list-shell,body[data-theme="neocrt"] .schedule-shell,body[data-theme="neocrt"] .diagnostics-shell,body[data-theme="neocrt"] .fav-list-shell{border-radius:0}
+/* The surviving Ramadan identity keeps its quiet emerald/gold information surfaces. */
 body[data-theme="ramadan"] .schedule-shell,body[data-theme="ramadan"] .diagnostics-shell,body[data-theme="ramadan"] .fav-list-shell{border-color:rgba(212,175,55,.38);background:rgba(11,47,42,.96)}

@@ -1,4 +1,4 @@
-# RGBTv — webOS TV source (v2.3.0)
+# RGBTv — webOS TV source (v2.7.0)
 
 Pure HTML5 web app for LG webOS (3.0+): ES5 JavaScript, legacy-safe CSS, native <video> + hls.js.
 
@@ -7,13 +7,14 @@ RGBTv-webOS/
 ├─ app/                      the application (packaged as-is)
 │  ├─ appinfo.json           id com.rgbtv.app, version, icons, permissions
 │  ├─ index.html             single page, all screens
-│  ├─ css/style.css          base themes, hub styles, RTL, TV-safe layout (1920×1080 stage scaled to any TV)
-│  ├─ css/theme-layout-contract.css  final menu/status/content geometry for every theme
+│  ├─ css/style.css          base UI, hub styles, RTL, TV-safe layout (1920×1080 stage scaled to any TV)
+│  ├─ css/theme-engine.css   semantic tokens plus the 14 distinct visual-world contracts
 │  ├─ img/                   icon / largeIcon / splash / bg
 │  └─ js/
 │     ├─ util.js             DOM helpers, HTTP (XHR + Luna proxy), fitScreen, SHA-1
 │     ├─ i18n.js             English + Arabic strings
 │     ├─ storage.js          profiles, settings, favorites, history (localStorage)
+│     ├─ theme-engine.js     Theme Registry, persistence, live preview and performance policy
 │     ├─ nav.js              spatial navigation for the remote + Magic Remote (click-only)
 │     ├─ vlist.js            virtual lists/grids for very large playlists
 │     ├─ api/xtream.js       Xtream Codes API
@@ -40,7 +41,7 @@ RGBTv-webOS/
 ```bash
 npm install -g @webos-tools/cli          # once
 ares-package app services/com.rgbtv.app.service -o dist
-# → dist/com.rgbtv.app_2.3.0_all.ipk
+# → dist/com.rgbtv.app_2.7.0_all.ipk
 ```
 
 Install on a TV in Developer Mode:
@@ -61,7 +62,9 @@ or simply `./build.sh tv`.
 - The **Ramadan** theme is a dedicated emerald-and-gold layout: an Islamic geometric gradient background, crescent brand mark, arched navigation, gold-framed mihrab feature panel, and a persistent five-prayer/Hijri-date strip in classic Home. It reuses the cached AlAdhan calendar, clearly reports disabled or unavailable times, stays hidden in Hub layouts, and does **not** turn notifications on when they were disabled.
 - The player deliberately uses one video decoder because many webOS TVs expose only one reliable hardware video plane. This keeps channel zapping and playback predictable.
 - Selecting a live channel starts with a **classic receiver information banner**: number, logo, name, current programme, next programme and progress. Press **LEFT** (or select **Channels** in the player controls) to open the virtualized right-side channel panel; UP/DOWN browses, OK watches, and LEFT/BACK closes it. This remains responsive with large playlists.
-- `theme-layout-contract.css` is the single final authority for navigation geometry: Guide Pro and Ocean use a left rail; Receiver X, Sports Arena and Neo CRT use a bottom dock; Cyberpunk uses a right rail; the remaining themes (including Glass) use a safe lower top bar. Every dock preserves the clock/profile strip and remains rendered and remote-accessible. On Hub Home, a side-rail theme automatically uses the safe full-width top dock so the 1920px Hub tiles are never squeezed or clipped; RTL mirrors side rails and their content reservation.
+- The Ultimate Theme Engine contains 12 official visual worlds — Neon Cyber, Luxury Gold, Arctic Glass, Crimson Cinema, Ocean Deep, Retro 80s, Emerald Nature, Solar Orange, Minimal White, Space Galaxy, Glass Aurora and Tactical Dark — plus the explicitly preserved Ramadan and Majlis heritage worlds. These are structural contracts, not color presets: each sets tokenized type, spacing, navigation position, card geometry, player/EPG surface and focus/motion language.
+- `ThemeManager.setTheme(id)`, `getTheme()`, `getAvailableThemes()`, `previewTheme(id)`, `cancelPreview()`, `commitPreview()` and `resetTheme()` change only CSS variables and theme attributes. No playlist, EPG, search state, selected channel, navigation state or video element is recreated. The theme selector is in **Settings → Theme worlds**, with per-world Preview/Apply and global Cancel preview/Reset actions.
+- High-contrast mode and `prefers-reduced-motion` remain available. High-cost glass and ambient treatments automatically remove blur/background effects when a low-powered device is detected; all navigation docks are still visible, directional and remote accessible in RTL.
 - Phone pairing is time-limited and QR-token protected; review the received profile on the TV before it is stored.
 - **Performance mode** defaults to Fast: it disables the optional preview decoder and expensive decorative motion while browsing. Live, Movies and Series category changes are request-versioned so a slow stale response cannot overwrite the latest selection; short EPG requests are coalesced for five minutes.
 - The expanded TV Guide fetches a long schedule only for the channel the user asks to inspect. It supports one-minute **local reminders** and catch-up playback only when the provider marks the channel as archive-enabled. Reminders appear while RGBTv is running; IPTV does not expose a portable server-side reminder standard.

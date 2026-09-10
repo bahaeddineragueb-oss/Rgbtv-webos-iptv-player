@@ -7,32 +7,6 @@
   --radius:16px; --ease:cubic-bezier(.2,.8,.2,1);
   --fring:#ffffff; --fglow:rgba(109,93,252,.55); --glowc:rgba(109,93,252,.55); --frame:rgba(255,255,255,.28);
 }
-body[data-theme="midnight"]{--bg:#050a1a;--bg2:#0b1228;--bg3:#141d3a;--panel:rgba(11,18,40,.88);--accent:#4f7cff;--accent2:#f43f5e;--glow1:rgba(79,124,255,.32);--glow2:rgba(168,85,247,.2);--card:#0e1630;--glowc:rgba(79,124,255,.6);--fglow:rgba(79,124,255,.6)}
-body[data-theme="oled"]{--bg:#000;--bg2:#0a0a0a;--bg3:#171717;--panel:rgba(8,8,8,.92);--line:rgba(255,255,255,.1);--accent:#e50914;--accent2:#e50914;--glow1:rgba(229,9,20,.14);--glow2:rgba(255,255,255,.05);--card:#0d0d0d;--glowc:rgba(229,9,20,.6);--fglow:rgba(229,9,20,.6)}
-body[data-theme="crimson"]{--bg:#120608;--bg2:#1c0b0f;--bg3:#2a1218;--panel:rgba(28,11,15,.88);--accent:#e11d48;--accent2:#fb923c;--glow1:rgba(225,29,72,.34);--glow2:rgba(251,146,60,.16);--card:#1f0d12;--glowc:rgba(225,29,72,.6);--fglow:rgba(225,29,72,.6)}
-body[data-theme="emerald"]{--bg:#04110c;--bg2:#0a1c14;--bg3:#12291e;--panel:rgba(10,28,20,.88);--accent:#10b981;--accent2:#facc15;--glow1:rgba(16,185,129,.3);--glow2:rgba(250,204,21,.12);--card:#0c1f16;--glowc:rgba(16,185,129,.6);--fglow:rgba(16,185,129,.6)}
-body[data-theme="sunset"]{--bg:#140a12;--bg2:#1f1020;--bg3:#2e1830;--panel:rgba(31,16,32,.88);--accent:#f97316;--accent2:#ec4899;--glow1:rgba(249,115,22,.32);--glow2:rgba(236,72,153,.22);--card:#23122a;--glowc:rgba(249,115,22,.6);--fglow:rgba(249,115,22,.6)}
-body[data-theme="royal"]{--bg:#0b0716;--bg2:#150e26;--bg3:#211840;--panel:rgba(21,14,38,.88);--accent:#a855f7;--accent2:#fbbf24;--glow1:rgba(168,85,247,.36);--glow2:rgba(251,191,36,.14);--card:#191131;--glowc:rgba(168,85,247,.6);--fglow:rgba(168,85,247,.6)}
-body[data-theme="ocean"]{--bg:#06141f;--bg2:#0b1f2e;--bg3:#123040;--panel:rgba(11,31,46,.86);--accent:#06b6d4;--accent2:#f97316;--glow1:rgba(6,182,212,.3);--glow2:rgba(34,197,94,.16);--card:#0d2233;--glowc:rgba(6,182,212,.6);--fglow:rgba(6,182,212,.6)}
-/* Five full-interface themes, each also changes navigation, surface rhythm and card treatment. */
-body[data-theme="cinema"]{--bg:#070708;--bg2:#111114;--bg3:#23232a;--panel:rgba(7,7,9,.88);--accent:#e5b85b;--accent2:#ba2f43;--card:#141419;--line:rgba(229,184,91,.2);--glow1:rgba(186,47,67,.18);--glow2:rgba(229,184,91,.13);--glowc:rgba(229,184,91,.54);--fglow:rgba(229,184,91,.54);--fring:#fff0bd}
-body[data-theme="glass"]{--bg:#091424;--bg2:#132744;--bg3:#1d3b62;--panel:rgba(16,38,70,.64);--accent:#72d6ff;--accent2:#b891ff;--card:rgba(25,56,95,.72);--line:rgba(163,216,255,.28);--glow1:rgba(89,190,255,.28);--glow2:rgba(184,145,255,.22);--glowc:rgba(114,214,255,.60);--fglow:rgba(114,214,255,.64);--fring:#d7f4ff}
-body[data-theme="arcade"]{--bg:#0b0616;--bg2:#160b2b;--bg3:#251242;--panel:rgba(15,7,31,.92);--accent:#35f2df;--accent2:#ff3b9d;--card:#130d25;--line:rgba(53,242,223,.35);--glow1:rgba(53,242,223,.25);--glow2:rgba(255,59,157,.20);--glowc:rgba(53,242,223,.72);--fglow:rgba(53,242,223,.70);--fring:#eafffd}
-body[data-theme="mono"]{--bg:#111;--bg2:#1b1b1b;--bg3:#2d2d2d;--panel:rgba(18,18,18,.94);--accent:#f4f4f4;--accent2:#aaa;--card:#1c1c1c;--line:rgba(255,255,255,.24);--glow1:rgba(255,255,255,.12);--glow2:rgba(255,255,255,.05);--glowc:rgba(255,255,255,.30);--fglow:rgba(255,255,255,.35);--fring:#fff}
-body[data-theme="majlis"]{--bg:#1b1110;--bg2:#30201a;--bg3:#4a3024;--panel:rgba(44,27,22,.91);--accent:#d7ad54;--accent2:#9d5b36;--card:#352119;--line:rgba(231,197,119,.25);--glow1:rgba(215,173,84,.22);--glow2:rgba(157,91,54,.18);--glowc:rgba(215,173,84,.58);--fglow:rgba(215,173,84,.57);--fring:#ffe7aa}
-/* Ramadan: a complete emerald, midnight-blue and lantern-gold skin. */
-body[data-theme="ramadan"]{--bg:#061c22;--bg2:#0b2d31;--bg3:#10434a;--panel:rgba(7,35,39,.91);--text:#fff8dc;--muted:#c4cfac;--line:rgba(247,202,72,.22);--accent:#d9a72e;--accent2:#32b890;--card:#0d3538;--r:#d9a72e;--g:#38b98f;--b:#5fc8b8;--glow1:rgba(217,167,46,.26);--glow2:rgba(56,185,143,.20);--glowc:rgba(217,167,46,.64);--fglow:rgba(217,167,46,.55);--fring:#fff0ad}
-body[data-theme="ramadan"] #app{background:radial-gradient(800px 560px at 8% 8%,rgba(217,167,46,.17),transparent 64%),radial-gradient(820px 650px at 92% 82%,rgba(39,170,132,.18),transparent 64%),linear-gradient(135deg,#061c22,#082a31 58%,#051820)}
-body[data-theme="ramadan"] #app:before{content:"";position:absolute;z-index:0;pointer-events:none;left:-150px;top:-150px;width:540px;height:540px;border:28px solid rgba(255,225,133,.16);border-right-color:transparent;border-radius:50%;box-shadow:0 0 70px rgba(217,167,46,.18)}
-body[data-theme="ramadan"] #app:after{content:"✦  ✦  ✦";position:absolute;right:110px;bottom:76px;color:rgba(255,229,145,.27);font-size:74px;letter-spacing:30px;pointer-events:none}
-/* Most screens normally paint an opaque --bg. Let the Ramadan moon and stars show through. */
-body[data-theme="ramadan"] .screen:not(#screen-player){background:transparent}
-body[data-theme="ramadan"] .topbar{background:linear-gradient(180deg,rgba(2,19,24,.93),rgba(2,19,24,.38) 72%,transparent)}
-body[data-theme="ramadan"] .card,body[data-theme="ramadan"] .tile,body[data-theme="ramadan"] .setting-row,body[data-theme="ramadan"] .cat-panel,body[data-theme="ramadan"] .channel-panel{border-color:rgba(247,202,72,.20)}
-body[data-theme="ramadan"] .ad-hero,body[data-theme="ramadan"] .adhan-banner{box-shadow:0 18px 58px rgba(0,0,0,.45),0 0 0 1px rgba(247,202,72,.22)}
-body[data-theme="ramadan"] .adhan-banner{background:linear-gradient(120deg,#06343a,#07524c 48%,#8a6016)!important}
-body[data-theme="ramadan"] .live-dot,body[data-theme="ramadan"] .ai-tag{background:#e5bb4f;color:#163029}
-body[data-theme="ramadan"] .btn:not(.danger),body[data-theme="ramadan"] .tab.active{color:#102b29}
 *{box-sizing:border-box;margin:0;padding:0;outline:none}
 html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:"LG Smart UI","Segoe UI","Noto Sans Arabic","Noto Sans","Helvetica Neue",Arial,Tahoma,sans-serif;font-size:26px;-webkit-user-select:none;user-select:none;cursor:default}
 body{transition:background .4s;position:relative}
@@ -133,7 +107,7 @@ img{display:block}
 .form input.focus,.setting-input.focus{border-color:#fff;box-shadow:none;transform:none}
 .type-fields{display:none}.type-fields.show{display:block}
 .switch-row{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-top:1px solid var(--line);margin-top:6px}
-.switch-row b{font-size:24px}.switch-row p{font-size:19px}.switch-row.compact{margin-top:14px;padding-top:14px}
+.switch-row b{font-size:24px}.switch-row p{font-size:19px}
 .switch{width:84px;height:44px;border-radius:22px;background:rgba(255,255,255,.15);position:relative;transition:background .2s}
 .switch i{position:absolute;top:4px;left:4px;width:36px;height:36px;border-radius:50%;background:#fff;transition:left .2s}
 .switch[data-on="1"]{background:var(--g)}.switch[data-on="1"] i{left:44px}
@@ -227,7 +201,6 @@ img{display:block}
 .card .badge{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.7);padding:4px 10px;border-radius:8px;font-size:18px;font-weight:700;color:#fbbf24;z-index:1}
 .card .progress{position:absolute;left:0;right:0;bottom:0;height:6px;background:rgba(0,0,0,.6);z-index:1}
 .card .progress i{display:block;height:100%;background:var(--accent2)}
-.card .continue-remaining{position:absolute;right:9px;bottom:12px;z-index:2;max-width:88%;padding:4px 7px;border-radius:6px;background:rgba(0,0,0,.78);color:#fff;font-size:14px;font-weight:700;line-height:1.1}
 .card .fav{position:absolute;top:10px;left:10px;color:#fbbf24;font-size:22px;text-shadow:0 0 6px #000;z-index:1}
 .card .lock{position:absolute;right:10px;bottom:10px;background:rgba(0,0,0,.7);border-radius:8px;padding:2px 8px;font-size:18px;z-index:1}
 .card.focus{transform:scale(1.08);border-color:var(--fring);box-shadow:0 0 0 4px var(--fring),0 0 36px var(--fglow),0 18px 50px rgba(0,0,0,.7)}
@@ -258,7 +231,6 @@ img{display:block}
 /* ===== BROWSE ===== */
 .cat-panel{width:380px;flex:0 0 380px;background:var(--panel);border-radius:20px;padding:20px 0;display:flex;flex-direction:column;overflow:hidden}
 .panel-title{font-size:24px;font-weight:700;padding:0 24px 16px;color:var(--muted);text-transform:uppercase;letter-spacing:2px}
-.live-load-status{display:block;min-height:18px;margin-top:5px;color:var(--accent);font-size:14px;font-weight:700;letter-spacing:.5px;text-transform:none;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cat-list{overflow:hidden;flex:1;position:relative}
 .vl-inner{transition:transform .18s var(--ease);will-change:transform}
 .cat-item{padding:0 24px;height:60px;line-height:60px;font-size:24px;border-left:4px solid transparent;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;justify-content:space-between;}
@@ -279,7 +251,7 @@ img{display:block}
 .preview-panel{flex:1;display:flex;flex-direction:column;min-width:0}
 .preview-video{height:380px;background:#000;border-radius:20px;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center;color:var(--muted)}
 .preview-video video{width:100%;height:100%;object-fit:contain}
-.preview-placeholder{font-size:24px}.preview-channel{display:flex;min-height:100%;padding:34px;box-sizing:border-box;flex-direction:column;justify-content:center;gap:9px;background:radial-gradient(circle at 20% 15%,rgba(var(--accent-rgb),.23),transparent 46%)}.preview-channel b{font-size:30px}.preview-channel span{font-size:18px;color:var(--muted)}.preview-channel small{margin-top:8px;font-size:16px;color:var(--muted)}
+.preview-placeholder{font-size:24px}
 .epg-box{background:var(--panel);border-radius:20px;padding:20px 24px}
 .epg-box .lbl{display:inline-block;width:80px;color:var(--accent);font-weight:800;font-size:18px}
 .epg-now,.epg-next{font-size:24px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -409,18 +381,11 @@ img{display:block}
 #screen-player{background:#000}
 #video{width:1920px;height:1080px;object-fit:contain;background:#000}
 #video.fill{object-fit:cover}#video.stretch{object-fit:fill}
-/* A channel handoff never leaves a featureless black frame: this very small,
-   non-interactive transition layer disappears on the first playing event. */
-.player-transition{position:absolute;inset:0;z-index:2;display:none;align-items:center;justify-content:center;flex-direction:column;gap:12px;pointer-events:none;background:radial-gradient(ellipse at center,rgba(15,28,48,.84),rgba(0,0,0,.24) 58%,rgba(0,0,0,.08));text-align:center;font-size:20px;color:rgba(255,255,255,.76)}.player-transition.show{display:flex}.player-transition b{max-width:70%;font-size:36px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* The native webOS video plane can bypass CSS filters. This layer lives above it
-   and provides an immediate, hardware-safe visual grade without a second video. */
-.picture-fx{position:absolute;z-index:1;top:0;right:0;bottom:0;left:0;pointer-events:none;opacity:0;background:transparent;transition:opacity .18s ease,background .18s ease}
-.player-loading,.player-error,.osd,.zap-list,.channel-number,.track-menu,.stats-box,.autonext{z-index:2}
 video::-webkit-media-controls{display:none!important}
-.player-loading{position:absolute;z-index:3;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;display:none}
+.player-loading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;display:none}
 .player-loading.show{display:block}
-.player-error{position:absolute;z-index:4;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(239,68,68,.92);padding:24px 40px;border-radius:14px;font-size:28px;display:none;max-width:1200px;text-align:center}
-.player-error.show{display:block}.player-error #player-error-text{display:block}.player-error-actions{display:flex;justify-content:center;gap:14px;margin-top:18px}.player-error #player-retry,.player-error #player-error-prev,.player-error #player-error-next,.player-error #player-error-back{margin:0;font-size:20px;display:block}.player-error #player-retry{background:#fff;color:#991b1b}.player-error #player-retry.focus,.player-error #player-error-prev.focus,.player-error #player-error-next.focus,.player-error #player-error-back.focus{box-shadow:0 0 0 4px rgba(255,255,255,.55)}
+.player-error{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(239,68,68,.92);padding:24px 40px;border-radius:14px;font-size:28px;display:none;max-width:1200px;text-align:center}
+.player-error.show{display:block}
 .osd{position:absolute;top:0;left:0;right:0;bottom:0;opacity:0;transition:opacity .3s;pointer-events:none}
 .osd.show{opacity:1}
 .osd-top{position:absolute;top:0;left:0;right:0;padding:40px 60px;display:flex;align-items:center;background:linear-gradient(180deg,rgba(0,0,0,.85),transparent)}
@@ -438,6 +403,7 @@ video::-webkit-media-controls{display:none!important}
 .osd-controls{display:flex;align-items:center}
 .osd-btn{background:rgba(255,255,255,.12);border-radius:12px;padding:14px 22px;font-size:26px;min-width:70px;display:inline-flex;align-items:center;justify-content:center}
 .osd-btn.big{padding:12px 30px}
+.osd-btn svg{display:block}
 .spacer{flex:1}
 .zap-list{position:absolute;left:0;top:0;bottom:0;width:640px;background:rgba(5,8,15,.94);display:none;flex-direction:column;padding:30px 0;overflow:hidden;animation:zapIn .25s var(--ease)}
 @keyframes zapIn{from{transform:translateX(-60px);opacity:0}to{transform:none;opacity:1}}
@@ -452,21 +418,6 @@ video::-webkit-media-controls{display:none!important}
 .track-item{padding:14px 18px;border-radius:10px;font-size:24px}
 .track-item.active{color:var(--g)}
 .track-item.focus{background:rgba(255,255,255,.14);transform:none;box-shadow:inset 0 0 0 3px #fff}
-/* Picture setup is remote-first: presets are selected with OK, while every
-   slider uses LEFT / RIGHT and remains visible for immediate feedback. */
-.track-menu.picture-menu{min-width:500px;max-height:850px;padding:14px 16px;box-sizing:border-box;overflow:hidden;border:1px solid rgba(255,255,255,.18);box-shadow:0 22px 56px rgba(0,0,0,.58)}
-.track-menu .tm-hint{padding:0 14px 8px;color:#cbd5e1;font-size:16px;line-height:1.25}
-.track-menu .tm-divider{height:1px;margin:7px 5px;background:rgba(255,255,255,.14)}
-.track-menu.picture-menu .track-item{font-size:21px}
-.track-menu.picture-menu .picture-preset{padding:7px 14px;line-height:25px}
-.track-menu.picture-menu .picture-adjust{position:relative;min-height:57px;padding:7px 16px 28px;box-sizing:border-box}
-.picture-adjust .pic-label{display:inline-block;max-width:235px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.picture-adjust .pic-value{float:right;color:#f8fafc;font-weight:800;font-variant-numeric:tabular-nums;direction:ltr}
-.picture-adjust .pic-meter{position:absolute;left:16px;right:144px;bottom:11px;height:5px;overflow:hidden;border-radius:4px;background:rgba(255,255,255,.18)}
-.picture-adjust .pic-meter i{display:block;height:100%;border-radius:4px;background:var(--accent2);box-shadow:0 0 8px var(--fglow)}
-.picture-adjust .pic-arrows{position:absolute;right:16px;bottom:6px;color:#b9c9d9;font-size:13px;font-weight:700;letter-spacing:.2px;direction:ltr}
-.track-menu.picture-menu .picture-reset{padding:7px 14px;color:#fecaca}
-.track-menu.picture-menu .picture-reset.focus{background:rgba(239,68,68,.22);box-shadow:inset 0 0 0 3px #fff}
 
 /* ===== MODAL / TOAST ===== */
 .modal{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.72);display:none;align-items:center;justify-content:center;z-index:50}
@@ -586,16 +537,6 @@ video::-webkit-media-controls{display:none!important}
 .swatch i{position:absolute;left:0;top:0;right:0;bottom:0}
 .swatch.active{border-color:#fff}
 .swatch .nm{position:absolute;left:0;right:0;bottom:0;font-size:14px;text-align:center;background:rgba(0,0,0,.55);padding:2px 0}
-.swatch[data-theme="aurora"] i{background:linear-gradient(135deg,#0a0e1a,#6d5dfc 70%,#00d4ff)}
-.swatch[data-theme="midnight"] i{background:linear-gradient(135deg,#050a1a,#4f7cff 70%,#a855f7)}
-.swatch[data-theme="oled"] i{background:linear-gradient(135deg,#000,#1a1a1a 70%,#e50914)}
-.swatch[data-theme="ocean"] i{background:linear-gradient(135deg,#06141f,#06b6d4 70%,#22c55e)}
-.swatch[data-theme="crimson"] i{background:linear-gradient(135deg,#120608,#e11d48 70%,#fb923c)}
-.swatch[data-theme="emerald"] i{background:linear-gradient(135deg,#04110c,#10b981 70%,#facc15)}
-.swatch[data-theme="sunset"] i{background:linear-gradient(135deg,#140a12,#f97316 60%,#ec4899)}
-.swatch[data-theme="royal"] i{background:linear-gradient(135deg,#0b0716,#a855f7 70%,#fbbf24)}
-.swatch[data-theme="ramadan"] i{background:radial-gradient(circle at 72% 28%,#ffe99d 0 9%,transparent 10%),linear-gradient(135deg,#05242a,#0a6559 64%,#d9a72e)}
-.swatch[data-theme="cinema"] i{background:linear-gradient(135deg,#09090a,#ba2f43 58%,#e5b85b)}.swatch[data-theme="glass"] i{background:linear-gradient(135deg,#122b51,#72d6ff 54%,#b891ff)}.swatch[data-theme="arcade"] i{background:linear-gradient(135deg,#170a2e,#35f2df 52%,#ff3b9d)}.swatch[data-theme="mono"] i{background:linear-gradient(135deg,#111,#ddd)}.swatch[data-theme="majlis"] i{background:linear-gradient(135deg,#1b1110,#805034 58%,#e3bd65)}
 .theme-swatches{flex-wrap:wrap;justify-content:flex-end;max-width:900px}
 .theme-swatches .swatch{margin-bottom:8px}
 .swatch.accent{width:56px;height:56px;border-radius:50%}
@@ -623,7 +564,7 @@ body.rtl .row-title{padding-left:0;padding-right:18px}
 body.rtl .row-title:before{left:auto;right:0}
 body.rtl .row-title>*{margin-right:0;margin-left:14px}
 body.rtl .row-items>*{margin-right:0;margin-left:24px}body.rtl .row-items>*:last-child{margin-left:0}
-body.rtl .card .badge{right:auto;left:10px}body.rtl .card .fav{left:auto;right:10px}body.rtl .card .lock{right:auto;left:10px}body.rtl .card .continue-remaining{right:auto;left:9px}
+body.rtl .card .badge{right:auto;left:10px}body.rtl .card .fav{left:auto;right:10px}body.rtl .card .lock{right:auto;left:10px}
 body.rtl .card .title,body.rtl .ch-item .name,body.rtl .ch-item .now{text-align:right}
 body.rtl .ch-item .num{text-align:left}
 body.rtl .ch-item>*,body.rtl .card.now .nw-head>*,body.rtl .g-ch>*{margin-right:0;margin-left:18px}body.rtl .ch-item>*:last-child,body.rtl .card.now .nw-head>*:last-child{margin-left:0}
@@ -880,8 +821,8 @@ body.rtl .amb-time,body.rtl .hi-time,body.rtl .clock-date{direction:ltr}
 .qr-box{width:460px;height:460px;margin:0 auto 24px;background:#fff;border-radius:28px;padding:26px;box-shadow:0 30px 80px rgba(0,0,0,.7)}
 .qr-box svg,.qr-box img{width:100%;height:100%;display:block}
 .qr-box .qr-wait{width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#111;font-size:26px;text-align:center;padding:30px}
-.pair-url{font-size:22px;font-weight:800;letter-spacing:.2px;direction:ltr;font-family:Menlo,Consolas,monospace;word-break:break-all;text-align:center}
-.pair-alt{font-size:16px;margin-top:10px;direction:ltr;word-break:break-all;text-align:center}
+.pair-url{font-size:38px;font-weight:800;letter-spacing:1px;direction:ltr;font-family:Menlo,Consolas,monospace}
+.pair-alt{font-size:20px;margin-top:10px;direction:ltr}
 body.rtl .pair-left{margin-right:0;margin-left:80px}body.rtl .pair-left .brand-row{justify-content:flex-start}body.rtl .pair-steps{margin:0 34px 30px 0}body.rtl .pair-steps li{padding-left:0;padding-right:8px}body.rtl .pair-status .live-dot{margin:0 4px 0 14px}
 
 
@@ -1123,37 +1064,6 @@ body.rtl .wx-title{margin:0 6px 10px 0}
 .tile.weather .t-grad{background:linear-gradient(135deg,rgba(56,189,248,.5),rgba(11,15,25,.85))}
 .hub-side.five .hs-btns .util{width:200px}
 .hub-side.five .hs-btns .util:nth-child(5){width:414px}
-
-/* ---- Stronger themes: each theme changes background art, card tone, frame colour and menu look ---- */
-body[data-theme="aurora"] #bg-fx{background:radial-gradient(900px 620px at 12% -5%,var(--glow1),rgba(0,0,0,0) 62%),radial-gradient(820px 560px at 92% 105%,var(--glow2),rgba(0,0,0,0) 60%)}
-body[data-theme="midnight"]{--frame:rgba(79,124,255,.35);--line:rgba(79,124,255,.16)}
-body[data-theme="midnight"] #bg-fx{background:radial-gradient(1200px 500px at 50% -10%,rgba(79,124,255,.28),rgba(0,0,0,0) 70%),linear-gradient(180deg,rgba(5,10,26,0),rgba(2,4,12,.6))}
-body[data-theme="midnight"] .nav-item.active{background:rgba(79,124,255,.22)}
-body[data-theme="oled"]{--frame:rgba(255,255,255,.18);--muted:#8b8b8b}
-body[data-theme="oled"] #bg-fx{background:none}
-body[data-theme="oled"] .topbar{background:linear-gradient(180deg,#000,rgba(0,0,0,.6) 70%,rgba(0,0,0,0))}
-body[data-theme="oled"] .nav-item.active{background:#e50914;color:#fff}body[data-theme="oled"] .nav-item.active:after{display:none}
-body[data-theme="oled"] .card,body[data-theme="oled"] .tile{box-shadow:none}
-body[data-theme="ocean"]{--frame:rgba(6,182,212,.35);--line:rgba(6,182,212,.14)}
-body[data-theme="ocean"] #bg-fx{background:radial-gradient(1000px 700px at 100% 100%,rgba(6,182,212,.32),rgba(0,0,0,0) 60%),radial-gradient(700px 500px at 0% 20%,rgba(34,197,94,.14),rgba(0,0,0,0) 60%),repeating-linear-gradient(180deg,rgba(255,255,255,.012) 0 2px,rgba(0,0,0,0) 2px 6px)}
-body[data-theme="crimson"]{--frame:rgba(225,29,72,.4);--line:rgba(225,29,72,.16);--muted:#b39aa2}
-body[data-theme="crimson"] #bg-fx{background:radial-gradient(1100px 600px at 20% 0%,rgba(225,29,72,.34),rgba(0,0,0,0) 62%),radial-gradient(800px 600px at 90% 100%,rgba(251,146,60,.14),rgba(0,0,0,0) 60%)}
-body[data-theme="crimson"] .nav-item.active{background:rgba(225,29,72,.28)}body[data-theme="crimson"] .nav-item.active:after{background:#e11d48}
-body[data-theme="emerald"]{--frame:rgba(16,185,129,.4);--line:rgba(16,185,129,.16);--muted:#93b5a6}
-body[data-theme="emerald"] #bg-fx{background:radial-gradient(1000px 600px at 85% -10%,rgba(16,185,129,.3),rgba(0,0,0,0) 62%),radial-gradient(800px 600px at 5% 100%,rgba(250,204,21,.1),rgba(0,0,0,0) 60%)}
-body[data-theme="emerald"] .nav-item.active{background:rgba(16,185,129,.26)}body[data-theme="emerald"] .nav-item.active:after{background:#10b981}
-body[data-theme="sunset"]{--frame:rgba(249,115,22,.4);--line:rgba(236,72,153,.16);--muted:#b8a0b0}
-body[data-theme="sunset"] #bg-fx{background:linear-gradient(180deg,rgba(249,115,22,.22) 0%,rgba(236,72,153,.16) 40%,rgba(20,10,18,0) 75%),radial-gradient(900px 500px at 50% 110%,rgba(168,85,247,.22),rgba(0,0,0,0) 60%)}
-body[data-theme="sunset"] .nav-item.active{background:linear-gradient(90deg,rgba(249,115,22,.35),rgba(236,72,153,.35))}body[data-theme="sunset"] .nav-item.active:after{background:linear-gradient(90deg,#f97316,#ec4899)}
-body[data-theme="royal"]{--frame:rgba(168,85,247,.42);--line:rgba(251,191,36,.14);--muted:#a99cc4}
-body[data-theme="royal"] #bg-fx{background:radial-gradient(1100px 700px at 50% -20%,rgba(168,85,247,.36),rgba(0,0,0,0) 62%),radial-gradient(700px 400px at 100% 100%,rgba(251,191,36,.12),rgba(0,0,0,0) 60%)}
-body[data-theme="royal"] .nav-item.active{background:rgba(168,85,247,.3)}body[data-theme="royal"] .nav-item.active:after{background:linear-gradient(90deg,#a855f7,#fbbf24)}
-body[data-theme="royal"] .btn{background:linear-gradient(90deg,#a855f7,#7c3aed)}
-body[data-theme="sunset"] .btn{background:linear-gradient(90deg,#f97316,#ec4899)}
-body[data-theme="ocean"] .btn{background:linear-gradient(90deg,#06b6d4,#0284c7)}
-body[data-theme="emerald"] .btn{background:linear-gradient(90deg,#10b981,#059669)}
-body[data-theme="crimson"] .btn{background:linear-gradient(90deg,#e11d48,#be123c)}
-body[data-theme="midnight"] .btn{background:linear-gradient(90deg,#4f7cff,#3b5bdb)}
 .btn.ghost{background:rgba(255,255,255,.1)!important}
 .btn.danger{background:var(--r)!important}
 /* weather chip (v1.8 final): inline-block children, one 50px line, never shrinks/wraps */
@@ -1330,119 +1240,3 @@ body.xbox #bg-fx,body.xbox #spot{display:none}
 body.xbox .card,body.xbox .tile,body.xbox .btn{box-shadow:none}
 body.xbox *{-webkit-user-select:none;user-select:none}
 body.xbox input{-webkit-user-select:text;user-select:text}
-
-/* ===== FULL-INTERFACE THEME COLLECTION =====
-   These treatments deliberately change hierarchy and navigation surfaces, not just variables. */
-body[data-theme="aurora"] #app{background:radial-gradient(900px 650px at 8% 2%,rgba(109,93,252,.20),transparent 60%),radial-gradient(720px 600px at 96% 98%,rgba(0,212,255,.13),transparent 63%),var(--bg)}
-body[data-theme="aurora"] .hero{border:1px solid rgba(151,137,255,.24)}body[data-theme="aurora"] .card{border-width:2px}
-
-/* Midnight is a restrained command-centre: a crisp bar, denser rows, flat panels. */
-body[data-theme="midnight"] #app{background:linear-gradient(135deg,#030715 0%,#07122d 55%,#050819 100%)}
-body[data-theme="midnight"] .topbar{height:164px;background:#07102a;border-bottom:1px solid rgba(94,137,255,.30)}
-body[data-theme="midnight"] #content{top:164px}body[data-theme="midnight"] .mainnav{top:78px;justify-content:flex-start;left:40px}
-body[data-theme="midnight"] .nav-item{border-radius:7px;font-size:29px}body[data-theme="midnight"] .nav-item.active:after{left:12px;right:12px;height:3px}
-body[data-theme="midnight"] .hero{border-radius:8px;box-shadow:18px 18px 0 rgba(0,0,0,.20);border-left:8px solid var(--accent)}
-body[data-theme="midnight"] .card,body[data-theme="midnight"] .tile,body[data-theme="midnight"] .setting-row{border-radius:8px;border-width:1px;box-shadow:0 8px 18px rgba(0,0,0,.28)}
-body[data-theme="midnight"] .row-title:before{height:100%;top:0;border-radius:0}
-
-/* OLED changes the app into an edge-to-edge cinema shelf with almost no chrome. */
-body[data-theme="oled"] #app{background:#000}body[data-theme="oled"] .topbar{height:140px;background:linear-gradient(180deg,#000 25%,transparent)}
-body[data-theme="oled"] #content{top:140px}body[data-theme="oled"] .mainnav{top:65px;height:60px}
-body[data-theme="oled"] .nav-item{height:58px;line-height:58px;border-radius:0;font-size:27px;padding:0 18px}
-body[data-theme="oled"] .nav-item.active{background:transparent;color:#fff}body[data-theme="oled"] .nav-item.active:after{height:4px}
-body[data-theme="oled"] .hero{left:0;right:0;height:445px;border-radius:0;box-shadow:none}body[data-theme="oled"] .hero-content{left:70px}
-body[data-theme="oled"] #sec-home .rows{top:455px;padding-left:48px}body[data-theme="oled"] .card{border:0;border-radius:0;box-shadow:none}
-body[data-theme="oled"] .card{border:0;border-radius:3px;box-shadow:none}body[data-theme="oled"] .card.focus{box-shadow:0 0 0 4px #fff,0 0 30px rgba(229,9,20,.75)}
-body[data-theme="oled"] .row{margin-bottom:38px}body[data-theme="oled"] .row-title:before{background:#e50914;border-radius:0}
-
-/* Ocean uses soft floating islands, waves and pill navigation. */
-body[data-theme="ocean"] #app{background:radial-gradient(850px 450px at 20% -8%,rgba(44,192,220,.22),transparent 65%),radial-gradient(1100px 500px at 80% 110%,rgba(20,112,132,.30),transparent 58%),linear-gradient(145deg,#04131e,#0b2b3d)}
-body[data-theme="ocean"] .topbar{background:rgba(4,18,29,.70);border-bottom:1px solid rgba(79,207,225,.23)}body[data-theme="ocean"] .nav-item.active{background:rgba(6,182,212,.24)}
-body[data-theme="ocean"] .hero{border-radius:56px 18px 56px 18px;border:1px solid rgba(101,220,235,.28);box-shadow:0 22px 55px rgba(0,0,0,.38)}
-body[data-theme="ocean"] .card,body[data-theme="ocean"] .tile{border-radius:30px 12px 30px 12px;border-color:rgba(101,220,235,.24)}
-body[data-theme="ocean"] .card .thumb{border-radius:27px 9px 0 0}body[data-theme="ocean"] .row-title:before{border-radius:0 8px 8px 0}
-
-/* Crimson turns browsing into a sharp editorial interface. */
-body[data-theme="crimson"] #app{background:linear-gradient(125deg,#110407 0%,#21090e 48%,#120609 100%)}
-body[data-theme="crimson"] .topbar{background:#17070b;border-bottom:3px solid var(--accent)}body[data-theme="crimson"] .mainnav{justify-content:flex-start;left:44px}
-body[data-theme="crimson"] .nav-item{border-radius:3px;letter-spacing:1px;text-transform:uppercase;font-size:27px}body[data-theme="crimson"] .nav-item.active{background:var(--accent)}
-body[data-theme="crimson"] .hero{border-radius:3px;border-left:14px solid var(--accent2);box-shadow:22px 22px 0 rgba(225,29,72,.12)}
-body[data-theme="crimson"] .card,body[data-theme="crimson"] .tile,body[data-theme="crimson"] .setting-row{border-radius:3px;border-color:rgba(251,146,60,.35)}
-body[data-theme="crimson"] .card.focus{transform:translateY(-14px) scale(1.04)}body[data-theme="crimson"] .row-title:before{border-radius:0;transform:skewX(-16deg)}
-
-/* Emerald uses a calm garden layout: roomy cards, rounded sections and green surfaces. */
-body[data-theme="emerald"] #app{background:radial-gradient(780px 620px at 10% 5%,rgba(16,185,129,.18),transparent 61%),linear-gradient(140deg,#03120c,#082419 60%,#04140e)}
-body[data-theme="emerald"] .topbar{background:linear-gradient(180deg,rgba(2,24,15,.96),rgba(2,24,15,.50),transparent)}
-body[data-theme="emerald"] .mainnav{top:88px}body[data-theme="emerald"] .nav-item.active{background:rgba(16,185,129,.24);border:1px solid rgba(110,231,183,.28)}
-body[data-theme="emerald"] .hero{border-radius:36px;border:1px solid rgba(110,231,183,.26)}body[data-theme="emerald"] .card{border-radius:24px;border-width:1px}
-body[data-theme="emerald"] .card .thumb{border-radius:23px 23px 0 0}body[data-theme="emerald"] .row-title{padding-left:22px}body[data-theme="emerald"] .row-title:before{width:10px;border-radius:8px}
-
-/* Sunset gives shelves a warm poster-wall treatment. */
-body[data-theme="sunset"] #app{background:radial-gradient(1100px 500px at 7% 0,rgba(249,115,22,.19),transparent 58%),linear-gradient(155deg,#1d0a18,#30122b 55%,#171022)}
-body[data-theme="sunset"] .topbar{background:linear-gradient(90deg,rgba(42,12,27,.92),rgba(31,16,32,.35),transparent)}
-body[data-theme="sunset"] .nav-item{border-radius:18px;font-size:30px}body[data-theme="sunset"] .nav-item.active{background:linear-gradient(90deg,rgba(249,115,22,.80),rgba(236,72,153,.72))}
-body[data-theme="sunset"] .hero{border-radius:42px 42px 12px 12px;border:2px solid rgba(249,115,22,.26)}
-body[data-theme="sunset"] .card{border-radius:18px;border-top:5px solid var(--accent2)}body[data-theme="sunset"] .card.focus{transform:translateY(-10px) scale(1.06)}
-
-/* Royal is a formal gallery: framed content, gold headings and a central navigation rail. */
-body[data-theme="royal"] #app{background:radial-gradient(900px 700px at 50% -15%,rgba(168,85,247,.24),transparent 62%),linear-gradient(145deg,#090512,#190d30 58%,#0c0617)}
-body[data-theme="royal"] .topbar{background:rgba(14,7,28,.85);border-bottom:1px solid rgba(251,191,36,.34)}body[data-theme="royal"] .nav-item{border-radius:10px;border:1px solid transparent}
-body[data-theme="royal"] .nav-item.active{border-color:rgba(251,191,36,.55);background:rgba(168,85,247,.27)}
-body[data-theme="royal"] .hero{border-radius:12px;border:2px solid rgba(251,191,36,.43);box-shadow:0 0 0 8px rgba(168,85,247,.10),0 24px 60px rgba(0,0,0,.55)}
-body[data-theme="royal"] .card,body[data-theme="royal"] .tile{border-radius:10px;border:2px solid rgba(251,191,36,.27)}body[data-theme="royal"] .row-title{color:#f9d86a}
-
-/* Cinema: large editorial artwork and a theatre-style navigation strip. */
-body[data-theme="cinema"] #app{background:radial-gradient(850px 580px at 90% 8%,rgba(186,47,67,.19),transparent 60%),linear-gradient(145deg,#070708,#121015 65%,#070708)}
-body[data-theme="cinema"] .topbar{height:154px;padding:0 68px;background:linear-gradient(180deg,rgba(0,0,0,.96),rgba(0,0,0,.44),transparent)}body[data-theme="cinema"] #content{top:154px}
-body[data-theme="cinema"] .mainnav{top:78px;height:60px;justify-content:flex-start;left:58px}body[data-theme="cinema"] .nav-item{height:56px;line-height:56px;border-radius:0;font-size:27px;text-transform:uppercase;letter-spacing:1.2px}
-body[data-theme="cinema"] .nav-item.active{background:transparent;color:#fff}body[data-theme="cinema"] .nav-item.active:after{left:16px;right:16px;height:4px;background:var(--accent)}
-body[data-theme="cinema"] .hero{left:0;right:0;top:0;height:470px;border-radius:0;border-bottom:1px solid rgba(229,184,91,.35);box-shadow:none}body[data-theme="cinema"] .hero-content{left:82px;bottom:54px;max-width:1100px}
-body[data-theme="cinema"] #sec-home .rows{top:478px;padding-left:58px}body[data-theme="cinema"] .row-title{font-size:27px;letter-spacing:1px;text-transform:uppercase}
-body[data-theme="cinema"] .card{width:238px;border-radius:4px;border:1px solid rgba(229,184,91,.18);box-shadow:10px 12px 28px rgba(0,0,0,.48)}body[data-theme="cinema"] .card .thumb{width:236px;height:354px;border-radius:0}body[data-theme="cinema"] .card.focus{transform:scale(1.09) translateY(-5px)}
-
-/* Glass is a frosted side-rail experience; content moves beside the profile/navigation rail. */
-body[data-theme="glass"] #app{background:radial-gradient(800px 600px at 0 0,rgba(71,184,255,.22),transparent 60%),radial-gradient(850px 700px at 100% 100%,rgba(184,145,255,.20),transparent 61%),#091424}
-body[data-theme="glass"] #screen-home>.topbar{position:absolute;left:0;top:0;width:270px;height:1080px;padding:0;background:rgba(9,20,36,.72);border-right:1px solid rgba(185,228,255,.27)}
-body[data-theme="glass"] .topbar>.logo{left:34px;top:26px}body[data-theme="glass"] .topbar>.brand{left:82px;top:15px;font-size:29px}
-body[data-theme="glass"] .topbar-right{left:24px;right:auto;top:72px;transform:scale(.60);-webkit-transform:scale(.60);-webkit-transform-origin:left top;transform-origin:left top;width:420px}
-body[data-theme="glass"] .mainnav{left:15px;right:15px;top:170px;height:auto;display:block}body[data-theme="glass"] .nav-item{display:flex;height:64px;line-height:64px;width:100%;padding:0 18px;margin:5px 0;border-radius:14px;font-size:25px}
-body[data-theme="glass"] .nav-item.active{background:rgba(114,214,255,.20);border:1px solid rgba(196,238,255,.28)}body[data-theme="glass"] .nav-item.active:after{display:none}
-body[data-theme="glass"] #content{top:0;left:270px;right:0}body[data-theme="glass"] .section{width:auto}body[data-theme="glass"] .section.browse.active{padding-left:42px;padding-right:42px}
-body[data-theme="glass"] .hero{left:42px;right:42px;top:38px;border:1px solid rgba(199,239,255,.32);background:rgba(19,39,68,.62);border-radius:30px}body[data-theme="glass"] #sec-home .rows{top:466px;padding-left:42px}
-body[data-theme="glass"] .card,body[data-theme="glass"] .tile,body[data-theme="glass"] .setting-row,body[data-theme="glass"] .cat-panel,body[data-theme="glass"] .channel-panel{background:rgba(27,57,97,.70);border:1px solid rgba(198,237,255,.22);border-radius:22px}
-
-/* Arcade: neon grid, square modules and compact game-like typography. */
-body[data-theme="arcade"]{font-family:Menlo,Consolas,"LG Smart UI",monospace}body[data-theme="arcade"] #app{background-color:#0b0616;background-image:linear-gradient(rgba(53,242,223,.055) 1px,transparent 1px),linear-gradient(90deg,rgba(53,242,223,.055) 1px,transparent 1px),radial-gradient(750px 520px at 88% 8%,rgba(255,59,157,.18),transparent 64%);background-size:42px 42px,42px 42px,auto}
-body[data-theme="arcade"] .topbar{background:rgba(12,5,28,.93);border-bottom:2px solid var(--accent)}body[data-theme="arcade"] .nav-item{border-radius:0;font-size:24px;text-transform:uppercase;letter-spacing:1px;border:1px solid transparent}
-body[data-theme="arcade"] .nav-item.active,body[data-theme="arcade"] .nav-item.focus{border-color:var(--accent);background:rgba(53,242,223,.12);color:#eafffd}body[data-theme="arcade"] .nav-item.active:after{background:var(--accent2);border-radius:0}
-body[data-theme="arcade"] .hero{border-radius:0;border:2px solid var(--accent);box-shadow:12px 12px 0 rgba(255,59,157,.33)}body[data-theme="arcade"] .hero-tag{border-radius:0;background:var(--accent2)}
-body[data-theme="arcade"] .card,body[data-theme="arcade"] .tile,body[data-theme="arcade"] .setting-row{border-radius:0;border:2px solid rgba(53,242,223,.42);box-shadow:7px 7px 0 rgba(255,59,157,.19)}
-body[data-theme="arcade"] .card .thumb{border-radius:0}body[data-theme="arcade"] .card.focus{transform:translate(-4px,-4px);box-shadow:12px 12px 0 var(--accent2),0 0 0 3px var(--accent)}
-body[data-theme="arcade"] .row-title:before{border-radius:0;width:8px;background:var(--accent2)}
-
-/* Mono becomes a high-contrast list wall: horizontal content cards rather than poster shelves. */
-body[data-theme="mono"] #app{background:linear-gradient(135deg,#090909,#181818)}body[data-theme="mono"] .topbar{background:#111;border-bottom:2px solid #f4f4f4}body[data-theme="mono"] .mainnav{justify-content:flex-start;left:44px}
-body[data-theme="mono"] .nav-item{border-radius:0;color:#aaa;font-size:27px}body[data-theme="mono"] .nav-item.active{background:#f4f4f4;color:#111}body[data-theme="mono"] .nav-item.active:after{display:none}
-body[data-theme="mono"] .hero{height:330px;border-radius:0;border-left:16px solid #f4f4f4;box-shadow:none}body[data-theme="mono"] #sec-home .rows{top:350px}
-body[data-theme="mono"] .card:not(.now){width:370px;height:132px;display:flex;align-items:stretch;border-radius:0;border:1px solid #666;background:#1d1d1d;box-shadow:none}body[data-theme="mono"] .card:not(.now) .thumb{width:118px;height:130px;flex:0 0 118px;border-radius:0}body[data-theme="mono"] .card:not(.now) .title{white-space:normal;font-size:22px;line-height:1.35;align-self:center;padding:18px}body[data-theme="mono"] .card:not(.now).focus{transform:translateX(12px);background:#f4f4f4;color:#111;box-shadow:inset 8px 0 #111}
-body[data-theme="mono"] .row-title:before{border-radius:0;background:#f4f4f4}body[data-theme="mono"] .tile,body[data-theme="mono"] .setting-row{border-radius:0;box-shadow:none}
-
-/* Majlis uses warm textile layers, deeply rounded panels and a framed central hero. */
-body[data-theme="majlis"] #app{background:radial-gradient(circle at 50% -10%,rgba(215,173,84,.23),transparent 53%),repeating-linear-gradient(45deg,rgba(255,225,170,.025) 0,rgba(255,225,170,.025) 2px,transparent 2px,transparent 13px),linear-gradient(145deg,#1a100e,#342016 62%,#1b1110)}
-body[data-theme="majlis"] .topbar{background:linear-gradient(180deg,rgba(31,17,13,.96),rgba(31,17,13,.46),transparent)}body[data-theme="majlis"] .nav-item{border-radius:30px;font-size:29px}
-body[data-theme="majlis"] .nav-item.active{background:rgba(215,173,84,.19);border:1px solid rgba(255,224,151,.38)}body[data-theme="majlis"] .nav-item.active:after{background:#d7ad54}
-body[data-theme="majlis"] .hero{left:100px;right:100px;border-radius:70px 70px 24px 24px;border:2px solid rgba(255,223,151,.40);box-shadow:0 26px 65px rgba(0,0,0,.48)}body[data-theme="majlis"] .hero-shade{background:linear-gradient(90deg,rgba(39,22,17,.93),rgba(39,22,17,.60) 48%,rgba(39,22,17,.1)),linear-gradient(0deg,rgba(35,19,15,.9),transparent 55%)}
-body[data-theme="majlis"] .card,body[data-theme="majlis"] .tile,body[data-theme="majlis"] .setting-row{border-radius:26px 26px 10px 10px;border:1px solid rgba(255,222,148,.27);box-shadow:0 13px 30px rgba(0,0,0,.30)}body[data-theme="majlis"] .card .thumb{border-radius:25px 25px 0 0}body[data-theme="majlis"] .row-title{color:#f4d486}
-/* Continue the new theme identities through profile, form, settings and modal screens. */
-body[data-theme="cinema"] .screen:not(#screen-player),body[data-theme="glass"] .screen:not(#screen-player),body[data-theme="arcade"] .screen:not(#screen-player),body[data-theme="mono"] .screen:not(#screen-player),body[data-theme="majlis"] .screen:not(#screen-player){background:transparent}
-body[data-theme="cinema"] .form-wrap,body[data-theme="cinema"] .modal-box{border-radius:4px;border:1px solid rgba(229,184,91,.34);background:rgba(13,13,16,.94)}
-body[data-theme="glass"] .form-wrap,body[data-theme="glass"] .modal-box{border:1px solid rgba(197,239,255,.32);background:rgba(18,43,76,.78);border-radius:28px;box-shadow:0 28px 80px rgba(0,0,0,.42)}
-body[data-theme="arcade"] .form-wrap,body[data-theme="arcade"] .modal-box{border:2px solid var(--accent);background:#120923;border-radius:0;box-shadow:12px 12px 0 rgba(255,59,157,.28)}
-body[data-theme="mono"] .form-wrap,body[data-theme="mono"] .modal-box{border:2px solid #eee;background:#171717;border-radius:0;box-shadow:none}
-body[data-theme="majlis"] .form-wrap,body[data-theme="majlis"] .modal-box{border:2px solid rgba(255,224,151,.42);background:rgba(48,30,22,.95);border-radius:36px 36px 12px 12px}
-body[data-theme="cinema"] .settings-wrap,body[data-theme="glass"] .settings-wrap,body[data-theme="arcade"] .settings-wrap,body[data-theme="mono"] .settings-wrap,body[data-theme="majlis"] .settings-wrap{padding-top:12px}
-/* Ramadan is an interface treatment too: lantern-gold navigation and arched content surfaces. */
-body[data-theme="ramadan"] .mainnav{top:84px}body[data-theme="ramadan"] .nav-item{border-radius:26px;font-size:29px}
-body[data-theme="ramadan"] .nav-item.active{background:rgba(217,167,46,.18);border:1px solid rgba(255,231,151,.42);color:#fff8dc}body[data-theme="ramadan"] .nav-item.active:after{background:#d9a72e}
-body[data-theme="ramadan"] .hero{border-radius:58px 58px 18px 18px;border:1px solid rgba(255,226,139,.30);box-shadow:0 24px 60px rgba(0,0,0,.42)}
-body[data-theme="ramadan"] .card,body[data-theme="ramadan"] .tile,body[data-theme="ramadan"] .setting-row{border-radius:22px 22px 10px 10px}body[data-theme="ramadan"] .card .thumb{border-radius:21px 21px 0 0}
