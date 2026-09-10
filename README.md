@@ -1,4 +1,4 @@
-# RGBTv — webOS TV source (v2.2.3)
+# RGBTv — webOS TV source (v2.2.4)
 
 Pure HTML5 web app for LG webOS (3.0+): ES5 JavaScript, legacy-safe CSS, native <video> + hls.js.
 
@@ -39,14 +39,14 @@ RGBTv-webOS/
 ```bash
 npm install -g @webos-tools/cli          # once
 ares-package app services/com.rgbtv.app.service -o dist
-# → dist/com.rgbtv.app_2.2.1_all.ipk
+# → dist/com.rgbtv.app_2.2.4_all.ipk
 ```
 
 Install on a TV in Developer Mode:
 
 ```bash
 ares-setup-device            # add the TV (IP + passphrase from the Developer Mode app)
-ares-install -d tv dist/com.rgbtv.app_2.2.3_all.ipk
+ares-install -d tv dist/com.rgbtv.app_2.2.4_all.ipk
 ares-launch  -d tv com.rgbtv.app
 ```
 
@@ -60,6 +60,6 @@ or simply `./build.sh tv`.
 - The **Ramadan** theme has a dedicated emerald/gold skin and a Home prayer card. It uses the existing Prayer Times setting and does **not** turn notifications on when they were disabled.
 - Live Player offers **Dual View** for two live channels: pressing Dual opens the next available live channel immediately, while **Choose 2nd** lets you replace it. The secondary channel begins muted and Yellow changes the audio source. It confirms that the second decoder has actually produced a picture, retries through hls.js when native video is black, and restores the main picture with a clear explanation after 20 seconds. Actual availability still depends on the TV and subscription permitting two simultaneous live streams.
 - Selecting a live channel starts with a **classic receiver information banner**: number, logo, name, current programme, next programme and progress. Press **LEFT** (or select **Channels** in the player controls) to open the virtualized right-side channel panel; UP/DOWN browses, OK watches, and LEFT/BACK closes it. This remains responsive with large playlists.
-- Navigation now uses protected, theme-specific docks so it never overlaps the clock/profile strip: Guide Pro and Ocean use a left rail; Receiver X, Sports Arena and Neo CRT use a bottom dock; Cyberpunk uses a right rail; the remaining themes use a safe lower top bar.
+- Navigation uses protected, theme-specific docks so it never overlaps the clock/profile strip: Guide Pro and Ocean use a left rail; Receiver X, Sports Arena and Neo CRT use a bottom dock; Cyberpunk uses a right rail; the remaining themes use a safe lower top bar. The real navigation remains rendered and remote-accessible even on the Hub Home screen, so no theme can strand the user without a route to Live TV, Settings, or another theme.
 - Phone pairing is time-limited and QR-token protected; review the received profile on the TV before it is stored.
 - Keep the package small: no bundled audio/video assets.

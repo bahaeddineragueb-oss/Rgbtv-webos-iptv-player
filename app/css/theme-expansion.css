@@ -118,3 +118,16 @@ body[data-theme="sports"] .mainnav{background:rgba(3,22,24,.96);border-top-width
 body[data-theme="cyberpunk"] .topbar{height:82px;overflow:visible}body[data-theme="cyberpunk"] #content{top:82px;right:252px;bottom:0}body[data-theme="cyberpunk"] #content .section{width:auto}body[data-theme="cyberpunk"] .mainnav{top:94px;left:auto;right:14px;width:222px;height:898px;padding:15px 10px;display:block;background:rgba(14,4,31,.94);border-left:2px solid var(--accent)}body[data-theme="cyberpunk"] .nav-item{display:flex;width:100%;height:58px;line-height:58px;margin:5px 0;padding:0 14px;border-radius:0;font-size:19px}.cyberpunk .nav-item .nv-ico,.cyberpunk .nav-item .nv-ico svg{width:23px;height:23px}.cyberpunk .nav-item .nv-ico{margin-right:9px}
 /* The top status strip itself must never be buried behind themed navigation. */
 .topbar-right{z-index:4}.topbar>.logo,.topbar>.brand{z-index:4}
+
+/* Navigation must always remain visible. Hub layouts can still use their large
+   Home tiles, but the remote menu is never removed: this prevents a user being
+   stranded on a theme with no visible route to Settings or another theme. */
+body.hubmode .mainnav{display:flex!important;visibility:visible!important;opacity:1!important;z-index:30}
+body.hubmode[data-theme="guidepro"] .mainnav,body.hubmode[data-theme="ocean"] .mainnav,body.hubmode[data-theme="cyberpunk"] .mainnav{display:block!important}
+body[data-theme="cyberpunk"] .topbar{clip-path:none;-webkit-clip-path:none}
+body[data-theme="cyberpunk"] .mainnav{clip-path:none;-webkit-clip-path:none;z-index:30}
+/* Glass previously converted the full header into a narrow rail. Restore the
+   shared protected status row, then let its own cards and surfaces stay glass. */
+body[data-theme="glass"] #screen-home>.topbar{position:relative;left:auto;top:auto;width:1920px;height:166px;padding:0 50px;border-right:0;border-bottom:1px solid rgba(185,228,255,.27)}
+body[data-theme="glass"] .topbar-right{left:auto;right:50px;top:14px;width:auto;transform:none;-webkit-transform:none}
+body[data-theme="glass"] #content{left:0;right:0}body[data-theme="glass"] #content .section{width:1920px}
