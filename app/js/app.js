@@ -35,25 +35,22 @@ var App = (function () {
       case 'adhan': Adhan.open(); break;
     }
   }
+  var ACCENTS = { violet: '#6d5dfc', blue: '#3b82f6', cyan: '#06b6d4', green: '#22c55e', gold: '#eab308', orange: '#f97316', red: '#ef4444', pink: '#ec4899' };
+  function hexRgba(hex, a) { var n = parseInt(hex.slice(1), 16); return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + a + ')'; }
   function applyTheme() {
     var s = Store.settings();
-    /* ThemeManager only changes semantic CSS tokens and the layout contract.
-       It never remounts content or touches the active player/video element. */
-    var current = window.ThemeManager ? ThemeManager.apply(s.theme, { persist: false }) : { id: s.theme || 'neon-cyber' };
-    document.body.setAttribute('data-corners', s.corners || 'round');
-    document.body.classList.toggle('noglow', s.glow === false);
-    if (current.id === 'ramadan' && window.Adhan) {
+    /* Ramadan mode styles the existing prayer feature; it never enables reminders without consent. */
+    document.body.setAttribute('data-theme', s.theme || 'aurora'); document.body.classList.toggle('ramadan-mode', s.theme === 'ramadan'); document.body.classList.toggle('tstruct', s.theme === 'ramadan');
+    // accent override: written as inline custom properties on <body> so it wins over the theme rules
+    var st = document.body.style, hex = ACCENTS[s.accent];
+    ['--accent', '--fglow', '--glowc', '--glow1'].forEach(function (v) { st.removeProperty(v); });
+    if (hex && s.theme !== 'ramadan') { st.setProperty('--accent', hex); st.setProperty('--fglow', hexRgba(hex, .6)); st.setProperty('--glowc', hexRgba(hex, .6)); st.setProperty('--glow1', hexRgba(hex, .34)); }
+    document.body.setAttribute('data-corners', s.corners || 'round'); document.body.classList.toggle('noglow', s.glow === false);
+    if (s.theme === 'ramadan' && window.Adhan) {
       Adhan.tick();
       if (Adhan.strip) setTimeout(function () { Adhan.strip(); }, 0);
     }
   }
-  document.addEventListener('rgbtv:themechange', function (ev) {
-    var world = ev && ev.detail && ev.detail.theme;
-    if (world && world.id === 'ramadan' && window.Adhan) { Adhan.tick(); if (Adhan.strip) setTimeout(function () { Adhan.strip(); }, 0); }
-    /* A selector update is intentionally the only DOM work on theme switching.
-       It preserves current channel, player state, EPG work and search results. */
-    if (screen === 'home' && section === 'settings') renderSettings();
-  });
   function isHub(lay) { return lay === 'spotlight' || lay === 'trio' || lay === 'mosaic' || lay === 'dashboard'; }
   function applyUi() {
     var s = Store.settings();
@@ -336,6 +333,7 @@ var App = (function () {
   function parentalOn() { return account && (account.kids || Store.settings().parental); }
   var hero = { items: [], idx: 0, timer: null, clockTimer: null, onNowTimer: null };
   function renderHome() {
+    if (Store.settings().theme === 'guidepro') { renderGuideHome(); return; }
     var lay = Store.settings().layout || 'classic'; U.$('#sec-home').setAttribute('data-layout', lay);
     document.body.classList.toggle('hubmode', isHub(lay)); document.body.classList.toggle('hub-root', isHub(lay));
     if (isHub(lay)) { stopHero(); renderHub(lay); return; }
@@ -375,6 +373,19 @@ var App = (function () {
       sk.remove();
       if (!rows.children.length) rows.appendChild(U.el('div', 'empty', T('home.empty')));
     });
+  }
+  /* Guide Pro makes Home a live control desk rather than a poster-first landing page. */
+  function renderGuideHome() {
+    var rows = U.$('#home-rows'), heroEl = U.$('#hero'); stopHero(); document.body.classList.remove('hubmode', 'hub-root'); U.$('#hub').innerHTML = '';
+    heroEl.classList.add('plain'); U.$('#hero-title')._item = null; U.$('#hero-title').textContent = T('guide.title'); U.$('#hero-tag').textContent = T('guide.kicker'); U.$('#hero-desc').textContent = T('guide.hint'); U.$('#hero-meta').innerHTML = '';
+    U.$('[data-action="hero-play"]').textContent = T('nav.live'); U.$('[data-action="hero-info"]').textContent = T('guide.open'); U.$('#hero-poster').classList.remove('show'); U.$('#hero-bg').style.backgroundImage = '';
+    rows.innerHTML = ''; rows.style.transform = ''; UI.skeletonRows(rows, 1);
+    var token = renderGuideHome._t = (renderGuideHome._t || 0) + 1;
+    provider.liveStreams(null).then(function (list) {
+      if (token !== renderGuideHome._t || section !== 'home') return; list = prepareLiveList(list).slice(0, 20); rows.innerHTML = '';
+      if (list.length) rows.appendChild(UI.row(T('guide.title'), list, { max: 20 })); else rows.appendChild(U.el('div', 'empty', T('noChannels')));
+    }).catch(function () { if (token === renderGuideHome._t) rows.innerHTML = '<div class="empty">' + U.esc(T('noChannels')) + '</div>'; });
+    Nav.focus(U.$('[data-action="hero-info"]'));
   }
   /* ---- Hub layouts (VIU-style / IBO-style) ---- */
   var HUB_ICONS = {
@@ -1053,10 +1064,8 @@ var App = (function () {
     });
   }, 350);
   function renderSettings() {
-    var s = Store.settings(), activeTheme = window.ThemeManager ? ThemeManager.getTheme() : { id: s.theme, name: s.theme };
-    U.$$('[data-theme-card]').forEach(function (card) { card.classList.toggle('selected', card.getAttribute('data-theme-card') === activeTheme.id); card.classList.toggle('previewing', !!(window.ThemeManager && ThemeManager.isPreviewing() && card.getAttribute('data-theme-card') === activeTheme.id)); });
-    var themeStatus = U.$('#theme-preview-status');
-    if (themeStatus) themeStatus.innerHTML = (window.ThemeManager && ThemeManager.isPreviewing() ? '<b>Previewing · ' + U.esc(activeTheme.name) + '</b><span>Choose Apply to save, or Cancel preview to restore.</span>' : '<b>' + U.esc(activeTheme.name) + '</b><span>Saved visual world · ' + U.esc(activeTheme.description || '') + '</span>');
+    var s = Store.settings();
+    U.$$('#theme-swatches .swatch').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-theme-pick') === s.theme); });
     U.$('[data-setting="lang"]').textContent = I18n.name(s.lang);
     U.$('[data-setting="refresh"]').textContent = s.refreshHours ? T('refresh.h', { h: s.refreshHours }) : T('refresh.off');
     U.$('[data-setting="liveFormat"]').textContent = s.liveFormat === 'ts' ? 'MPEG-TS' : 'HLS (m3u8)';
@@ -1067,6 +1076,7 @@ var App = (function () {
     U.$('#tmdb-key').value = s.tmdbKey || '';
     U.$$('#layout-swatches .swatch').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-layout-pick') === (s.layout || 'classic')); });
     U.$('[data-setting="focusStyle"]').textContent = T('focus.' + (s.focusStyle || 'glow'));
+    U.$$('#accent-swatches .swatch').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-accent-pick') === (s.accent || 'auto')); });
     U.$('[data-setting="corners"]').textContent = T('corners.' + (s.corners || 'round'));
     U.$('[data-setting="glow"]').textContent = s.glow === false ? T('off') : T('on');
     U.$('[data-setting="pointer"]').textContent = T('pointer.' + (s.pointer || 'click'));
@@ -1085,7 +1095,7 @@ var App = (function () {
     var s = Store.settings();
     if (k === 'lang') { Store.setSetting(k, I18n.next()); applyLang(); updateExpiry(null); live.cats = []; movies.cats = []; series.cats = []; if (section === 'home') renderHome(); }
     else if (k === 'refresh') { var steps = [0, 3, 6, 12, 24], i = steps.indexOf(s.refreshHours); Store.setSetting('refreshHours', steps[(i + 1) % steps.length]); scheduleRefresh(); }
-    else if (k === 'theme' && window.ThemeManager) { var worlds = ThemeManager.getAvailableThemes(), current = ThemeManager.getTheme().id, at = worlds.map(function (x) { return x.id; }).indexOf(current); ThemeManager.setTheme(worlds[(at + 1) % worlds.length].id); }
+    else if (k === 'theme') { var th = ['aurora', 'midnight', 'oled', 'ocean', 'crimson', 'emerald', 'sunset', 'royal', 'ramadan', 'cinema', 'glass', 'arcade', 'mono', 'majlis', 'guidepro', 'receiver', 'sports', 'family', 'neocrt', 'cyberpunk']; Store.setSetting(k, th[(th.indexOf(s.theme) + 1) % th.length]); applyTheme(); if (section === 'home') renderHome(); }
     else if (k === 'liveFormat') Store.setSetting(k, s.liveFormat === 'ts' ? 'm3u8' : 'ts');
     else if (k === 'engine') Store.setSetting(k, { auto: 'native', native: 'hlsjs', hlsjs: 'auto' }[s.engine]);
     else if (k === 'parental') { if (account.kids) { UI.toast(T('kids.locked'), 2500, '🔒'); return; } Store.setSetting(k, !s[k]); }
@@ -1304,7 +1314,7 @@ var App = (function () {
 
   function bindEvents() {
     document.addEventListener('click', function (ev) {
-      var t = ev.target; while (t && t !== document && !(t.getAttribute && (t.getAttribute('data-action') || t.getAttribute('data-section') || t.getAttribute('data-type') || t.getAttribute('data-setting') || t.getAttribute('data-layout-pick') || t.getAttribute('data-fav-list') || t.id === 'kids-switch' || t.id === 'tls-switch' || t.id === 'backup-secret-switch'))) t = t.parentNode;
+      var t = ev.target; while (t && t !== document && !(t.getAttribute && (t.getAttribute('data-action') || t.getAttribute('data-section') || t.getAttribute('data-type') || t.getAttribute('data-setting') || t.getAttribute('data-theme-pick') || t.getAttribute('data-layout-pick') || t.getAttribute('data-accent-pick') || t.getAttribute('data-fav-list') || t.id === 'kids-switch' || t.id === 'tls-switch' || t.id === 'backup-secret-switch'))) t = t.parentNode;
       if (!t || t === document) return;
       var a = t.getAttribute('data-action'), sec = t.getAttribute('data-section'), typ = t.getAttribute('data-type'), set = t.getAttribute('data-setting'), favList = t.getAttribute('data-fav-list');
       if (t.id === 'kids-switch' || t.id === 'tls-switch' || t.id === 'backup-secret-switch') { t.setAttribute('data-on', t.getAttribute('data-on') === '1' ? '0' : '1'); return; }
@@ -1312,20 +1322,10 @@ var App = (function () {
       if (typ && t.classList.contains('tab')) { setAddType(typ); return; }
       if (favList != null) { favoriteListId = favList; renderFavorites(); return; }
       if (set) { toggleSetting(set); return; }
+      var tp = t.getAttribute('data-theme-pick'); if (tp) { Store.setSetting('theme', tp); if (tp === 'ramadan') Store.setSetting('accent', 'auto'); applyTheme(); renderSettings(); if (section === 'home') renderHome(); return; }
       var lp = t.getAttribute('data-layout-pick'); if (lp) { Store.setSetting('layout', lp); applyUi(); renderSettings(); UI.toast(T('lay.' + lp), 2000, '✓'); return; }
+      var ap = t.getAttribute('data-accent-pick'); if (ap) { Store.setSetting('accent', ap); applyTheme(); renderSettings(); return; }
       switch (a) {
-        case 'theme-preview':
-          if (window.ThemeManager && ThemeManager.previewTheme(t.getAttribute('data-theme-id'))) { renderSettings(); UI.toast('Previewing ' + ThemeManager.getTheme().name, 1800, '◐'); }
-          break;
-        case 'theme-apply':
-          if (window.ThemeManager && ThemeManager.setTheme(t.getAttribute('data-theme-id'))) { renderSettings(); UI.toast(ThemeManager.getTheme().name + ' applied', 1800, '✓'); }
-          break;
-        case 'theme-cancel-preview':
-          if (window.ThemeManager && ThemeManager.isPreviewing()) { ThemeManager.cancelPreview(); renderSettings(); UI.toast('Theme preview cancelled', 1600, '↶'); }
-          break;
-        case 'theme-reset':
-          if (window.ThemeManager) { ThemeManager.resetTheme(); renderSettings(); UI.toast('Neon Cyber restored', 1800, '✓'); }
-          break;
         case 'add-account': showAddForm(null); break;
         case 'manage-profiles': manageMode = !manageMode; showAccounts(true); Nav.focus(U.$('#manage-btn')); break;
         case 'cancel-add': onKey('BACK'); break;
@@ -1356,7 +1356,7 @@ var App = (function () {
         case 'clear-cache': Store.clearCache(account.id); live.cats = []; movies.cats = []; series.cats = []; UI.toast(T('toast.cache'), 2000, '✓'); break;
         case 'refresh-now': refreshPlaylists(true); break;
         case 'hero-play': var h = U.$('#hero-title')._item; if (h) openItem(h); else showSection('live'); break;
-        case 'hero-info': var h2 = U.$('#hero-title')._item; if (h2) openItem(h2); else showSection('movies'); break;
+        case 'hero-info': var h2 = U.$('#hero-title')._item; if (h2) openItem(h2); else if (Store.settings().theme === 'guidepro') openGuide(); else showSection('movies'); break;
         case 'details-play': playMovie(false); break;
         case 'details-resume': playMovie(true); break;
         case 'details-trailer': playTrailer(); break;

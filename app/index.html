@@ -10,9 +10,8 @@
   <link rel="stylesheet" href="css/experience.css">
   <link rel="stylesheet" href="css/theme-signatures.css">
   <link rel="stylesheet" href="css/player-ui.css">
-  <link rel="stylesheet" href="css/theme-engine.css">
 </head>
-<body data-theme="neon-cyber">
+<body data-theme="dark">
 <div id="app">
 
 <!-- ================= SPLASH ================= -->
@@ -251,29 +250,41 @@
       <div class="settings-wrap">
         <h2 data-i18n="settings">Settings</h2>
         <div class="setting-row"><div><b data-i18n="set.language">Language</b><p class="muted" data-i18n="set.language.d">Interface language and layout direction.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="lang">English</button></div>
-                <div class="setting-row theme-engine-row">
-          <div class="theme-engine-copy">
-            <div><h3 data-i18n="set.theme">Theme worlds</h3><p data-i18n="set.theme.d">Choose a complete RGBTV visual world. Preview is instant and never interrupts playback.</p></div>
-            <div class="theme-preview-status" id="theme-preview-status" aria-live="polite"></div>
-          </div>
-          <div class="theme-gallery" id="theme-gallery" aria-label="RGBTV theme worlds">
-            <article class="theme-card" data-theme-card="neon-cyber"><div class="theme-card-art"></div><div class="theme-card-content"><span class="theme-card-selected">Current</span><b class="theme-card-title">Neon Cyber</b><span class="theme-card-desc">Futuristic signal HUD · angular electric grid</span><div class="theme-card-actions"><button class="btn ghost focusable" data-nav="settings" data-action="theme-preview" data-theme-id="neon-cyber">Preview</button><button class="btn focusable" data-nav="settings" data-action="theme-apply" data-theme-id="neon-cyber">Apply</button></div></div></article>
-            <article class="theme-card" data-theme-card="luxury-gold"><div class="theme-card-art"></div><div class="theme-card-content"><span class="theme-card-selected">Current</span><b class="theme-card-title">Luxury Gold</b><span class="theme-card-desc">Editorial cinema lounge · quiet champagne detail</span><div class="theme-card-actions"><button class="btn ghost focusable" data-nav="settings" data-action="theme-preview" data-theme-id="luxury-gold">Preview</button><button class="btn focusable" data-nav="settings" data-action="theme-apply" data-theme-id="luxury-gold">Apply</button></div></div></article>
-            <article class="theme-card" data-theme-card="arctic-glass"><div class="theme-card-art"></div><div class="theme-card-content"><span class="theme-card-selected">Current</span><b class="theme-card-title">Arctic Glass</b><span class="theme-card-desc">Cold crystalline glass · precise ice geometry</span><div class="theme-card-actions"><button class="btn ghost focusable" data-nav="settings" data-action="theme-preview" data-theme-id="arctic-glass">Preview</button><button class="btn focusable" data-nav="settings" data-action="theme-apply" data-theme-id="arctic-glass">Apply</button></div></div></article>
-            <article class="theme-card" data-theme-card="crimson-cinema"><div class="theme-card-art"></div><div class="theme-card-content"><span class="theme-card-selected">Current</span><b class="theme-card-title">Crimson Cinema</b><span class="theme-card-desc">Dramatic theater · velvet cinematic posters</span><div class="theme-card-actions"><button class="btn ghost focusable" data-nav="settings" data-action="theme-preview" data-theme-id="crimson-cinema">Preview</button><button class="btn focusable" data-nav="settings" data-action="theme-apply" data-theme-id="crimson-cinema">Apply</button></div></div></article>
-            <article class="theme-card" data-theme-card="ocean-deep"><div class="theme-card-art"></div><div class="theme-card-content"><span class="theme-card-selected">Current</span><b class="theme-card-title">Ocean Deep</b><span class="theme-card-desc">Fluid ocean depth · calm turquoise navigation</span><div class="theme-card-actions"><button class="btn ghost focusable" data-nav="settings" data-action="theme-preview" data-theme-id="ocean-deep">Preview</button><button class="btn focusable" data-nav="settings" data-action="theme-apply" data-theme-id="ocean-deep">Apply</button></div></div></article>
-            <article class="theme-card" data-theme-card="retro-80s"><div class="theme-card-art"></div><div class="theme-card-content"><span class="theme-card-selected">Current</span><b class="theme-card-title">Retro 80s</b><span class="theme-card-desc">VHS arcade television · synthwave CRT energy</span><div class="theme-card-actions"><button class="btn ghost focusable" data-nav="settings" data-action="theme-preview" data-theme-id="retro-80s">Preview</button><button class="btn focusable" data-nav="settings" data-action="theme-apply" data-theme-id="retro-80s">Apply</button></div></div></article>
-            <article class="theme-card" data-theme-card="emerald-nature"><div class="theme-card-art"></div><div class="theme-card-content"><span class="theme-card-selected">Current</span><b class="theme-card-title">Emerald Nature</b><span class="theme-card-desc">Organic forest lounge · warm botanical calm</span><div class="theme-card-actions"><button class="btn ghost focusable" data-nav="settings" data-action="theme-preview" data-theme-id="emerald-nature">Preview</button><button class="btn focusable" data-nav="settings" data-action="theme-apply" data-theme-id="emerald-nature">Apply</button></div></div></article>
-            <article class="theme-card" data-theme-card="solar-orange"><div class="theme-card-art"></div><div class="theme-card-content"><span class="theme-card-selected">Current</span><b class="theme-card-title">Solar Orange</b><span class="theme-card-desc">Sun-powered entertainment · bold energetic hierarchy</span><div class="theme-card-actions"><button class="btn ghost focusable" data-nav="settings" data-action="theme-preview" data-theme-id="solar-orange">Preview</button><button class="btn focusable" data-nav="settings" data-action="theme-apply" data-theme-id="solar-orange">Apply</button></div></div></article>
-            <article class="theme-card" data-theme-card="minimal-white"><div class="theme-card-art"></div><div class="theme-card-content"><span class="theme-card-selected">Current</span><b class="theme-card-title">Minimal White</b><span class="theme-card-desc">Editorial white space · ultra-clean operating system</span><div class="theme-card-actions"><button class="btn ghost focusable" data-nav="settings" data-action="theme-preview" data-theme-id="minimal-white">Preview</button><button class="btn focusable" data-nav="settings" data-action="theme-apply" data-theme-id="minimal-white">Apply</button></div></div></article>
-            <article class="theme-card" data-theme-card="space-galaxy"><div class="theme-card-art"></div><div class="theme-card-content"><span class="theme-card-selected">Current</span><b class="theme-card-title">Space Galaxy</b><span class="theme-card-desc">Cosmic observatory · atmospheric orbital depth</span><div class="theme-card-actions"><button class="btn ghost focusable" data-nav="settings" data-action="theme-preview" data-theme-id="space-galaxy">Preview</button><button class="btn focusable" data-nav="settings" data-action="theme-apply" data-theme-id="space-galaxy">Apply</button></div></div></article>
-            <article class="theme-card" data-theme-card="glass-aurora"><div class="theme-card-art"></div><div class="theme-card-content"><span class="theme-card-selected">Current</span><b class="theme-card-title">Glass Aurora</b><span class="theme-card-desc">Color-flowing glass · luminous aurora atmosphere</span><div class="theme-card-actions"><button class="btn ghost focusable" data-nav="settings" data-action="theme-preview" data-theme-id="glass-aurora">Preview</button><button class="btn focusable" data-nav="settings" data-action="theme-apply" data-theme-id="glass-aurora">Apply</button></div></div></article>
-            <article class="theme-card" data-theme-card="tactical-dark"><div class="theme-card-art"></div><div class="theme-card-content"><span class="theme-card-selected">Current</span><b class="theme-card-title">Tactical Dark</b><span class="theme-card-desc">Graphite command console · dense lime status logic</span><div class="theme-card-actions"><button class="btn ghost focusable" data-nav="settings" data-action="theme-preview" data-theme-id="tactical-dark">Preview</button><button class="btn focusable" data-nav="settings" data-action="theme-apply" data-theme-id="tactical-dark">Apply</button></div></div></article>
-            <article class="theme-card" data-theme-card="ramadan"><div class="theme-card-art"></div><div class="theme-card-content"><span class="theme-card-selected">Current</span><b class="theme-card-title">Ramadan</b><span class="theme-card-desc">Preserved heritage · prayer rhythm and gold arches</span><div class="theme-card-actions"><button class="btn ghost focusable" data-nav="settings" data-action="theme-preview" data-theme-id="ramadan">Preview</button><button class="btn focusable" data-nav="settings" data-action="theme-apply" data-theme-id="ramadan">Apply</button></div></div></article>
-            <article class="theme-card" data-theme-card="majlis"><div class="theme-card-art"></div><div class="theme-card-content"><span class="theme-card-selected">Current</span><b class="theme-card-title">Majlis</b><span class="theme-card-desc">Preserved heritage · warm woven salon</span><div class="theme-card-actions"><button class="btn ghost focusable" data-nav="settings" data-action="theme-preview" data-theme-id="majlis">Preview</button><button class="btn focusable" data-nav="settings" data-action="theme-apply" data-theme-id="majlis">Apply</button></div></div></article>
-          </div>
-          <div class="theme-engine-actions"><button class="btn ghost focusable" data-nav="settings" data-action="theme-cancel-preview">Cancel preview</button><button class="btn ghost focusable" data-nav="settings" data-action="theme-reset">Reset to Neon Cyber</button></div>
-        </div>
+        <div class="setting-row"><div><b data-i18n="set.theme">Theme</b><p class="muted" data-i18n="set.theme.d">Aurora · Midnight · OLED Black · Ocean</p></div>
+          <div class="theme-swatches" id="theme-swatches">
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="aurora" data-theme="aurora"><i></i><span class="nm" data-i18n="theme.aurora">Aurora</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="midnight" data-theme="midnight"><i></i><span class="nm" data-i18n="theme.midnight">Midnight</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="oled" data-theme="oled"><i></i><span class="nm" data-i18n="theme.oled">OLED</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="ocean" data-theme="ocean"><i></i><span class="nm" data-i18n="theme.ocean">Ocean</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="crimson" data-theme="crimson"><i></i><span class="nm" data-i18n="theme.crimson">Crimson</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="emerald" data-theme="emerald"><i></i><span class="nm" data-i18n="theme.emerald">Emerald</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="sunset" data-theme="sunset"><i></i><span class="nm" data-i18n="theme.sunset">Sunset</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="royal" data-theme="royal"><i></i><span class="nm" data-i18n="theme.royal">Royal</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="ramadan" data-theme="ramadan"><i></i><span class="nm" data-i18n="theme.ramadan">Ramadan</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="cinema" data-theme="cinema"><i></i><span class="nm" data-i18n="theme.cinema">Cinema</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="glass" data-theme="glass"><i></i><span class="nm" data-i18n="theme.glass">Glass</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="arcade" data-theme="arcade"><i></i><span class="nm" data-i18n="theme.arcade">Arcade</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="mono" data-theme="mono"><i></i><span class="nm" data-i18n="theme.mono">Mono</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="majlis" data-theme="majlis"><i></i><span class="nm" data-i18n="theme.majlis">Majlis</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="guidepro" data-theme="guidepro"><i></i><span class="nm" data-i18n="theme.guidepro">Guide Pro</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="receiver" data-theme="receiver"><i></i><span class="nm" data-i18n="theme.receiver">Receiver X</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="sports" data-theme="sports"><i></i><span class="nm" data-i18n="theme.sports">Sports Arena</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="family" data-theme="family"><i></i><span class="nm" data-i18n="theme.family">Family Hub</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="neocrt" data-theme="neocrt"><i></i><span class="nm" data-i18n="theme.neocrt">Neo CRT</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="cyberpunk" data-theme="cyberpunk"><i></i><span class="nm" data-i18n="theme.cyberpunk">Cyberpunk</span></button>
+          </div></div>
+        <div class="setting-row"><div><b data-i18n="set.accent">Accent color</b><p class="muted" data-i18n="set.accent.d">Color of highlights, buttons and progress bars. Auto follows the theme.</p></div>
+          <div class="theme-swatches accents" id="accent-swatches">
+            <button class="swatch accent focusable" data-nav="settings" data-accent-pick="auto"><i class="ac-auto"></i><span class="nm" data-i18n="accent.auto">Auto</span></button>
+            <button class="swatch accent focusable" data-nav="settings" data-accent-pick="violet"><i style="background:#6d5dfc"></i></button>
+            <button class="swatch accent focusable" data-nav="settings" data-accent-pick="blue"><i style="background:#3b82f6"></i></button>
+            <button class="swatch accent focusable" data-nav="settings" data-accent-pick="cyan"><i style="background:#06b6d4"></i></button>
+            <button class="swatch accent focusable" data-nav="settings" data-accent-pick="green"><i style="background:#22c55e"></i></button>
+            <button class="swatch accent focusable" data-nav="settings" data-accent-pick="gold"><i style="background:#eab308"></i></button>
+            <button class="swatch accent focusable" data-nav="settings" data-accent-pick="orange"><i style="background:#f97316"></i></button>
+            <button class="swatch accent focusable" data-nav="settings" data-accent-pick="red"><i style="background:#ef4444"></i></button>
+            <button class="swatch accent focusable" data-nav="settings" data-accent-pick="pink"><i style="background:#ec4899"></i></button>
+          </div></div>
         <div class="setting-row"><div><b data-i18n="set.layout">Interface style</b><p class="muted" data-i18n="set.layout.d">Classic RGBTv (hero + rows) · VIU-style hub · IBO Player-style hub.</p></div>
           <div class="theme-swatches" id="layout-swatches">
             <button class="swatch layout focusable" data-nav="settings" data-layout-pick="classic"><i class="lay-classic"></i><span class="nm" data-i18n="lay.classic">Classic</span></button>
@@ -305,7 +316,7 @@
         <div class="setting-row"><div><b data-i18n="pair.btn">Add from phone</b><p class="muted" data-i18n="pair.set.d">Show a QR code; type the server details on your phone instead of the remote.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="pair-phone">📱 QR</button></div>
         <div class="setting-row"><div><b data-i18n="backup.title">Backup &amp; restore</b><p class="muted" data-i18n="backup.settings.d">Create a portable backup code for profiles, favorites and settings.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="backup-open" data-i18n="backup.open">Open</button></div>
         <div class="setting-row"><div><b data-i18n="set.profile">Profile</b><p class="muted" id="settings-account-info"></p></div><div class="setting-actions"><button class="btn ghost focusable" data-nav="settings" data-action="edit-account" data-i18n="edit">Edit</button><button class="btn ghost focusable" data-nav="settings" data-action="switch-account" data-i18n="switch">Switch</button></div></div>
-        <div class="setting-row"><div><b data-i18n="set.about">About</b><p class="muted">RGBTv v2.7.0 · Ultimate Theme Engine · LG webOS · Xtream Codes · Stalker Portal · M3U · Native player + hls.js</p></div><button class="btn ghost focusable" data-nav="settings" data-action="exit-app" data-i18n="set.exit">Exit App</button></div>
+        <div class="setting-row"><div><b data-i18n="set.about">About</b><p class="muted">RGBTv v2.6.2 · Ultimate Player UI for LG webOS · Xtream Codes · Stalker Portal · M3U · Native player + hls.js</p></div><button class="btn ghost focusable" data-nav="settings" data-action="exit-app" data-i18n="set.exit">Exit App</button></div>
       </div>
     </section>
   </main>
@@ -447,7 +458,6 @@
 <script src="js/util.js"></script>
 <script src="js/i18n.js"></script>
 <script src="js/storage.js"></script>
-<script src="js/theme-engine.js"></script>
 <script src="js/smart-playlist.js"></script>
 <script src="js/nav.js"></script>
 <script src="js/vlist.js"></script>
