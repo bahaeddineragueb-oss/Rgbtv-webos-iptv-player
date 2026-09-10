@@ -16,7 +16,7 @@ var Player = (function () {
 
   function init() {
     video = U.$('#video'); try { video.preload = 'auto'; } catch (e) { }
-    ['osd', 'osd-title', 'osd-sub', 'osd-logo', 'osd-clock', 'osd-played', 'osd-buffer', 'osd-cur', 'osd-dur', 'osd-play', 'player-loading', 'player-loading-text', 'player-error', 'zap-list', 'channel-number', 'track-menu', 'osd-fav', 'osd-ratio', 'osd-list-btn', 'osd-audio', 'osd-subs', 'osd-quality', 'stats-box', 'zap-preview', 'osd-stats', 'osd-epg', 'autonext', 'an-bar', 'an-count', 'an-title'].forEach(function (id) { els[id] = document.getElementById(id); });
+    ['osd', 'osd-title', 'osd-sub', 'osd-logo', 'osd-clock', 'osd-played', 'osd-buffer', 'osd-cur', 'osd-dur', 'osd-play', 'player-loading', 'player-loading-text', 'player-error', 'zap-list', 'channel-number', 'track-menu', 'osd-fav', 'osd-ratio', 'osd-list-btn', 'osd-audio', 'osd-subs', 'osd-quality-btn', 'osd-quality', 'stats-box', 'zap-preview', 'osd-stats', 'osd-epg', 'autonext', 'an-bar', 'an-count', 'an-title'].forEach(function (id) { els[id] = document.getElementById(id); });
     /* Buffering indicator: webOS fires 'waiting'/'stalled' very often on live TS/HLS even while the picture keeps
        moving, and sometimes never fires 'playing' afterwards -> spinner stuck in the middle. So: show it only if the
        stall lasts > 800ms, and hide it as soon as currentTime advances again (real progress), not only on 'playing'. */
@@ -33,6 +33,7 @@ var Player = (function () {
     video.addEventListener('canplay', bufferingDone);
     video.addEventListener('timeupdate', function () { if (video.currentTime !== rc.lastTime && video.currentTime > 0) bufferingDone(); });
     video.addEventListener('loadedmetadata', updateQualityBadge);
+    video.addEventListener('loadedmetadata', function () { setTimeout(applyTrackPrefs, 150); });
     video.addEventListener('resize', updateQualityBadge);
     video.addEventListener('pause', function () { els['osd-play'].innerHTML = ICON_PLAY; });
     video.addEventListener('timeupdate', updateProgress);
@@ -88,7 +89,7 @@ var Player = (function () {
        "Buffering" phase caused by preloading 30–60 seconds before rendering a frame. */
     hls = new Hls({ maxBufferLength: liveNow ? 8 : 30, maxMaxBufferLength: liveNow ? 16 : 60, backBufferLength: liveNow ? 12 : 60, liveSyncDurationCount: liveNow ? 2 : 3, enableWorker: false, fragLoadingTimeOut: liveNow ? 9000 : 20000, manifestLoadingTimeOut: liveNow ? 8000 : 10000, manifestLoadingMaxRetry: 1, levelLoadingMaxRetry: 1, fragLoadingMaxRetry: liveNow ? 2 : 3 });
     hls.loadSource(url); hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED, function () { video.play().catch(function () { }); setTimeout(updateQualityBadge, 1500); });
+    hls.on(Hls.Events.MANIFEST_PARSED, function () { video.play().catch(function () { }); setTimeout(updateQualityBadge, 1500); setTimeout(applyTrackPrefs, 450); });
     hls.on(Hls.Events.ERROR, function (ev, data) {
       if (!data.fatal) return;
       if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { if (/manifest|level/i.test(data.details)) scheduleReconnect(T('p.cannotLoad') + ' (' + data.details + ')'); else hls.startLoad(); }
@@ -141,7 +142,7 @@ var Player = (function () {
     var eng = Store.settings().engine, isHlsUrl = isHlsStream(url), hlsOk = isHlsUrl && window.Hls && Hls.isSupported();
     var useHls = hlsOk && (eng === 'hlsjs' || (eng === 'auto' && !video.canPlayType('application/vnd.apple.mpegurl')) || item._engine === 'hls');
     if (useHls) { item._triedHls = true; item._engine = 'hls'; startHls(url); }
-    else { item._engine = 'native'; video.src = url; video.load(); video.play().catch(function () { }); }
+    else { item._engine = 'native'; video.src = url; video.load(); video.play().catch(function () { }); setTimeout(applyTrackPrefs, 800); }
   }
   function cancelReconnect() { clearTimeout(rc.timer); rc.timer = null; rc.attempts = 0; }
 
@@ -354,23 +355,62 @@ var Player = (function () {
     zapVList.focusIndex(index >= 0 ? index : 0);
   }
 
-  /* ---- audio / subtitle tracks ---- */
-  function openTrackMenu(kind) {
-    var menu = els['track-menu'], list = [];
-    menu.innerHTML = '<div class="tm-title">' + (kind === 'audio' ? 'Audio tracks' : 'Subtitles') + '</div>';
-    if (hls) {
-      if (kind === 'audio') hls.audioTracks.forEach(function (t, i) { list.push({ label: t.name || t.lang || ('Track ' + (i + 1)), active: hls.audioTrack === i, act: function () { hls.audioTrack = i; } }); });
-      else { list.push({ label: 'Off', active: hls.subtitleTrack === -1, act: function () { hls.subtitleTrack = -1; } }); hls.subtitleTracks.forEach(function (t, i) { list.push({ label: t.name || t.lang || ('Sub ' + (i + 1)), active: hls.subtitleTrack === i, act: function () { hls.subtitleTrack = i; } }); }); }
-    } else {
-      if (kind === 'audio' && video.audioTracks) for (var i = 0; i < video.audioTracks.length; i++) (function (t, i) { list.push({ label: t.label || t.language || ('Track ' + (i + 1)), active: t.enabled, act: function () { for (var j = 0; j < video.audioTracks.length; j++) video.audioTracks[j].enabled = j === i; } }); })(video.audioTracks[i], i);
-      if (kind === 'subs' && video.textTracks) { list.push({ label: 'Off', active: true, act: function () { for (var j = 0; j < video.textTracks.length; j++) video.textTracks[j].mode = 'disabled'; } }); for (var k = 0; k < video.textTracks.length; k++) (function (t, k) { list.push({ label: t.label || t.language || ('Sub ' + (k + 1)), active: t.mode === 'showing', act: function () { for (var j = 0; j < video.textTracks.length; j++) video.textTracks[j].mode = j === k ? 'showing' : 'disabled'; } }); })(video.textTracks[k], k); }
-    }
-    if (!list.length) { UI.toast(kind === 'audio' ? 'No alternate audio tracks' : 'No subtitles available'); return; }
+  /* ---- audio / subtitle / adaptive-quality tracks ---- */
+  function trackLabel(t, fallback) { return (t && (t.name || t.label || t.lang || t.language)) || fallback; }
+  function saveTrackPref(kind, i, t, off) {
+    if (!current || !App.account || !Store.setTrackPref) return;
+    Store.setTrackPref(App.account.id, current, kind, { i: i, label: trackLabel(t, ''), lang: t && (t.lang || t.language) || '', off: !!off });
+  }
+  function preferredTrackIndex(list, pref) {
+    var i, label = String(pref && pref.label || '').toLowerCase(), lang = String(pref && pref.lang || '').toLowerCase();
+    if (!list || !list.length || !pref || pref.off) return -1;
+    for (i = 0; i < list.length; i++) if ((lang && String(list[i].lang || list[i].language || '').toLowerCase() === lang) || (label && trackLabel(list[i], '').toLowerCase() === label)) return i;
+    i = Number(pref.i); return i >= 0 && i < list.length ? i : -1;
+  }
+  function applyTrackPrefs() {
+    if (!current || !App.account || !Store.trackPref) return;
+    var pref = Store.trackPref(App.account.id, current), ai, si, i;
+    if (!pref) return;
+    try {
+      if (hls) {
+        ai = preferredTrackIndex(hls.audioTracks, pref.audio); if (ai >= 0) hls.audioTrack = ai;
+        if (pref.subs) { si = pref.subs.off ? -1 : preferredTrackIndex(hls.subtitleTracks, pref.subs); if (si >= 0 || pref.subs.off) hls.subtitleTrack = si; }
+      } else {
+        ai = preferredTrackIndex(video.audioTracks, pref.audio); if (ai >= 0 && video.audioTracks) for (i = 0; i < video.audioTracks.length; i++) video.audioTracks[i].enabled = i === ai;
+        if (video.textTracks && pref.subs) { si = pref.subs.off ? -1 : preferredTrackIndex(video.textTracks, pref.subs); if (si >= 0 || pref.subs.off) for (i = 0; i < video.textTracks.length; i++) video.textTracks[i].mode = i === si ? 'showing' : 'disabled'; }
+      }
+    } catch (e) { /* Track APIs vary across old webOS firmware; playback must continue. */ }
+  }
+  function showPlayerMenu(title, list) {
+    var menu = els['track-menu']; menu.innerHTML = '<div class="tm-title">' + U.esc(title) + '</div>';
     list.forEach(function (t) {
       var d = U.el('div', 'track-item focusable' + (t.active ? ' active' : ''), U.esc(t.label)); d.setAttribute('data-nav', 'track');
       d.onclick = function () { t.act(); closeTrackMenu(); UI.toast(t.label); }; menu.appendChild(d);
     });
     menu.classList.add('show'); trackMenuOpen = true; showOsd(true); Nav.focusScope('track');
+  }
+  function openTrackMenu(kind) {
+    var list = [], title = kind === 'audio' ? T('p.audioTracks') : T('p.subTracks'), i, t;
+    if (hls) {
+      if (kind === 'audio') hls.audioTracks.forEach(function (t, i) { list.push({ label: trackLabel(t, T('p.track', { n: i + 1 })), active: hls.audioTrack === i, act: function () { hls.audioTrack = i; saveTrackPref('audio', i, t, false); } }); });
+      else { list.push({ label: T('off'), active: hls.subtitleTrack === -1, act: function () { hls.subtitleTrack = -1; saveTrackPref('subs', -1, null, true); } }); hls.subtitleTracks.forEach(function (t, i) { list.push({ label: trackLabel(t, T('p.subTrack', { n: i + 1 })), active: hls.subtitleTrack === i, act: function () { hls.subtitleTrack = i; saveTrackPref('subs', i, t, false); } }); }); }
+    } else {
+      if (kind === 'audio' && video.audioTracks) for (i = 0; i < video.audioTracks.length; i++) (function (track, n) { list.push({ label: trackLabel(track, T('p.track', { n: n + 1 })), active: track.enabled, act: function () { for (var j = 0; j < video.audioTracks.length; j++) video.audioTracks[j].enabled = j === n; saveTrackPref('audio', n, track, false); } }); })(video.audioTracks[i], i);
+      if (kind === 'subs' && video.textTracks) { var noSub = true; for (i = 0; i < video.textTracks.length; i++) if (video.textTracks[i].mode === 'showing') noSub = false; list.push({ label: T('off'), active: noSub, act: function () { for (var j = 0; j < video.textTracks.length; j++) video.textTracks[j].mode = 'disabled'; saveTrackPref('subs', -1, null, true); } }); for (i = 0; i < video.textTracks.length; i++) (function (track, n) { list.push({ label: trackLabel(track, T('p.subTrack', { n: n + 1 })), active: track.mode === 'showing', act: function () { for (var j = 0; j < video.textTracks.length; j++) video.textTracks[j].mode = j === n ? 'showing' : 'disabled'; saveTrackPref('subs', n, track, false); } }); })(video.textTracks[i], i); }
+    }
+    if (!list.length) { UI.toast(kind === 'audio' ? T('p.noAudio') : T('p.noSubs')); return; }
+    showPlayerMenu(title, list);
+  }
+  function openQualityMenu() {
+    var list = [], levels, i, l;
+    if (!hls || !hls.levels || !hls.levels.length) { UI.toast(T('p.qualityNeedHls')); return; }
+    levels = hls.levels;
+    list.push({ label: T('p.qualityAuto'), active: hls.currentLevel === -1, act: function () { hls.currentLevel = -1; hls.nextLevel = -1; } });
+    for (i = 0; i < levels.length; i++) (function (level, n) {
+      var label = (level.height ? level.height + 'p' : T('p.qualityLevel', { n: n + 1 })) + (level.bitrate ? ' · ' + Math.round(level.bitrate / 1000) + ' kbps' : '');
+      list.push({ label: label, active: hls.currentLevel === n, act: function () { hls.currentLevel = n; hls.nextLevel = n; } });
+    })(levels[i], i);
+    showPlayerMenu(T('p.quality'), list);
   }
   function closeTrackMenu() { els['track-menu'].classList.remove('show'); trackMenuOpen = false; showOsd(); Nav.focus(els['osd-play']); }
 
@@ -481,7 +521,7 @@ var Player = (function () {
     switch (a) {
       case 'p-play': togglePlay(); break; case 'p-rew': seek(-30); break; case 'p-ffw': seek(30); break;
       case 'p-next': next(); break; case 'p-prev': prev(); break; case 'p-ratio': cycleRatio(); break;
-      case 'p-audio': openTrackMenu('audio'); break; case 'p-subs': openTrackMenu('subs'); break;
+      case 'p-audio': openTrackMenu('audio'); break; case 'p-subs': openTrackMenu('subs'); break; case 'p-quality': openQualityMenu(); break;
       case 'p-list': toggleZapList(); return;
       case 'p-stats': toggleStats(); break;
       case 'p-fav': if (current && current.type !== 'catchup') { var t = current.type === 'episode' ? 'series' : current.type; var id = current.type === 'episode' ? current.seriesId : current.id; var on = Store.toggleFav(App.account.id, { type: t, id: id, name: current.seriesName || current.name, logo: current.logo, poster: current.poster, ext: current.ext, cmd: current.cmd, url: current.url, catId: current.catId, num: current.num, epgId: current.epgId }); UI.toast(on ? 'Added to favorites' : 'Removed from favorites'); updateFavBtn(); } break;

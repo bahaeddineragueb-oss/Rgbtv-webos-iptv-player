@@ -1,4 +1,4 @@
-# RGBTv — webOS TV source (v2.2.9)
+# RGBTv — webOS TV source (v2.3.0)
 
 Pure HTML5 web app for LG webOS (3.0+): ES5 JavaScript, legacy-safe CSS, native <video> + hls.js.
 
@@ -40,14 +40,14 @@ RGBTv-webOS/
 ```bash
 npm install -g @webos-tools/cli          # once
 ares-package app services/com.rgbtv.app.service -o dist
-# → dist/com.rgbtv.app_2.2.9_all.ipk
+# → dist/com.rgbtv.app_2.3.0_all.ipk
 ```
 
 Install on a TV in Developer Mode:
 
 ```bash
 ares-setup-device            # add the TV (IP + passphrase from the Developer Mode app)
-ares-install -d tv dist/com.rgbtv.app_2.2.9_all.ipk
+ares-install -d tv dist/com.rgbtv.app_2.3.0_all.ipk
 ares-launch  -d tv com.rgbtv.app
 ```
 
@@ -63,4 +63,8 @@ or simply `./build.sh tv`.
 - Selecting a live channel starts with a **classic receiver information banner**: number, logo, name, current programme, next programme and progress. Press **LEFT** (or select **Channels** in the player controls) to open the virtualized right-side channel panel; UP/DOWN browses, OK watches, and LEFT/BACK closes it. This remains responsive with large playlists.
 - `theme-layout-contract.css` is the single final authority for navigation geometry: Guide Pro and Ocean use a left rail; Receiver X, Sports Arena and Neo CRT use a bottom dock; Cyberpunk uses a right rail; the remaining themes (including Glass) use a safe lower top bar. Every dock preserves the clock/profile strip and remains rendered and remote-accessible. On Hub Home, a side-rail theme automatically uses the safe full-width top dock so the 1920px Hub tiles are never squeezed or clipped; RTL mirrors side rails and their content reservation.
 - Phone pairing is time-limited and QR-token protected; review the received profile on the TV before it is stored.
+- **Performance mode** defaults to Fast: it disables the optional preview decoder and expensive decorative motion while browsing. Live, Movies and Series category changes are request-versioned so a slow stale response cannot overwrite the latest selection; short EPG requests are coalesced for five minutes.
+- The expanded TV Guide fetches a long schedule only for the channel the user asks to inspect. It supports one-minute **local reminders** and catch-up playback only when the provider marks the channel as archive-enabled. Reminders appear while RGBTv is running; IPTV does not expose a portable server-side reminder standard.
+- Favorites support named personal collections (including a default **My List**), per-channel hide/order controls, and portable backup/restore. Audio/subtitle choices are remembered per item when the webOS player exposes tracks; manual quality selection is presented only for adaptive HLS streams.
+- **Connection diagnostics** reports the selected provider, declared capabilities, cache footprint, last login timing and a user-triggered safe catalogue/playback-link check. It never starts a second stream, and it never displays credentials or a full stream URL.
 - Keep the package small: no bundled audio/video assets.

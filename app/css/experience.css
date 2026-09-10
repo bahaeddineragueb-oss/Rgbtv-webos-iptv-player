@@ -1,0 +1,45 @@
+/* RGBTv 2.3 — performance-first library, schedule and health surfaces. */
+
+/* Fast is the default: reserve the decoder for the channel the user actually chose,
+   stop expensive decorative motion and leave the existing list virtualization intact. */
+body.perf-fast #bg-fx,body.perf-fast #spot{display:none}
+body.perf-fast .hero-bg{-webkit-animation:none;animation:none;transform:none}
+body.perf-fast .section,body.perf-fast .rows,body.perf-fast .row-items,body.perf-fast .card,body.perf-fast .tile,body.perf-fast .nav-item,body.perf-fast .vl-inner{transition:none!important}
+
+/* Accessibility stays outside the video plane and uses variables so every theme keeps
+   its layout while the reading contrast changes immediately. */
+body.high-contrast{--bg:#000;--bg2:#000;--bg3:#111;--panel:#000;--card:#111;--text:#fff;--muted:#f0f0f0;--line:rgba(255,255,255,.78);--accent:#ffea00;--accent2:#00e5ff;--frame:#fff;--fglow:rgba(255,234,0,.7);--glow1:transparent;--glow2:transparent}
+body.high-contrast .card,body.high-contrast .tile,body.high-contrast .setting-row,body.high-contrast .cat-panel,body.high-contrast .channel-panel,body.high-contrast .preview-panel{border-color:#fff;box-shadow:none}body.high-contrast .focus{outline:4px solid #ffea00!important;outline-offset:-4px}body.high-contrast .topbar{background:#000!important}
+
+/* Personal collections stay above the rows so changing a filter never rebuilds the rest
+   of the home screen. */
+#sec-favorites .fav-toolbar{position:absolute;top:24px;left:60px;right:60px;height:58px;display:flex;align-items:center;overflow:hidden;white-space:nowrap}
+#sec-favorites .rows{top:88px}
+.fav-tab{height:48px;display:inline-flex;align-items:center;flex:0 0 auto;margin-right:10px;padding:0 18px;border:1px solid var(--line);border-radius:24px;background:rgba(255,255,255,.06);color:var(--text);font-size:18px}
+.fav-tab small{margin-left:9px;color:var(--muted);font-size:14px}.fav-tab.active{border-color:var(--accent);background:var(--accent);color:#07121f;font-weight:800}.fav-tab.active small{color:inherit}.fav-tab.add{border-style:dashed}.fav-tab.edit{min-width:48px;padding:0;justify-content:center}
+
+/* All extended overlays have their own fixed stage layer. They never touch the player
+   or allocate a hidden <video>, which is essential on one-decoder webOS hardware. */
+.schedule-overlay,.fav-list-overlay,.diagnostics-overlay{display:none;position:absolute;z-index:910;top:0;right:0;bottom:0;left:0;background:rgba(3,6,14,.84)}
+.schedule-overlay.show,.fav-list-overlay.show,.diagnostics-overlay.show{display:block}
+.schedule-shell,.diagnostics-shell{position:absolute;top:58px;right:76px;bottom:58px;left:76px;padding:30px 38px 24px;border:1px solid var(--frame);border-radius:26px;background:linear-gradient(145deg,var(--bg2),var(--bg));box-shadow:0 30px 100px rgba(0,0,0,.6)}
+.schedule-shell>header,.diagnostics-shell>header,.fav-list-shell>header{display:flex;align-items:flex-start;justify-content:space-between}
+.schedule-shell h2,.diagnostics-shell h2,.fav-list-shell h2{margin:5px 0 4px;font-size:38px}.schedule-shell header p,.diagnostics-shell header p,.fav-list-shell header p{margin:0;color:var(--muted);font-size:17px}
+.schedule-list{position:absolute;top:136px;right:38px;bottom:48px;left:38px;overflow:hidden;border:1px solid var(--line);border-radius:14px;background:rgba(0,0,0,.12)}
+.schedule-row{display:flex;min-height:75px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.018)}.schedule-row.live{background:rgba(74,222,128,.09)}.schedule-row.past{opacity:.76}
+.schedule-program{display:flex;align-items:center;flex:1;min-width:0;padding:11px 18px;border:0;background:transparent;color:var(--text);text-align:left}.schedule-program b{width:150px;flex:0 0 150px;color:var(--accent);font-size:17px}.schedule-program span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:20px;font-weight:700}.schedule-program.focus{background:rgba(255,255,255,.08);box-shadow:inset 5px 0 var(--accent)}
+.schedule-reminder{width:78px;flex:0 0 78px;border:0;border-left:1px solid var(--line);background:transparent;color:var(--muted);font-size:24px}.schedule-reminder.on{color:#f6cf58;background:rgba(246,207,88,.11)}.schedule-reminder.focus{box-shadow:inset 0 0 0 3px var(--accent)}
+.schedule-foot{position:absolute;right:38px;bottom:18px;left:38px;color:var(--muted);font-size:15px}
+
+.fav-list-shell{position:absolute;top:50%;left:50%;width:760px;padding:34px 42px;transform:translate(-50%,-50%);border:1px solid var(--frame);border-radius:26px;background:linear-gradient(145deg,var(--bg2),var(--bg));box-shadow:0 30px 100px rgba(0,0,0,.62)}
+.fav-list-shell input{box-sizing:border-box;width:100%;height:64px;margin:30px 0 20px;padding:0 18px;border:1px solid var(--line);border-radius:12px;background:rgba(0,0,0,.26);color:var(--text);font-size:23px}.fav-list-shell input.focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--fglow)}.fav-list-shell footer{display:flex;justify-content:flex-end}.fav-list-shell footer .btn{margin-left:14px}
+
+.diagnostics-list{position:absolute;top:142px;right:38px;bottom:94px;left:38px;overflow:hidden;border:1px solid var(--line);border-radius:14px;background:rgba(0,0,0,.12)}
+.diagnostic-row{display:flex;align-items:center;justify-content:space-between;min-height:65px;padding:0 22px;border-bottom:1px solid var(--line);font-size:20px}.diagnostic-row span{color:var(--muted)}.diagnostic-row b{max-width:65%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:18px}.diagnostic-row.ok b{color:#4ade80}.diagnostic-row.warn b{color:#fbbf24}.diagnostic-row.bad b{color:#f87171}.diagnostic-row.pending b{color:var(--accent)}.diagnostic-row.muted b{color:var(--muted)}
+.diagnostics-foot{position:absolute;right:38px;bottom:23px;left:38px;display:flex;align-items:center}.diagnostics-foot .btn{margin-right:20px}.diagnostics-foot span{color:var(--muted);font-size:15px}
+
+body.rtl #sec-favorites .fav-toolbar{left:60px;right:60px}body.rtl .fav-tab{margin-right:0;margin-left:10px}body.rtl .fav-tab small{margin-left:0;margin-right:9px}body.rtl .schedule-program{text-align:right}body.rtl .schedule-program.focus{box-shadow:inset -5px 0 var(--accent)}body.rtl .schedule-reminder{border-left:0;border-right:1px solid var(--line)}body.rtl .fav-list-shell footer .btn{margin-left:0;margin-right:14px}
+
+/* Match the stronger theme identities without creating distinct geometry contracts. */
+body[data-theme="cyberpunk"] .schedule-shell,body[data-theme="cyberpunk"] .diagnostics-shell,body[data-theme="cyberpunk"] .fav-list-shell,body[data-theme="neocrt"] .schedule-shell,body[data-theme="neocrt"] .diagnostics-shell,body[data-theme="neocrt"] .fav-list-shell{border-radius:0}
+body[data-theme="ramadan"] .schedule-shell,body[data-theme="ramadan"] .diagnostics-shell,body[data-theme="ramadan"] .fav-list-shell{border-color:rgba(212,175,55,.38);background:rgba(11,47,42,.96)}

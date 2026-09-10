@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="css/style.css">
 <link rel="stylesheet" href="css/theme-expansion.css">
 <link rel="stylesheet" href="css/theme-layout-contract.css">
+<link rel="stylesheet" href="css/experience.css">
 </head>
 <body data-theme="dark">
 <div id="app">
@@ -227,7 +228,7 @@
     </section>
 
     <!-- FAVORITES -->
-    <section id="sec-favorites" class="section"><div class="rows" id="fav-rows"></div></section>
+    <section id="sec-favorites" class="section"><div class="fav-toolbar" id="fav-toolbar"></div><div class="rows" id="fav-rows"></div></section>
 
     <!-- SEARCH -->
     <section id="sec-search" class="section search">
@@ -295,6 +296,7 @@
         <div class="setting-row"><div><b data-i18n="set.pointer">Magic Remote pointer</b><p class="muted" data-i18n="set.pointer.d">Click only: pointing at items does nothing, only OK selects.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="pointer">Click only</button></div>
         <div class="setting-row"><div><b data-i18n="set.focus">Focus style</b><p class="muted" data-i18n="set.focus.d">How the highlighted item looks: Glow · Classic ring · Zoom only.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="focusStyle">Glow</button></div>
         <div class="setting-row"><div><b data-i18n="set.large">Large UI</b><p class="muted" data-i18n="set.large.d">Bigger text, posters and lists — easier to read from the sofa.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="largeUi">Off</button></div>
+        <div class="setting-row"><div><b data-i18n="set.contrast">High contrast</b><p class="muted" data-i18n="set.contrast.d">Black surfaces, bright text and a clear yellow focus ring for easier reading.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="highContrast">Off</button></div>
         <div class="setting-row"><div><b data-i18n="set.liveGrid">Live TV channel style</b><p class="muted" data-i18n="set.liveGrid.d">List with EPG, or a grid of channel logos.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="liveGrid">List</button></div>
         <div class="setting-row"><div><b data-i18n="set.ambient">Ambient screensaver</b><p class="muted" data-i18n="set.ambient.d">After 5 minutes idle (outside the player) show a clock with slow artwork slideshow.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="ambient">On</button></div>
         <div class="setting-row"><div><b data-i18n="set.weather">Weather next to the clock</b><p class="muted" data-i18n="set.weather.d">Temperature for your location (Open-Meteo, no key required).</p></div><div class="setting-actions"><button class="btn ghost focusable" data-nav="settings" data-action="wx-location" data-i18n="wx.setLocation">Location</button><button class="btn ghost focusable" data-nav="settings" data-setting="wxUnit">°C</button><button class="btn ghost focusable" data-nav="settings" data-setting="weather">On</button></div></div>
@@ -305,13 +307,15 @@
         <div class="setting-row"><div><b data-i18n="set.engine">Player engine</b><p class="muted" data-i18n="set.engine.d">Auto tries native first then hls.js.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="engine">Auto</button></div>
         <div class="setting-row"><div><b data-i18n="set.parental">Parental control</b><p class="muted" id="parental-desc" data-i18n="set.parental.d">Hide adult categories.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="parental">On</button></div>
         <div class="setting-row"><div><b data-i18n="set.preview">Live preview window</b><p class="muted" data-i18n="set.preview.d">Play the highlighted channel in the small preview. Turn off on slow TVs.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="preview">On</button></div>
+        <div class="setting-row"><div><b data-i18n="set.performance">Performance mode</b><p class="muted" data-i18n="set.performance.d">Fast keeps the optional preview decoder and decorative work off while browsing. Balanced enables live previews.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="performance">Fast</button></div>
         <div class="setting-row"><div><b data-i18n="set.autostart">Auto-start last profile</b><p class="muted" data-i18n="set.autostart.d">Skip the profile screen on launch (PIN still required).</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="autostart">Off</button></div>
         <div class="setting-row"><div><b data-i18n="set.tmdb">TMDB artwork &amp; ratings</b><p class="muted" data-i18n="set.tmdb.d">Optional. Paste a TMDB API key (v3) to enrich movies &amp; series with backdrops, plots and ratings.</p></div><input class="focusable setting-input" data-nav="settings" id="tmdb-key" placeholder="TMDB API key"></div>
         <div class="setting-row"><div><b data-i18n="set.cache">Clear cache</b><p class="muted" data-i18n="set.cache.d">Remove cached categories, lists, EPG and artwork.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="clear-cache" data-i18n="clear">Clear</button></div>
+        <div class="setting-row"><div><b data-i18n="set.diagnostics">Connection diagnostics</b><p class="muted" data-i18n="set.diagnostics.d">View playlist/provider capabilities, cache health, last connection timing and run a safe catalogue test.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="diagnostics-open" data-i18n="diagnostics.open">Open</button></div>
         <div class="setting-row"><div><b data-i18n="pair.btn">Add from phone</b><p class="muted" data-i18n="pair.set.d">Show a QR code; type the server details on your phone instead of the remote.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="pair-phone">📱 QR</button></div>
         <div class="setting-row"><div><b data-i18n="backup.title">Backup &amp; restore</b><p class="muted" data-i18n="backup.settings.d">Create a portable backup code for profiles, favorites and settings.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="backup-open" data-i18n="backup.open">Open</button></div>
         <div class="setting-row"><div><b data-i18n="set.profile">Profile</b><p class="muted" id="settings-account-info"></p></div><div class="setting-actions"><button class="btn ghost focusable" data-nav="settings" data-action="edit-account" data-i18n="edit">Edit</button><button class="btn ghost focusable" data-nav="settings" data-action="switch-account" data-i18n="switch">Switch</button></div></div>
-        <div class="setting-row"><div><b data-i18n="set.about">About</b><p class="muted">RGBTv v2.2.9 for LG webOS · Xtream Codes · Stalker Portal · M3U · Native player + hls.js</p></div><button class="btn ghost focusable" data-nav="settings" data-action="exit-app" data-i18n="set.exit">Exit App</button></div>
+        <div class="setting-row"><div><b data-i18n="set.about">About</b><p class="muted">RGBTv v2.3.0 for LG webOS · Xtream Codes · Stalker Portal · M3U · Native player + hls.js</p></div><button class="btn ghost focusable" data-nav="settings" data-action="exit-app" data-i18n="set.exit">Exit App</button></div>
       </div>
     </section>
   </main>
@@ -335,6 +339,7 @@
           <button class="btn ghost focusable" data-nav="details" data-action="details-resume" id="details-resume" style="display:none">Resume</button>
           <button class="btn ghost focusable" data-nav="details" data-action="details-trailer" id="details-trailer" style="display:none">Trailer</button>
           <button class="btn ghost focusable" data-nav="details" data-action="details-fav">☆ Favorite</button>
+          <button class="btn ghost focusable" data-nav="details" data-action="details-collections" data-i18n="favs.addTo">Add to collection</button>
           <button class="btn ghost focusable" data-nav="details" data-action="details-back" data-i18n="back">Back</button>
         </div>
         <div class="cast-row" id="details-cast"></div>
@@ -372,6 +377,7 @@
         <span class="spacer"></span>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-audio" id="osd-audio" data-i18n="p.audio">Audio</button>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-subs" id="osd-subs" data-i18n="p.subs">Subtitles</button>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-quality" id="osd-quality-btn" data-i18n="p.quality">Quality</button>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-ratio" id="osd-ratio">Fit</button>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-fav" id="osd-fav">☆</button>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-stats" id="osd-stats" data-i18n="p.stats">Stats</button>
@@ -403,11 +409,24 @@
     <footer class="guide-foot" data-i18n="guide.hint">OK plays a channel · BLUE opens channel tools · BACK closes</footer>
   </div>
 </div>
+<div id="schedule-overlay" class="schedule-overlay">
+  <div class="schedule-shell"><header><div><span class="guide-kicker" data-i18n="schedule.kicker">PROGRAMME DETAILS</span><h2 id="schedule-channel">—</h2><p id="schedule-sub" data-i18n="schedule.loading">Loading schedule…</p></div><button class="btn ghost focusable" data-nav="schedule" data-action="schedule-close" data-i18n="close">Close</button></header>
+    <div class="schedule-list" id="schedule-list"></div><footer class="schedule-foot" data-i18n="schedule.hint">OK plays the programme when catch-up is available · RED toggles a reminder · BACK returns to the guide</footer>
+  </div>
+</div>
 <div id="backup-overlay" class="backup-overlay">
   <div class="backup-shell"><header><div><span class="guide-kicker" data-i18n="backup.kicker">PORTABLE BACKUP</span><h2 data-i18n="backup.title">Backup &amp; restore</h2><p data-i18n="backup.desc">Back up profiles, favorites, channel order and settings. Caches are not included.</p></div><button class="btn ghost focusable" data-nav="backup" data-action="backup-close" data-i18n="close">Close</button></header>
     <div class="backup-toolbar"><div class="switch-row compact"><div><b data-i18n="backup.secrets">Include account credentials</b><p class="muted" data-i18n="backup.secrets.d">Turn on only for a backup you keep private. M3U links can contain credentials.</p></div><button type="button" class="switch focusable" data-nav="backup" id="backup-secret-switch" data-on="0"><i></i></button></div><button class="btn focusable" data-nav="backup" data-action="backup-export" data-i18n="backup.create">Create backup code</button></div>
     <textarea class="backup-code focusable" data-nav="backup" id="backup-code" autocapitalize="off" spellcheck="false" data-i18n-ph="backup.placeholder" placeholder="Create a backup code, or paste one here to restore."></textarea>
     <div class="backup-actions"><button class="btn danger focusable" data-nav="backup" data-action="backup-import" data-i18n="backup.restore">Restore and replace profiles</button><button class="btn ghost focusable" data-nav="backup" data-action="backup-close" data-i18n="cancel">Cancel</button></div><p class="backup-status" id="backup-status"></p>
+  </div>
+</div>
+<div id="fav-list-overlay" class="fav-list-overlay">
+  <form class="fav-list-shell" id="fav-list-form"><header><div><span class="guide-kicker" data-i18n="favs.kicker">PERSONAL COLLECTION</span><h2 id="fav-list-title" data-i18n="favs.create">Create collection</h2><p data-i18n="favs.desc">Collections are stored only on this TV and are included in backup codes.</p></div><button type="button" class="btn ghost focusable" data-nav="fav-list" data-action="fav-list-cancel" data-i18n="close">Close</button></header><input class="focusable" data-nav="fav-list" id="fav-list-name" maxlength="32" autocomplete="off" data-i18n-ph="favs.name.ph" placeholder="Collection name"><footer><button class="btn focusable" data-nav="fav-list" type="submit" data-i18n="save">Save</button><button type="button" class="btn danger focusable" data-nav="fav-list" id="fav-list-remove" data-action="fav-list-remove" data-i18n="favs.remove">Remove collection</button></footer><p id="fav-list-error" class="backup-status"></p></form>
+</div>
+<div id="diagnostics-overlay" class="diagnostics-overlay">
+  <div class="diagnostics-shell"><header><div><span class="guide-kicker" data-i18n="diagnostics.kicker">CONNECTION HEALTH</span><h2 data-i18n="diagnostics.title">Provider diagnostics</h2><p id="diagnostics-sub" data-i18n="diagnostics.desc">A safe test checks catalogue access only; it never starts a second stream.</p></div><button class="btn ghost focusable" data-nav="diagnostics" data-action="diagnostics-close" data-i18n="close">Close</button></header>
+    <div class="diagnostics-list" id="diagnostics-list"></div><footer class="diagnostics-foot"><button class="btn focusable" data-nav="diagnostics" data-action="diagnostics-run" data-i18n="diagnostics.run">Run safe check</button><span data-i18n="diagnostics.hint">No credentials or stream URLs are displayed.</span></footer>
   </div>
 </div>
 

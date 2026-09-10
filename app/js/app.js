@@ -1,8 +1,9 @@
 /* RGBTv — application controller (v1.1) */
 var App = (function () {
   var screen = 'splash', section = 'home', account = null, provider = null;
-  var live = { cats: [], catId: null, list: [], selected: null, previewTimer: null, epgTimer: null, previewVideo: null, previewHls: null, previewGeneration: 0 };
-  var movies = { cats: [], catId: null, list: [] }, series = { cats: [], catId: null, list: [] };
+  var live = { cats: [], catId: null, list: [], selected: null, previewTimer: null, epgTimer: null, previewVideo: null, previewHls: null, previewGeneration: 0, request: 0 };
+  var movies = { cats: [], catId: null, list: [], request: 0 }, series = { cats: [], catId: null, list: [], request: 0 };
+  var favoriteListId = 'all';
   var details = { base: null, info: null, season: null, list: null };
   var editingId = null, addType = 'xtream', addAvatar = 'red', playerReturn = null, manageMode = false;
   var pin = { buf: '', acc: null, resolve: null };
@@ -51,7 +52,7 @@ var App = (function () {
   function isHub(lay) { return lay === 'spotlight' || lay === 'trio' || lay === 'mosaic' || lay === 'dashboard'; }
   function applyUi() {
     var s = Store.settings();
-    document.body.setAttribute('data-focus', s.focusStyle || 'glow'); document.body.classList.toggle('large', !!s.largeUi);
+    document.body.setAttribute('data-focus', s.focusStyle || 'glow'); document.body.classList.toggle('large', !!s.largeUi); document.body.classList.toggle('high-contrast', !!s.highContrast); document.body.classList.toggle('perf-fast', (s.performance || 'fast') === 'fast');
     U.$('#sec-home').setAttribute('data-layout', s.layout || 'classic');
     document.body.classList.toggle('hubmode', isHub(s.layout)); // hub content layout; the final theme contract keeps the real menu visible and reachable
     Nav.setPointerMode(s.pointer || 'click');
@@ -76,7 +77,7 @@ var App = (function () {
     applyLang(); applyTheme(); applyUi(); Player.init();
     /* Player zapping has its own entry points, so centralize the live-channel lock gate. */
     Player.setCanPlay(function (ch) { return needsUnlock(ch) ? askUnlock(ch) : true; });
-    setInterval(tickClock, 1000); tickClock(); setTimeout(function () { Weather.refresh(); }, 2500); Adhan.start();
+    setInterval(tickClock, 1000); tickClock(); setInterval(checkReminders, 30000); setTimeout(checkReminders, 2000); setTimeout(function () { Weather.refresh(); }, 2500); Adhan.start();
     var spot = U.el('div'); spot.id = 'spot'; U.$('#screen-home').insertBefore(spot, U.$('#screen-home .topbar'));
     initAmbient();
     var dev = Store.device(); U.$('#acc-mac').textContent = dev.mac;
@@ -134,16 +135,18 @@ var App = (function () {
     (skipPin ? Promise.resolve(true) : requirePin(acc)).then(function (ok) {
       if (!ok) return;
       showScreen('splash'); U.$('#splash-status').textContent = 'Connecting to ' + acc.name + '…';
-      var p = createProvider(acc);
+      var started = Date.now(), p = createProvider(acc);
       return p.login().then(function (info) {
+        Store.setHealth(acc.id, { status: 'ok', loginMs: Date.now() - started, error: '', source: info && info.source || acc.type });
         acc.lastLogin = Date.now(); if (info && info.expires) acc.expires = info.expires; Store.updateAccount(acc); Store.setLastAccount(acc.id);
-        account = acc; provider = p; App.account = acc; App.provider = p; unlocked = {};
-        live.cats = []; movies.cats = []; series.cats = [];
+        account = acc; provider = p; App.account = acc; App.provider = p; unlocked = {}; favoriteListId = 'all';
+        live.cats = []; movies.cats = []; series.cats = []; epg.cache = {}; epg.pending = {};
         U.$('#chip-name').textContent = acc.name; U.$('#chip-avatar').src = Avatars.url(acc.avatar);
         updateExpiry(info); updateNewBadges();
         showScreen('home'); showSection('home'); scheduleRefresh();
         if (info && info.expires && info.expires - Date.now() < 7 * 86400e3) UI.toast(T('toast.expires', { t: expiryText(info.expires).text }), 5000, '⚠');
       }).catch(function (e) {
+        Store.setHealth(acc.id, { status: 'error', loginMs: Date.now() - started, error: String(e && e.message || 'Connection failed').slice(0, 220), source: acc.type });
         UI.renderAccounts(Store.accounts(), false); showScreen('accounts');
         UI.modal(T('conn.failed'), U.esc(acc.name) + ': ' + U.esc(e.message || 'Unknown error'), [{ label: T('edit'), value: 'edit' }, { label: T('retry'), value: 'retry', ghost: true }, { label: T('remove'), value: 'remove', danger: true }, { label: T('close'), value: null, ghost: true }]).then(function (v) {
           if (v === 'edit') { manageMode = false; showAddForm(Store.getAccount(acc.id) || acc); } else if (v === 'retry') openAccount(acc.id, true); else if (v === 'remove') { Store.removeAccount(acc.id); showAccounts(); }
@@ -534,7 +537,7 @@ var App = (function () {
       U.$('.nw-next', c).textContent = nxt ? T('home.upnext') + ': ' + U.hm(nxt.start) + ' ' + nxt.title : '';
     };
     if (e && Date.now() - e.at < 5 * 60000) { paint(e.list); return; }
-    provider.shortEPG(ch.epgId || ch.id, 4).then(function (list) { cache[ch.id] = { at: Date.now(), list: list }; if (document.body.contains(c)) paint(list); });
+    epgFor(ch, 4).then(function (list) { cache[ch.id] = { at: Date.now(), list: list }; if (document.body.contains(c)) paint(list); });
   }
   function hydrate(h) { var it = {}; for (var k in h) it[k] = h[k]; return it; }
   function adultCatIds() { var bad = {}; if (!parentalOn()) return bad; [live.cats, movies.cats, series.cats].forEach(function (l) { l.forEach(function (x) { if (U.isAdult(x.name) || x.censored) bad[x.id] = 1; }); }); return bad; }
@@ -542,10 +545,25 @@ var App = (function () {
      identically for M3U, Xtream and Stalker without ever modifying the source list. */
   function prepareLiveList(list) {
     var bad = adultCatIds();
-    list = (list || []).filter(function (x) { return !bad[x.catId] && !Store.isChannelHidden(account.id, x.id); });
+    list = (list || []).filter(function (x) { return !bad[x.catId] && !Store.isCategoryHidden(account.id, x.catId) && !Store.isChannelHidden(account.id, x.id); });
     return Store.sortChannels(account.id, list);
   }
   function withAll(cats, name) { return [{ id: null, name: name }].concat(cats.filter(function (c) { return !(parentalOn() && (U.isAdult(c.name) || c.censored)); })); }
+
+  /* EPG requests are coalesced per channel. Opening the guide must never start a
+     duplicate request for a row that was just previewed or rendered elsewhere. */
+  var epg = { cache: {}, pending: {} };
+  function epgFor(ch, limit) {
+    var key = String(ch && (ch.epgId || ch.id) || ''), now = Date.now(), old = epg.cache[key], want = Number(limit) || 4;
+    if (!key || !provider || !provider.shortEPG) return Promise.resolve([]);
+    if (old && now - old.at < 5 * 60000 && old.limit >= want) return Promise.resolve(old.list.slice(0, want));
+    if (epg.pending[key]) return epg.pending[key].then(function (list) { return (list || []).slice(0, want); });
+    epg.pending[key] = provider.shortEPG(key, want).then(function (list) {
+      list = Array.isArray(list) ? list : [];
+      epg.cache[key] = { at: Date.now(), limit: want, list: list }; delete epg.pending[key]; return list;
+    }, function (err) { delete epg.pending[key]; throw err; });
+    return epg.pending[key];
+  }
 
   /* ---------- live ---------- */
   function loadLive() {
@@ -553,28 +571,34 @@ var App = (function () {
     U.$('#live-cats')._vlist = null; U.$('#live-channels')._vlist = null; UI.skeletonList(U.$('#live-cats'), 8); UI.skeletonList(U.$('#live-channels'), 9);
     provider.liveCategories().then(function (cats) {
       live.cats = cats; U.$('#live-cats').classList.remove('sk-list');
-      UI.renderCats(U.$('#live-cats'), withAll(cats, T('allChannels')), null, 'lcat', function (c) { selectLiveCat(c); });
-      selectLiveCat({ id: null, name: T('allChannels') }); Nav.focus(U.$('#live-cats .cat-item'));
+      /* Xtream category endpoints return quickly; opening "All" first can make a TV
+         allocate thousands of channel objects before it paints anything. */
+      var visibleCats = cats.filter(function (x) { return !Store.isCategoryHidden(account.id, x.id); });
+      var first = visibleCats.length ? visibleCats[0] : { id: null, name: T('allChannels') };
+      UI.renderCats(U.$('#live-cats'), withAll(visibleCats, T('allChannels')), first.id, 'lcat', function (c) { selectLiveCat(c); });
+      selectLiveCat(first); Nav.focus(U.$('#live-cats .cat-item.selected') || U.$('#live-cats .cat-item'));
     }).catch(function (e) { UI.toast('Failed to load categories: ' + e.message, 3000, '⚠'); });
   }
   function selectLiveCat(c) {
-    live.catId = c.id; U.$('#live-cat-title').textContent = c.name; U.$('#live-channels')._vlist = null; live.vl = null; UI.skeletonList(U.$('#live-channels'), 9);
-    provider.liveStreams(c.id).then(function (list) {
+    var request = ++live.request, categoryId = c.id, categoryName = c.name;
+    live.catId = categoryId; U.$('#live-cat-title').textContent = categoryName; U.$('#live-channels')._vlist = null; live.vl = null; UI.skeletonList(U.$('#live-channels'), 9);
+    provider.liveStreams(categoryId).then(function (list) {
+      if (request !== live.request || live.catId !== categoryId) return;
       list = prepareLiveList(list);
-      live.list = list; list.forEach(function (x) { x.catName = c.name; });
+      live.list = list; list.forEach(function (x) { x.catName = categoryName; });
       U.$('#live-channels').classList.remove('sk-list');
       live.vl = UI.renderChannels(U.$('#live-channels'), list, live.selected && live.selected.id, function (ch) { previewChannel(ch); }, function (ch, i) { playLive(ch, i); });
       if (!list.length) U.$('#live-channels').innerHTML = '<div class="empty">' + T('noChannels') + '</div>';
-    }).catch(function (e) { U.$('#live-channels').innerHTML = '<div class="empty">' + U.esc(e.message) + '</div>'; });
+    }).catch(function (e) { if (request === live.request) U.$('#live-channels').innerHTML = '<div class="empty">' + U.esc(e.message) + '</div>'; });
   }
   function previewChannel(ch) {
     if (!ch || (live.selected && live.selected.id === ch.id)) return;
     live.selected = ch; clearTimeout(live.previewTimer); clearTimeout(live.epgTimer);
     if (live.vl) live.vl.setSelected(ch.id);
-    live.epgTimer = setTimeout(function () { provider.shortEPG(ch.id, 12).then(function (l) { if (live.selected === ch) UI.renderEpg(l); }); }, 600);
+    live.epgTimer = setTimeout(function () { epgFor(ch, 12).then(function (l) { if (live.selected === ch) UI.renderEpg(l); }); }, 600);
     /* M3U browsing stays decoder-free: on many TVs an invisible preview competes with the
        requested channel and is the main cause of a long first-buffer delay. */
-    if (Store.settings().preview && App.provider && App.provider.type !== 'm3u' && !needsUnlock(ch) && !Nav.byPointer()) live.previewTimer = setTimeout(function () { startPreview(ch); }, 1200);
+    if (Store.settings().preview && Store.settings().performance !== 'fast' && App.provider && App.provider.type !== 'm3u' && !needsUnlock(ch) && !Nav.byPointer()) live.previewTimer = setTimeout(function () { startPreview(ch); }, 1200);
   }
   function startPreview(ch) {
     stopPreview(); var generation = ++live.previewGeneration, box = U.$('#live-preview'); box.innerHTML = '';
@@ -606,15 +630,29 @@ var App = (function () {
     var returnGuide = guide && guide.open;
     UI.modal(T('channels.tools'), U.esc(ch.name || '') + '<br><small>' + U.esc(T('channels.tools.d')) + '</small>', [
       { label: T('channels.hide'), value: 'hide', danger: true },
+      { label: T('favs.addTo'), value: 'collection', ghost: true },
       { label: T('channels.up'), value: 'up', ghost: true }, { label: T('channels.down'), value: 'down', ghost: true },
       { label: T('channels.reset'), value: 'reset', ghost: true }, { label: T('channels.restoreHidden'), value: 'restore', ghost: true }, { label: T('cancel'), value: null, ghost: true }
     ]).then(function (action) {
       if (!action) { if (returnGuide) { Nav.setContainer(U.$('#guide-overlay')); Nav.focus(U.$('#guide-list .focusable')); } return; }
+      if (action === 'collection') { chooseFavoriteList(ch); return; }
       if (returnGuide) closeGuide(false);
       if (action === 'hide') {  Store.toggleChannelHidden(account.id, ch.id); UI.toast(T('channels.hidden'), 2200, '✓'); live.selected = null; selectLiveCat({ id: live.catId, name: live.catId == null ? T('allChannels') : (live.cats.filter(function (c) { return c.id === live.catId; })[0] || {}).name || '' }); return; }
       if (action === 'reset') { Store.clearChannelOrder(account.id); UI.toast(T('channels.resetDone'), 2200, '✓'); selectLiveCat({ id: live.catId, name: live.catId == null ? T('allChannels') : (live.cats.filter(function (c) { return c.id === live.catId; })[0] || {}).name || '' }); return; }
       if (action === 'restore') { Store.clearHiddenChannels(account.id); UI.toast(T('channels.unhide'), 2200, '✓'); selectLiveCat({ id: live.catId, name: live.catId == null ? T('allChannels') : (live.cats.filter(function (c) { return c.id === live.catId; })[0] || {}).name || '' }); return; }
       if (Store.moveChannel(account.id, live.list, ch.id, action === 'up' ? -1 : 1)) { UI.toast(T('channels.moved'), 1800, '↕'); selectLiveCat({ id: live.catId, name: live.catId == null ? T('allChannels') : (live.cats.filter(function (c) { return c.id === live.catId; })[0] || {}).name || '' }); }
+    });
+  }
+  function openLiveCategoryTools(cat) {
+    if (!account) return;
+    var name = cat && cat.name || T('allChannels'), isAll = !cat || cat.id == null;
+    var buttons = [{ label: T('groups.restore'), value: 'restore', ghost: true }, { label: T('cancel'), value: null, ghost: true }];
+    if (!isAll) buttons.unshift({ label: T('groups.hide'), value: 'hide', danger: true });
+    UI.modal(T('groups.tools'), U.esc(name), buttons).then(function (action) {
+      if (!action) return;
+      if (action === 'hide' && cat && cat.id != null) { Store.toggleCategoryHidden(account.id, cat.id); UI.toast(T('groups.hidden'), 2200, '✓'); }
+      if (action === 'restore') { Store.clearHiddenCategories(account.id); UI.toast(T('groups.restored'), 2200, '✓'); }
+      live.selected = null; live.cats = []; live.request++; loadLive();
     });
   }
   var unlocked = {}; // account + channel ids unlocked only for the current session
@@ -644,7 +682,7 @@ var App = (function () {
   var guide = { open: false, list: [], request: 0, vl: null };
   function guidePrograms(row, channel) {
     var nowEl = U.$('.gr-now', row), nextEl = U.$('.gr-next', row), bar = U.$('.gr-progress i', row), token = guide.request;
-    provider.shortEPG(channel.epgId || channel.id, 4).then(function (programmes) {
+    epgFor(channel, 4).then(function (programmes) {
       if (!guide.open || token !== guide.request || !document.body.contains(row)) return;
       var now = Date.now() / 1000, cur = null, next = null;
       (programmes || []).forEach(function (p) { if (p.start <= now && p.end > now) cur = p; else if (p.start > now && !next) next = p; });
@@ -681,6 +719,39 @@ var App = (function () {
   }
   function refreshGuide() { if (!guide.open) return; guide.request++; U.$('#guide-list').innerHTML = '<div class="guide-loading"><div class="loader"></div>' + U.esc(T('guide.loading')) + '</div>'; provider.liveStreams(null).then(function (list) { if (guide.open) renderGuide(prepareLiveList(list)); }).catch(function () { if (guide.open) renderGuide([]); }); }
 
+  /* An expanded schedule is intentionally loaded only for the focused channel.
+     This keeps EPG browsing fast instead of fetching 48 entries for every row. */
+  var schedule = { open: false, channel: null, programmes: [] };
+  function openSchedule(ch) {
+    if (!ch || schedule.open) return; schedule.open = true; schedule.channel = ch; schedule.programmes = [];
+    U.$('#schedule-channel').textContent = ch.name || '—'; U.$('#schedule-sub').textContent = T('schedule.loading'); U.$('#schedule-list').innerHTML = '<div class="guide-loading"><div class="loader"></div>' + U.esc(T('schedule.loading')) + '</div>';
+    U.$('#schedule-overlay').classList.add('show'); Nav.setContainer(U.$('#schedule-overlay')); Nav.focus(U.$('[data-action="schedule-close"]'));
+    epgFor(ch, 48).then(function (list) { if (schedule.open && schedule.channel === ch) renderSchedule(list || []); }, function () { if (schedule.open && schedule.channel === ch) renderSchedule([]); });
+  }
+  function renderSchedule(list) {
+    var box = U.$('#schedule-list'), now = Date.now() / 1000, ch = schedule.channel; schedule.programmes = list.slice(); box.innerHTML = '';
+    U.$('#schedule-sub').textContent = list.length ? T('schedule.count', { n: list.length }) : T('noEpg');
+    if (!list.length) { box.innerHTML = '<div class="guide-empty">' + U.esc(T('noEpg')) + '</div>'; return; }
+    list.forEach(function (p) {
+      var isPast = p.end <= now, isLive = p.start <= now && p.end > now, row = U.el('div', 'schedule-row' + (isLive ? ' live' : '') + (isPast ? ' past' : ''));
+      var title = U.el('button', 'schedule-program focusable', '<b>' + U.esc(U.hm(p.start) + ' – ' + U.hm(p.end)) + '</b><span>' + U.esc(p.title || '—') + '</span>'); title.setAttribute('data-nav', 'schedule'); title._programme = p;
+      title.onclick = function () { if (ch.archive && isPast && provider.catchupUrl) { closeSchedule(false); closeGuide(false); playCatchup(ch, p); } else UI.toast(isPast ? T('schedule.noCatchup') : T('schedule.notStarted'), 2600, 'i'); };
+      var saved = Store.isReminder(account.id, ch, p), rem = U.el('button', 'schedule-reminder focusable' + (saved ? ' on' : ''), saved ? '⏰' : '＋'); rem.setAttribute('data-nav', 'schedule'); rem._programme = p; rem.title = saved ? T('schedule.removeReminder') : T('schedule.addReminder');
+      rem.onclick = function () { var on = Store.toggleReminder(account.id, ch, p); UI.toast(on ? T('schedule.reminderSet') : T('schedule.reminderRemoved'), 2200, on ? '⏰' : '✓'); renderSchedule(schedule.programmes); };
+      row.appendChild(title); row.appendChild(rem); box.appendChild(row);
+    });
+    Nav.focus(U.$('#schedule-list .schedule-program') || U.$('[data-action="schedule-close"]'));
+  }
+  function closeSchedule(refocus) {
+    if (!schedule.open) return; schedule.open = false; schedule.channel = null; schedule.programmes = []; U.$('#schedule-overlay').classList.remove('show');
+    if (guide.open) { Nav.setContainer(U.$('#guide-overlay')); if (refocus !== false) Nav.focus(guide.vl && guide.vl.elementAt(guide.vl.index) || U.$('#guide-list .focusable')); }
+    else { Nav.setContainer(activeScreen()); if (refocus !== false) Nav.focusFirst(); }
+  }
+  function checkReminders() {
+    if (!account || !Store.dueReminders) return;
+    Store.dueReminders(account.id).forEach(function (r) { UI.toast(T('schedule.reminderToast', { title: r.title || '—', channel: r.channel || '—' }), 6000, '⏰'); });
+  }
+
   /* ---------- portable backup ---------- */
   var backup = { open: false };
   function openBackup() {
@@ -706,6 +777,54 @@ var App = (function () {
         var result = Store.importBackup(code); applyLang(); applyTheme(); applyUi(); closeBackup(); showAccounts();
         UI.toast(T('backup.restored', { n: result.count }), 3500, '✓'); if (result.needsCredentials) setTimeout(function () { UI.toast(T('backup.needsCredentials'), 5500, '⚠'); }, 700);
       } catch (e) { U.$('#backup-status').textContent = T('backup.invalid'); }
+    });
+  }
+
+  /* ---------- connection health / compatibility report ---------- */
+  var diagnostics = { open: false, busy: false, token: 0, rows: [] };
+  function diagnosticRow(label, value, state) { diagnostics.rows.push({ label: label, value: value, state: state || '' }); renderDiagnostics(); }
+  function renderDiagnostics() {
+    var box = U.$('#diagnostics-list'); if (!box) return;
+    box.innerHTML = diagnostics.rows.map(function (r) { return '<div class="diagnostic-row ' + U.esc(r.state || '') + '"><span>' + U.esc(r.label) + '</span><b>' + U.esc(r.value) + '</b></div>'; }).join('');
+    U.$('#diagnostics-sub').textContent = diagnostics.busy ? T('diagnostics.running') : T('diagnostics.desc');
+  }
+  function openDiagnostics() {
+    if (!account || !provider || diagnostics.open) return;
+    diagnostics.open = true; diagnostics.busy = false; diagnostics.token++; diagnostics.rows = [];
+    var health = Store.health(account.id), cache = Store.cacheInfo(account.id), capabilities = provider.type === 'm3u' ? T('diagnostics.m3uCaps') : T('diagnostics.portalCaps');
+    diagnosticRow(T('diagnostics.provider'), account.type.toUpperCase() + (health.source && health.source !== account.type ? ' · ' + health.source : ''), 'ok');
+    diagnosticRow(T('diagnostics.capabilities'), capabilities, 'ok');
+    diagnosticRow(T('diagnostics.cache'), T('diagnostics.cacheValue', { n: cache.entries, kb: Math.max(0, Math.round(cache.bytes / 1024)) }), cache.entries ? 'ok' : 'muted');
+    diagnosticRow(T('diagnostics.lastLogin'), health.status === 'ok' ? T('diagnostics.lastLoginOk', { ms: health.loginMs || 0 }) : (health.error || T('diagnostics.notChecked')), health.status === 'ok' ? 'ok' : (health.error ? 'bad' : 'muted'));
+    diagnosticRow(T('diagnostics.playback'), T('diagnostics.playbackSafe'), 'muted');
+    U.$('#diagnostics-overlay').classList.add('show'); Nav.setContainer(U.$('#diagnostics-overlay')); Nav.focus(U.$('[data-action="diagnostics-run"]'));
+  }
+  function closeDiagnostics() {
+    if (!diagnostics.open) return; diagnostics.open = false; diagnostics.busy = false; diagnostics.token++; U.$('#diagnostics-overlay').classList.remove('show'); Nav.setContainer(activeScreen());
+    if (screen === 'home' && section === 'settings') Nav.focus(U.$('[data-action="diagnostics-open"]')); else Nav.focusFirst();
+  }
+  function runDiagnostics() {
+    if (!diagnostics.open || diagnostics.busy || !provider) return;
+    var token = ++diagnostics.token, began = Date.now(), sample = null;
+    diagnostics.busy = true; diagnostics.rows = []; renderDiagnostics();
+    diagnosticRow(T('diagnostics.catalogue'), T('diagnostics.wait'), 'pending');
+    provider.liveCategories().then(function (cats) {
+      if (!diagnostics.open || token !== diagnostics.token) return Promise.reject({ quiet: true });
+      var count = (cats || []).length; diagnostics.rows[0] = { label: T('diagnostics.catalogue'), value: T('diagnostics.catalogueValue', { n: count, ms: Date.now() - began }), state: count ? 'ok' : 'warn' }; renderDiagnostics();
+      sample = count ? cats[0] : { id: null }; diagnosticRow(T('diagnostics.channels'), T('diagnostics.wait'), 'pending'); return provider.liveStreams(sample.id);
+    }).then(function (channels) {
+      if (!diagnostics.open || token !== diagnostics.token) return;
+      channels = channels || []; diagnostics.rows[1] = { label: T('diagnostics.channels'), value: T('diagnostics.channelsValue', { n: channels.length, ms: Date.now() - began }), state: channels.length ? 'ok' : 'warn' }; renderDiagnostics();
+      if (!channels.length) return null;
+      diagnosticRow(T('diagnostics.playback'), T('diagnostics.wait'), 'pending'); return provider.streamUrl(channels[0]);
+    }).then(function (url) {
+      if (!diagnostics.open || token !== diagnostics.token) return;
+      if (url != null) { diagnostics.rows[2] = { label: T('diagnostics.playback'), value: T('diagnostics.playbackReady'), state: url ? 'ok' : 'warn' }; renderDiagnostics(); }
+      diagnostics.busy = false; Store.setHealth(account.id, { status: 'ok', lastCheckMs: Date.now() - began, lastCheckError: '' }); renderDiagnostics();
+    }).catch(function (err) {
+      if (!diagnostics.open || token !== diagnostics.token || err && err.quiet) return;
+      diagnostics.busy = false; var message = String(err && err.message || err || T('diagnostics.failed')).slice(0, 160);
+      diagnosticRow(T('diagnostics.result'), message, 'bad'); Store.setHealth(account.id, { status: 'error', lastCheckMs: Date.now() - began, lastCheckError: message }); renderDiagnostics();
     });
   }
   function playCatchup(ch, e) {
@@ -740,10 +859,12 @@ var App = (function () {
     }).catch(function (e) { UI.toast('Failed to load: ' + e.message, 3000, '⚠'); });
   }
   function selectGridCat(kind, c) {
-    var st = kind === 'movies' ? movies : series, grid = U.$('#' + kind + '-grid'); st.catId = c.id;
+    var st = kind === 'movies' ? movies : series, grid = U.$('#' + kind + '-grid'), request = ++st.request, categoryId = c.id;
+    st.catId = categoryId;
     U.$('#' + kind + '-cat-title').textContent = c.name; grid._vlist = null; UI.skeletonGrid(grid);
-    var p = kind === 'movies' ? provider.vodStreams(c.id) : provider.seriesList(c.id);
+    var p = kind === 'movies' ? provider.vodStreams(categoryId) : provider.seriesList(categoryId);
     p.then(function (list) {
+      if (request !== st.request || st.catId !== categoryId) return;
       /* A credential-bearing get.php source may start on Xtream metadata and
          fall back to its text playlist. Rebuild the category rail once so its
          category IDs match the new source instead of leaving an empty grid. */
@@ -756,16 +877,67 @@ var App = (function () {
       st.list = list; U.$('#' + kind + '-count').textContent = list.length + ' items';
       if (!list.length) { grid._vlist = null; grid.innerHTML = '<div class="empty">No items in this category.</div>'; return; }
       st.vl = UI.renderGrid(grid, list, kind === 'movies' ? 'mgrid' : 'sgrid', function (it, l) { openItem(it, l); });
-    }).catch(function (e) { grid.innerHTML = '<div class="empty">' + U.esc(e.message) + '</div>'; });
+    }).catch(function (e) { if (request === st.request) grid.innerHTML = '<div class="empty">' + U.esc(e.message) + '</div>'; });
   }
 
   /* ---------- favorites / search / settings ---------- */
+  var favEditor = { open: false, id: null, item: null };
+  function favoriteListName(id) {
+    if (id === 'all') return T('favs.all'); if (id === 'default') return T('home.mylist');
+    var found = Store.favoriteLists(account.id).filter(function (x) { return x.id === id; })[0]; return found ? found.name : T('home.mylist');
+  }
+  function renderFavoriteToolbar() {
+    var box = U.$('#fav-toolbar'), lists = [{ id: 'all', name: T('favs.all') }].concat(Store.favoriteLists(account.id));
+    if (lists.map(function (x) { return x.id; }).indexOf(favoriteListId) < 0) favoriteListId = 'all';
+    box.innerHTML = '';
+    lists.forEach(function (list) {
+      var count = Store.favorites(account.id, list.id).length, title = list.id === 'default' ? T('home.mylist') : list.name, b = U.el('button', 'fav-tab focusable' + (favoriteListId === list.id ? ' active' : ''), U.esc(title) + '<small>' + count + '</small>');
+      b.setAttribute('data-nav', 'fav-tabs'); b.setAttribute('data-fav-list', list.id); box.appendChild(b);
+    });
+    var add = U.el('button', 'fav-tab add focusable', '＋ ' + U.esc(T('favs.new'))); add.setAttribute('data-nav', 'fav-tabs'); add.setAttribute('data-action', 'fav-list-add'); box.appendChild(add);
+    if (favoriteListId !== 'all' && favoriteListId !== 'default') { var edit = U.el('button', 'fav-tab edit focusable', '✎'); edit.setAttribute('data-nav', 'fav-tabs'); edit.setAttribute('data-action', 'fav-list-edit'); box.appendChild(edit); }
+  }
   function renderFavorites() {
-    var rows = U.$('#fav-rows'); rows.innerHTML = ''; rows.style.transform = ''; var f = Store.favorites(account.id);
-    var l = f.filter(function (x) { return x.type === 'live'; }), m = f.filter(function (x) { return x.type === 'movie'; }), s = f.filter(function (x) { return x.type === 'series'; });
+    var rows = U.$('#fav-rows'); rows.innerHTML = ''; rows.style.transform = ''; renderFavoriteToolbar();
+    var f = Store.favorites(account.id, favoriteListId), l = f.filter(function (x) { return x.type === 'live'; }), m = f.filter(function (x) { return x.type === 'movie'; }), s = f.filter(function (x) { return x.type === 'series'; });
     if (l.length) rows.appendChild(UI.row(T('fav.channels'), l.map(hydrate))); if (m.length) rows.appendChild(UI.row(T('fav.movies'), m.map(hydrate))); if (s.length) rows.appendChild(UI.row(T('fav.series'), s.map(hydrate)));
-    if (!f.length) rows.appendChild(U.el('div', 'empty', T('fav.empty')));
-    Nav.focus(U.$('#fav-rows .card') || U.$('.nav-item[data-section="favorites"]'));
+    if (!f.length) rows.appendChild(U.el('div', 'empty', favoriteListId === 'all' ? T('fav.empty') : T('favs.empty', { n: favoriteListName(favoriteListId) })));
+    Nav.focus(U.$('#fav-rows .card') || U.$('#fav-toolbar .fav-tab.active') || U.$('.nav-item[data-section="favorites"]'));
+  }
+  function openFavoriteListEditor(id, item) {
+    favEditor.open = true; favEditor.id = id || null; favEditor.item = item || null;
+    U.$('#fav-list-overlay').classList.add('show'); U.$('#fav-list-error').textContent = '';
+    U.$('#fav-list-title').textContent = id ? T('favs.rename') : T('favs.create'); U.$('#fav-list-name').value = id ? favoriteListName(id) : '';
+    U.$('#fav-list-remove').style.display = id && id !== 'default' ? '' : 'none'; Nav.setContainer(U.$('#fav-list-overlay')); Nav.focus(U.$('#fav-list-name'));
+  }
+  function closeFavoriteListEditor() {
+    if (!favEditor.open) return; favEditor.open = false; favEditor.id = null; favEditor.item = null; U.$('#fav-list-overlay').classList.remove('show'); Nav.setContainer(activeScreen());
+    if (section === 'favorites') { renderFavorites(); Nav.focus(U.$('#fav-toolbar .fav-tab.active')); } else Nav.focusFirst();
+  }
+  function saveFavoriteList(ev) {
+    ev.preventDefault(); if (!favEditor.open) return;
+    var name = U.$('#fav-list-name').value, result = favEditor.id ? Store.renameFavoriteList(account.id, favEditor.id, name) : Store.createFavoriteList(account.id, name);
+    if (!result) { U.$('#fav-list-error').textContent = T('favs.invalid'); return; }
+    var created = favEditor.id ? { id: favEditor.id, name: name } : result, item = favEditor.item;
+    favoriteListId = created.id;
+    if (item) { Store.toggleFavInList(account.id, favoriteRecord(item), created.id); UI.toast(T('favs.added', { n: created.name }), 2200, '★'); }
+    closeFavoriteListEditor();
+  }
+  function removeFavoriteList() {
+    if (!favEditor.open || !favEditor.id || favEditor.id === 'default') return;
+    if (Store.removeFavoriteList(account.id, favEditor.id)) { favoriteListId = 'all'; UI.toast(T('favs.removed'), 2200, '✓'); closeFavoriteListEditor(); }
+  }
+  function favoriteRecord(it) { return { type: it.type, id: it.id, name: it.name, logo: it.logo, poster: it.poster, backdrop: it.backdrop, ext: it.ext, cmd: it.cmd, url: it.url, catId: it.catId, num: it.num, epgId: it.epgId, year: it.year, rating: it.rating, plot: it.plot, series: it.series, archive: it.archive }; }
+  function chooseFavoriteList(it) {
+    if (!it || !account) return;
+    var buttons = Store.favoriteLists(account.id).map(function (list) { return { label: list.name, value: list.id, ghost: true }; });
+    buttons.push({ label: '＋ ' + T('favs.new'), value: 'new' }, { label: T('cancel'), value: null, ghost: true });
+    UI.modal(T('favs.addTo'), U.esc(it.name || ''), buttons).then(function (choice) {
+      if (choice === 'new') { openFavoriteListEditor(null, it); return; }
+      if (!choice) return;
+      var on = Store.toggleFavInList(account.id, favoriteRecord(it), choice); UI.toast(on ? T('favs.added', { n: favoriteListName(choice) }) : T('favs.removedItem', { n: favoriteListName(choice) }), 2200, on ? '★' : '☆');
+      if (section === 'favorites') renderFavorites();
+    });
   }
   var doSearch = U.debounce(function (q) {
     var rows = U.$('#search-rows'); rows.innerHTML = ''; rows.style.transform = ''; q = q.trim().toLowerCase();
@@ -788,6 +960,7 @@ var App = (function () {
     var pb = U.$('[data-setting="parental"]'); pb.textContent = account.kids ? T('set.lockedKids') : (s.parental ? T('on') : T('off'));
     U.$('[data-setting="autostart"]').textContent = s.autostart ? T('on') : T('off');
     U.$('[data-setting="preview"]').textContent = s.preview ? T('on') : T('off');
+    U.$('[data-setting="performance"]').textContent = T('performance.' + (s.performance || 'fast'));
     U.$('#tmdb-key').value = s.tmdbKey || '';
     U.$$('#layout-swatches .swatch').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-layout-pick') === (s.layout || 'classic')); });
     U.$('[data-setting="focusStyle"]').textContent = T('focus.' + (s.focusStyle || 'glow'));
@@ -796,6 +969,7 @@ var App = (function () {
     U.$('[data-setting="glow"]').textContent = s.glow === false ? T('off') : T('on');
     U.$('[data-setting="pointer"]').textContent = T('pointer.' + (s.pointer || 'click'));
     U.$('[data-setting="largeUi"]').textContent = s.largeUi ? T('on') : T('off');
+    U.$('[data-setting="highContrast"]').textContent = s.highContrast ? T('on') : T('off');
     U.$('[data-setting="liveGrid"]').textContent = s.liveGrid ? T('live.grid') : T('live.list');
     U.$('[data-setting="ambient"]').textContent = s.ambient ? T('on') : T('off');
     U.$('[data-setting="weather"]').textContent = s.weather ? T('on') : T('off');
@@ -818,7 +992,9 @@ var App = (function () {
     else if (k === 'pointer') { Store.setSetting(k, s.pointer === 'hover' ? 'click' : 'hover'); applyUi(); UI.toast(T('pointer.' + Store.settings().pointer), 2500, '🖱'); }
     else if (k === 'focusStyle') { Store.setSetting(k, { glow: 'ring', ring: 'zoom', zoom: 'glow' }[s.focusStyle] || 'glow'); applyUi(); }
     else if (k === 'largeUi') { Store.setSetting(k, !s.largeUi); applyUi(); live.cats = []; movies.cats = []; series.cats = []; }
+    else if (k === 'highContrast') { Store.setSetting(k, !s.highContrast); applyUi(); }
     else if (k === 'liveGrid') { Store.setSetting(k, !s.liveGrid); live.cats = []; U.$('#live-channels')._vlist = null; }
+    else if (k === 'performance') { Store.setSetting(k, (s.performance || 'fast') === 'fast' ? 'balanced' : 'fast'); applyUi(); stopPreview(); }
     else if (k === 'weather') { Store.setSetting(k, !s.weather); Weather.refresh(); if (!Store.settings().weather) U.$('#weather').className = 'weather focusable'; }
     else if (k === 'adhan') { Store.setSetting(k, !s.adhan); Adhan.invalidate(); }
     else if (k === 'wxUnit') { Store.setSetting(k, s.wxUnit === 'f' ? 'c' : 'f'); Weather.invalidate(); Weather.refresh(); }
@@ -936,9 +1112,17 @@ var App = (function () {
     if (Adhan.handleKey(name)) return true;
     if (amb.on) { hideAmbient(); return true; }
     if (UI.modalOpen()) { if (name === 'BACK' || name === 'BACK2') { UI.closeModal(); return true; } return false; }
+    if (favEditor.open) { if (name === 'BACK' || name === 'BACK2') { closeFavoriteListEditor(); return true; } return false; }
+    if (diagnostics.open) { if (name === 'BACK' || name === 'BACK2') { closeDiagnostics(); return true; } return false; }
+    if (schedule.open) {
+      if (name === 'BACK' || name === 'BACK2') { closeSchedule(); return true; }
+      if (name === 'RED') { var pr = Nav.current(); if (pr && pr._programme) { var on = Store.toggleReminder(account.id, schedule.channel, pr._programme); UI.toast(on ? T('schedule.reminderSet') : T('schedule.reminderRemoved'), 2200, on ? '⏰' : '✓'); renderSchedule(schedule.programmes); return true; } }
+      return false;
+    }
     if (guide.open) {
       if (name === 'BACK' || name === 'BACK2') { closeGuide(); return true; }
       if (name === 'BLUE') { var gr = Nav.current(); if (gr && gr._channel) openChannelTools(gr._channel); return true; }
+      if (name === 'YELLOW') { var gc = Nav.current(); if (gc && gc._channel) openSchedule(gc._channel); return true; }
       return false;
     }
     if (backup.open) {
@@ -976,7 +1160,7 @@ var App = (function () {
       if (name === 'RED' && (section === 'movies' || section === 'series' || section === 'home' || section === 'favorites' || section === 'search')) { var c = Nav.current(); if (c && c._item) { toggleFavItem(c._item); if (c._vlist) c._vlist.refreshItem(Number(c.getAttribute('data-i'))); else { var f = c.querySelector('.fav'); if (f) f.remove(); else if (c.querySelector('.thumb')) c.querySelector('.thumb').appendChild(U.el('div', 'fav', '★')); } return true; } }
       if (name === 'GREEN') { showSection('favorites'); Nav.focus(U.$('.nav-item[data-section="favorites"]')); return true; }
       if (name === 'YELLOW' && section === 'live' && live.selected) { toggleLockChannel(live.selected); return true; }
-      if (name === 'BLUE' && section === 'live') { if (live.selected) openChannelTools(live.selected); else openGuide(); return true; }
+      if (name === 'BLUE' && section === 'live') { var focused = Nav.current(); if (focused && focused.getAttribute('data-nav') === 'lcat') { var cid = focused._item && focused._item.id; openLiveCategoryTools(cid == null ? { id: null, name: T('allChannels') } : (live.cats.filter(function (x) { return String(x.id) === String(cid); })[0] || { id: cid, name: focused.textContent })); } else if (live.selected) openChannelTools(live.selected); else openGuide(); return true; }
       if (name === 'YELLOW') { showSection('search'); return true; }
       if ((name === 'CH_UP' || name === 'CH_DOWN') && !(Nav.current() && Nav.current()._vlist)) { var order = NAV_ORDER, i = order.indexOf(section); showSection(order[(i + (name === 'CH_UP' ? 1 : order.length - 1)) % order.length]); Nav.focus(U.$('.nav-item[data-section="' + section + '"]')); return true; }
     }
@@ -985,9 +1169,10 @@ var App = (function () {
     return false;
   }
   function toggleFavItem(it) {
-    if (!it) return;
-    var on = Store.toggleFav(account.id, { type: it.type, id: it.id, name: it.name, logo: it.logo, poster: it.poster, backdrop: it.backdrop, ext: it.ext, cmd: it.cmd, url: it.url, catId: it.catId, num: it.num, epgId: it.epgId, year: it.year, rating: it.rating, plot: it.plot, series: it.series, archive: it.archive });
-    UI.toast(on ? T('toast.favAdd') : T('toast.favDel'), 2000, on ? '★' : '☆');
+    if (!it || !account) return;
+    var record = favoriteRecord(it), inCollection = section === 'favorites' && favoriteListId !== 'all';
+    var on = inCollection ? Store.toggleFavInList(account.id, record, favoriteListId) : Store.toggleFav(account.id, record);
+    UI.toast(on ? (inCollection ? T('favs.added', { n: favoriteListName(favoriteListId) }) : T('toast.favAdd')) : (inCollection ? T('favs.removedItem', { n: favoriteListName(favoriteListId) }) : T('toast.favDel')), 2000, on ? '★' : '☆');
     if (screen === 'details') U.$('[data-action="details-fav"]').textContent = on ? T('favorited') : T('favorite');
     if (live.vl) { var idx = live.vl.items.indexOf(it); if (idx >= 0) live.vl.refreshItem(idx); }
   }
@@ -1018,12 +1203,13 @@ var App = (function () {
 
   function bindEvents() {
     document.addEventListener('click', function (ev) {
-      var t = ev.target; while (t && t !== document && !(t.getAttribute && (t.getAttribute('data-action') || t.getAttribute('data-section') || t.getAttribute('data-type') || t.getAttribute('data-setting') || t.getAttribute('data-theme-pick') || t.getAttribute('data-layout-pick') || t.getAttribute('data-accent-pick') || t.id === 'kids-switch' || t.id === 'tls-switch' || t.id === 'backup-secret-switch'))) t = t.parentNode;
+      var t = ev.target; while (t && t !== document && !(t.getAttribute && (t.getAttribute('data-action') || t.getAttribute('data-section') || t.getAttribute('data-type') || t.getAttribute('data-setting') || t.getAttribute('data-theme-pick') || t.getAttribute('data-layout-pick') || t.getAttribute('data-accent-pick') || t.getAttribute('data-fav-list') || t.id === 'kids-switch' || t.id === 'tls-switch' || t.id === 'backup-secret-switch'))) t = t.parentNode;
       if (!t || t === document) return;
-      var a = t.getAttribute('data-action'), sec = t.getAttribute('data-section'), typ = t.getAttribute('data-type'), set = t.getAttribute('data-setting');
+      var a = t.getAttribute('data-action'), sec = t.getAttribute('data-section'), typ = t.getAttribute('data-type'), set = t.getAttribute('data-setting'), favList = t.getAttribute('data-fav-list');
       if (t.id === 'kids-switch' || t.id === 'tls-switch' || t.id === 'backup-secret-switch') { t.setAttribute('data-on', t.getAttribute('data-on') === '1' ? '0' : '1'); return; }
       if (sec) { showSection(sec); if ((t.classList.contains('tile') || t.classList.contains('util')) && !document.body.classList.contains('hubmode')) Nav.focus(U.$('.nav-item[data-section="' + sec + '"]')); else if (t.id === 'hub-home') Nav.focus(U.$('#hub .tile')); return; }
       if (typ && t.classList.contains('tab')) { setAddType(typ); return; }
+      if (favList != null) { favoriteListId = favList; renderFavorites(); return; }
       if (set) { toggleSetting(set); return; }
       var tp = t.getAttribute('data-theme-pick'); if (tp) { Store.setSetting('theme', tp); if (tp === 'ramadan') Store.setSetting('accent', 'auto'); applyTheme(); renderSettings(); if (section === 'home') renderHome(); return; }
       var lp = t.getAttribute('data-layout-pick'); if (lp) { Store.setSetting('layout', lp); applyUi(); renderSettings(); UI.toast(T('lay.' + lp), 2000, '✓'); return; }
@@ -1048,6 +1234,14 @@ var App = (function () {
         case 'backup-close': closeBackup(); break;
         case 'backup-export': exportBackup(); break;
         case 'backup-import': confirmImportBackup(); break;
+        case 'fav-list-add': openFavoriteListEditor(); break;
+        case 'fav-list-edit': openFavoriteListEditor(favoriteListId); break;
+        case 'fav-list-cancel': closeFavoriteListEditor(); break;
+        case 'fav-list-remove': removeFavoriteList(); break;
+        case 'diagnostics-open': openDiagnostics(); break;
+        case 'diagnostics-close': closeDiagnostics(); break;
+        case 'diagnostics-run': runDiagnostics(); break;
+        case 'schedule-close': closeSchedule(); break;
         case 'clear-cache': Store.clearCache(account.id); live.cats = []; movies.cats = []; series.cats = []; UI.toast(T('toast.cache'), 2000, '✓'); break;
         case 'refresh-now': refreshPlaylists(true); break;
         case 'hero-play': var h = U.$('#hero-title')._item; if (h) openItem(h); else showSection('live'); break;
@@ -1056,11 +1250,13 @@ var App = (function () {
         case 'details-resume': playMovie(true); break;
         case 'details-trailer': playTrailer(); break;
         case 'details-fav': toggleFavItem(details.base); break;
+        case 'details-collections': chooseFavoriteList(details.base); break;
         case 'details-back': onKey('BACK'); break;
         default: if (a && a.indexOf('p-') === 0) Player.action(a);
       }
     });
     U.$('#add-form').addEventListener('submit', saveAccount);
+    U.$('#fav-list-form').addEventListener('submit', saveFavoriteList);
     U.$('#search-input').addEventListener('input', function () { doSearch(this.value); });
     U.$('#search-input').addEventListener('keydown', function (ev) { if (ev.keyCode === 13) { this.blur(); doSearch(this.value); ev.preventDefault(); } });
     U.$('#tmdb-key').addEventListener('change', function () { Store.setSetting('tmdbKey', this.value.trim()); UI.toast(this.value.trim() ? 'TMDB enabled' : 'TMDB disabled', 2000, '✓'); });
