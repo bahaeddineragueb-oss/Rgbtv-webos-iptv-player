@@ -45,6 +45,38 @@ function stalkerDebug(message, data) {
   if (typeof window === 'undefined' || !window.RGBTvDebug || !window.console || !console.log) return;
   try { console.log('[STALKER] ' + message, data || ''); } catch (e) { }
 }
+/* A create_link command may include an ffmpeg prefix and URL|header options.
+   Extract those without ever passing the command prefix or pipe annotations to
+   HTMLVideoElement, which otherwise treats them as part of the media URL. */
+function stalkerCommandSource(command) {
+  var raw = String(command || '').trim(), match, rest, headers = {}, parts, i, pair, at, key, value;
+  raw = raw.replace(/^(?:(?:ffmpeg|ffrt\d?|auto)\s+)+/i, '');
+  match = raw.match(/https?:\/\/[^\s|]+/i);
+  if (!match) return { url: '', headers: {}, raw: raw };
+  rest = raw.slice(match.index + match[0].length); parts = rest.split('|');
+  for (i = 1; i < parts.length; i++) {
+    pair = parts[i]; at = pair.indexOf('='); if (at < 1) continue;
+    key = pair.slice(0, at).trim().toLowerCase().replace(/[_\s]/g, '-'); value = pair.slice(at + 1).trim();
+    if (!value || value.length > 2048 || /[\r\n]/.test(value)) continue;
+    if ((key === 'user-agent' || key === 'http-user-agent') && value.length <= 512) headers['User-Agent'] = value;
+    else if ((key === 'referer' || key === 'referrer' || key === 'http-referer' || key === 'http-referrer') && /^https?:\/\//i.test(value)) headers.Referer = value;
+    else if (key === 'authorization') headers.Authorization = value;
+  }
+  return { url: match[0], headers: headers, raw: raw };
+}
+function stalkerSameOrigin(left, right) {
+  var a = /^(https?):\/\/([^\/:?#]+)(?::(\d+))?/i.exec(String(left || '')), b = /^(https?):\/\/([^\/:?#]+)(?::(\d+))?/i.exec(String(right || ''));
+  return !!(a && b && a[1].toLowerCase() === b[1].toLowerCase() && a[2].toLowerCase() === b[2].toLowerCase() && String(a[3] || '') === String(b[3] || ''));
+}
+function stalkerSafeStreamUrl(raw) {
+  var match = String(raw || '').match(/^(https?:\/\/[^/]+)/i); return match ? match[1] + '/…' : 'unavailable';
+}
+function stalkerStreamError(error) {
+  var e = error instanceof Error ? error : new Error(String(error || 'Unable to resolve Stalker stream'));
+  if (!e.code) e.code = 'STREAM_RESOLUTION_ERROR';
+  return e;
+}
+
 function StalkerProvider(acc) {
   this.acc = acc; this.type = 'stalker';
   var supplied = U.normUrl(acc.url), direct = /\/(?:server\/load\.php|portal\.php)(?:\?.*)?$/i.test(supplied) ? supplied.replace(/\?.*$/, '') : '';
@@ -68,7 +100,7 @@ function StalkerProvider(acc) {
   this.token = null;
   this.cookies = { mac: encodeURIComponent(this.mac), stb_lang: 'en', timezone: 'Europe/Paris' };
   this.profile = null; this.portalInfo = null; this.agentMode = 0;
-  this._genreCache = {}; this._keepalive = null; this._mem = {}; this._pending = {}; this._queue = []; this._activeRequests = 0;
+  this._genreCache = {}; this._keepalive = null; this._handshakePending = null; this._mem = {}; this._pending = {}; this._queue = []; this._activeRequests = 0;
   this._livePages = {}; this._allLive = { items: [], ids: {}, nextPage: 1, total: 0, complete: false, pending: null };
 }
 StalkerProvider.prototype = {
@@ -218,10 +250,16 @@ StalkerProvider.prototype = {
         endpointIndex++; mode = 0; return tryNext();
       });
     }
+    if (this._handshakePending) return this._handshakePending;
     if (this.acc.endpoint && this.acc.endpoint.indexOf(this.base) === 0) this.endpoints.unshift(this.acc.endpoint);
     this.endpoints = this.endpoints.filter(function (v, n, a) { return a.indexOf(v) === n; });
-    return tryNext();
+    this._handshakePending = tryNext();
+    this._handshakePending.then(function () { self._handshakePending = null; }, function () { self._handshakePending = null; });
+    return this._handshakePending;
   },
+  /* Called only by the bounded PlaybackManager recovery ladder. It deliberately
+     shares any current handshake and does not start a keep-alive retry storm. */
+  refreshSession: function () { return this._handshake(); },
   login: function () {
     var self = this;
     return this._handshake().then(function () {
@@ -442,33 +480,55 @@ StalkerProvider.prototype = {
       return stalkerRows(r).map(function (e) { return { title: e.name || e.title || '', desc: e.descr || e.description || '', start: Number(e.start_timestamp || e.start), end: Number(e.stop_timestamp || e.end) }; });
     }).catch(function () { return []; });
   },
-  streamUrl: function (item, requestOpt) {
-    var self = this, cmd = item.cmd || '';
-    var params;
+  _createLink: function (item, requestOpt) {
+    var self = this, cmd = item && item.cmd || '', params;
+    if (!cmd) return Promise.reject(stalkerStreamError(new Error('Channel has no Stalker stream command')));
     if (item.type === 'live') params = { type: 'itv', action: 'create_link', cmd: cmd, series: '', forced_storage: '', disable_ad: 0, download: 0, force_ch_link_check: 0 };
     else if (item.type === 'episode') params = { type: 'vod', action: 'create_link', cmd: cmd, series: item.seriesNum || item.episode || '', forced_storage: '', disable_ad: 0, download: 0 };
     else params = { type: 'vod', action: 'create_link', cmd: cmd, series: '', forced_storage: '', disable_ad: 0, download: 0 };
-    return this._call(params, false, 'playback', requestOpt).then(function (r) {
-      var c = (r && (r.cmd || r.data && r.data.cmd)) || cmd; return self._cleanCmd(c);
-    }).catch(function (e) {
-      var msg = String(e && e.message || e);
-      if (e && (e.code === 'USER_CANCELLED' || e.name === 'AbortError')) throw e;
-      /* Do not disguise access/rate/transport failures as a playable stale cmd:
-         the central manager must classify them and apply its bounded policy. */
-      if (e && (e.status === 401 || e.status === 403 || e.status === 404 || e.status === 429) || /HTTP\s*(401|403|404|429)|timeout|network|rate limit/i.test(msg)) throw e;
-      return self._cleanCmd(cmd);
+    return this._call(params, false, 'playback', requestOpt).then(function (reply) {
+      var command = reply && (reply.cmd || reply.data && reply.data.cmd), source;
+      /* A portal must explicitly produce a link. Falling back to the old channel
+         command hides a failed authorization/resolution behind a broken spinner. */
+      if (!command) throw stalkerStreamError(new Error('Stalker create_link returned no stream command'));
+      source = stalkerCommandSource(command);
+      if (!source.url) throw stalkerStreamError(new Error('Stalker create_link returned an invalid stream URL'));
+      return source;
+    }).catch(function (error) {
+      if (error && (error.code === 'USER_CANCELLED' || error.name === 'AbortError')) throw error;
+      throw stalkerStreamError(error);
     });
+  },
+  _playbackAuth: function (url, explicitHeaders) {
+    var headers = {}, key, samePortal = stalkerSameOrigin(url, this.endpoint), portalHeaders;
+    for (key in explicitHeaders || {}) if (Object.prototype.hasOwnProperty.call(explicitHeaders, key)) headers[key] = explicitHeaders[key];
+    /* Do not leak a portal bearer token/cookie to a redirected CDN. Same-origin
+       MAG links may require the active portal identity, so preserve it there. */
+    if (samePortal) {
+      portalHeaders = this._headers();
+      for (key in portalHeaders) if (Object.prototype.hasOwnProperty.call(portalHeaders, key)) headers[key] = portalHeaders[key];
+    }
+    return { headers: headers, cookies: samePortal ? this._cookieHeader() : '', token: samePortal ? this.token || '' : '', samePortal: samePortal };
+  },
+  streamUrl: function (item, requestOpt) {
+    return this._createLink(item, requestOpt).then(function (source) { return source.url; });
   },
   resolveStream: function (item, requestOpt) {
     var self = this;
-    return this.streamUrl(item, requestOpt).then(function (url) { return { url: url, provider: self.type, channelId: item && item.id, headers: item && item.streamHeaders, metadata: { contentType: item && item.type, title: item && item.name, live: !!(item && item.type === 'live') } }; });
+    return this._createLink(item, requestOpt).then(function (source) {
+      var auth = self._playbackAuth(source.url, source.headers), detected = /\.m3u8(?:[?#]|$)/i.test(source.url) ? 'hls' : /\.ts(?:[?#]|$)/i.test(source.url) ? 'mpegts' : 'unknown';
+      var result = {
+        url: source.url, streamUrl: source.url, streamType: detected, provider: self.type, channelId: item && item.id,
+        headers: auth.headers, cookies: auth.cookies, token: auth.token,
+        metadata: { contentType: item && item.type, title: item && item.name, live: !!(item && item.type === 'live'), streamId: item && item.id, macPresent: !!self.mac, deviceIdPresent: !!self.deviceId, tokenPresent: !!self.token, cookiePresent: !!self._cookieHeader(), samePortal: auth.samePortal }
+      };
+      /* Safe, opt-in portal diagnostic: fields prove the authenticated resolver
+         path without writing MAC, bearer values, cookies or the full stream URL. */
+      stalkerDebug('Playback source', { provider: 'STALKER', channelId: result.channelId, streamId: result.metadata.streamId, streamUrl: stalkerSafeStreamUrl(result.url), tokenPresent: !!self.token, cookiePresent: !!self._cookieHeader(), deviceIdPresent: !!self.deviceId, macPresent: !!self.mac, contentType: result.streamType, httpStatus: 'pending player probe', playerStrategy: 'webos adapter' });
+      return result;
+    });
   },
-  _cleanCmd: function (c) {
-    c = String(c || '').trim();
-    c = c.replace(/^(ffmpeg|ffrt\d?|auto)\s+/i, '');
-    var m = c.match(/https?:\/\/\S+/); if (m) c = m[0];
-    return c;
-  },
+  _cleanCmd: function (c) { return stalkerCommandSource(c).url; },
   catchupUrl: function (item, startTs, durationMin) {
     return this._call({ type: 'tv_archive', action: 'create_link', cmd: item.cmd, series: '', forced_storage: '', disable_ad: 0, download: 0, start: startTs, real_time: 1 }).then(function (r) { return this._cleanCmd(r && r.cmd); }.bind(this));
   }

@@ -159,6 +159,22 @@ async function testStalkerStreamContract() {
   assert.strictEqual(resolved.provider, 'stalker');
   assert.strictEqual(resolved.channelId, 'stalker-live');
   assert.strictEqual(resolved.url, 'https://stream.example/live.m3u8?token=private');
+  assert.strictEqual(resolved.streamType, 'hls');
+  assert.strictEqual(resolved.token, '', 'portal credentials are never leaked to an unrelated stream origin');
+  assert.deepStrictEqual(Object.keys(resolved.headers), []);
+
+  var samePortal = freshProvider(function () { return Promise.resolve(meta({ js: { cmd: 'ffmpeg https://portal.example/live/channel.m3u8|User-Agent=PortalPlayer&Referer=https://portal.example/c/' } })); }, { deviceId: 'fixture-device-id' });
+  var authorized = await samePortal.provider.resolveStream({ type: 'live', id: 'same', name: 'Same portal', cmd: 'ffmpeg http://old.example/live' });
+  assert.strictEqual(authorized.url, 'https://portal.example/live/channel.m3u8', 'the player receives a clean URL, never ffmpeg/pipe syntax');
+  assert.strictEqual(authorized.headers['User-Agent'], 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3');
+  assert.strictEqual(authorized.headers.Authorization, 'Bearer fixture-token');
+  assert.ok(authorized.headers.Cookie.indexOf('mac=') >= 0);
+  assert.strictEqual(authorized.token, 'fixture-token');
+  assert.strictEqual(authorized.metadata.macPresent, true);
+  assert.strictEqual(authorized.metadata.deviceIdPresent, true);
+
+  var missing = freshProvider(function () { return Promise.resolve(meta({ js: { data: {} } })); });
+  await assert.rejects(function () { return missing.provider.resolveStream({ type: 'live', id: 'bad', cmd: 'ffmpeg http://stale.example/old' }); }, function (err) { return err && err.code === 'STREAM_RESOLUTION_ERROR'; }, 'a failed create_link must not quietly play the stale channel command');
 }
 
 async function testLoadedIndexSearch() {

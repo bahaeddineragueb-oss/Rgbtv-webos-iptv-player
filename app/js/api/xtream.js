@@ -12,6 +12,20 @@
 var XTREAM_CATALOG_TIMEOUT = 120000;
 function xtreamCatalogAction(action) { return action === 'get_live_streams' || action === 'get_vod_categories' || action === 'get_vod_streams' || action === 'get_series_categories' || action === 'get_series'; }
 
+function xtreamAllowedFormats(info) {
+  var list = info && info.allowed_output_formats || [];
+  if (typeof list === 'string') list = list.split(',');
+  return (Array.isArray(list) ? list : []).map(function (value) { return String(value || '').toLowerCase().replace(/^hls$/, 'm3u8'); });
+}
+function xtreamLiveFormat(setting, info) {
+  var wanted = String(setting || 'm3u8').toLowerCase() === 'ts' ? 'ts' : 'm3u8', allowed = xtreamAllowedFormats(info);
+  if (!allowed.length || allowed.indexOf(wanted) >= 0) return wanted;
+  if (allowed.indexOf('m3u8') >= 0) return 'm3u8';
+  if (allowed.indexOf('ts') >= 0) return 'ts';
+  return wanted;
+}
+function xtreamMime(format) { return format === 'ts' ? 'video/mp2t' : format === 'm3u8' ? 'application/vnd.apple.mpegurl' : ''; }
+
 function XtreamProvider(acc) {
   this.acc = acc;
   this.base = U.normUrl(acc.url);
@@ -127,21 +141,28 @@ XtreamProvider.prototype = {
       });
     }).catch(function () { return []; });
   },
-  streamUrl: function (item) {
-    var s = Store.settings(), url;
+  _streamDescriptor: function (item) {
+    var settings = Store.settings(), url, format, type, mimeType, extension;
+    if (!item || !item.id) { var bad = new Error('Xtream channel has no stream id'); bad.code = 'STREAM_RESOLUTION_ERROR'; throw bad; }
     if (item.type === 'live') {
-      var fmt = s.liveFormat === 'ts' ? 'ts' : 'm3u8', allowed = (this.userInfo && this.userInfo.allowed_output_formats) || [];
-      if (allowed.length && allowed.indexOf(fmt) < 0) fmt = allowed.indexOf('m3u8') >= 0 ? 'm3u8' : 'ts'; // server dictates
-      url = fmt === 'm3u8' ? this.base + '/live/' + this.user + '/' + this.pass + '/' + item.id + '.m3u8' : this.base + '/live/' + this.user + '/' + this.pass + '/' + item.id + '.ts';
-    } else if (item.type === 'movie') url = this.base + '/movie/' + this.user + '/' + this.pass + '/' + item.id + '.' + (item.ext || 'mp4');
-    else url = this.base + '/series/' + this.user + '/' + this.pass + '/' + item.id + '.' + (item.ext || 'mp4');
-    return Promise.resolve(url);
+      format = xtreamLiveFormat(settings.liveFormat, this.userInfo); extension = format;
+      type = format === 'ts' ? 'mpegts' : 'hls'; mimeType = xtreamMime(format);
+      url = this.base + '/live/' + this.user + '/' + this.pass + '/' + item.id + '.' + extension;
+    } else if (item.type === 'movie') {
+      extension = String(item.ext || 'mp4').toLowerCase(); type = extension === 'mkv' ? 'mkv' : 'mp4'; mimeType = type === 'mp4' ? 'video/mp4' : 'video/x-matroska';
+      url = this.base + '/movie/' + this.user + '/' + this.pass + '/' + item.id + '.' + extension;
+    } else {
+      extension = String(item.ext || 'mp4').toLowerCase(); type = extension === 'mkv' ? 'mkv' : 'mp4'; mimeType = type === 'mp4' ? 'video/mp4' : 'video/x-matroska';
+      url = this.base + '/series/' + this.user + '/' + this.pass + '/' + item.id + '.' + extension;
+    }
+    return { url: url, streamUrl: url, streamType: type, mimeType: mimeType, protocol: /^https:/i.test(url) ? 'https' : 'http', container: extension, provider: this.type, channelId: item.id,
+      metadata: { contentType: item.type, title: item.name, live: item.type === 'live', requestedFormat: format || extension, allowedFormats: xtreamAllowedFormats(this.userInfo) } };
   },
+  streamUrl: function (item) { return Promise.resolve(this._streamDescriptor(item).url); },
   /* Constructing an Xtream URL is local and immediate: no EPG, VOD, logo or
      catalogue request is permitted between a user's selection and playback. */
   resolveStream: function (item) {
-    var self = this;
-    return this.streamUrl(item).then(function (url) { return { url: url, provider: self.type, channelId: item && item.id, headers: item && item.streamHeaders, metadata: { contentType: item && item.type, title: item && item.name, live: !!(item && item.type === 'live') } }; });
+    var stream = this._streamDescriptor(item); stream.headers = item && item.streamHeaders || {}; return Promise.resolve(stream);
   },
   catchupUrl: function (item, startTs, durationMin) {
     var d = new Date(startTs * 1000), s = d.getFullYear() + '-' + U.pad(d.getMonth() + 1) + '-' + U.pad(d.getDate()) + ':' + U.pad(d.getHours()) + '-' + U.pad(d.getMinutes());

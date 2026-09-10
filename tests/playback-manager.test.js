@@ -111,7 +111,7 @@ async function testFallbackAndBoundedRecovery() {
 async function testSmartBufferAndMetrics() {
   var h = harness(function () { return Promise.resolve(stream('metrics', 'mpegts')); });
   await h.manager.play({ id: 'metrics', type: 'live' }, {});
-  assert.ok(h.states.some(function (entry) { return entry.state === context.PlaybackManager.STATES.RESOLVING; }) && h.states.some(function (entry) { return entry.state === context.PlaybackManager.STATES.STARTING; }), 'the explicit lifecycle distinguishes resolving from source start');
+  assert.ok(h.states.some(function (entry) { return entry.state === context.PlaybackManager.STATES.RESOLVING_STREAM; }) && h.states.some(function (entry) { return entry.state === context.PlaybackManager.STATES.STREAM_RESOLVED; }) && h.states.some(function (entry) { return entry.state === context.PlaybackManager.STATES.PREPARING_PLAYER; }), 'the explicit lifecycle distinguishes resolving, resolution and player preparation');
   h.manager.mediaEvent('loadstart', { networkState: 2 });
   h.manager.mediaEvent('loadedmetadata');
   h.manager.mediaEvent('canplay');
@@ -169,7 +169,7 @@ async function testAdaptiveRecoveryFingerprintWatchdogAndCircuit() {
   await watch.manager.play({ id: 'watch', type: 'live' }, {});
   watch.snapshot.readyState = 4; watch.snapshot.currentTime = 10; watch.manager.mediaEvent('playing', { currentTime: 10 });
   watch.manager.lastCurrentTimeAt = Date.now() - 13000; watch.manager._watchdog();
-  assert.strictEqual(watch.manager.state, context.PlaybackManager.STATES.RECOVERING, 'independent watchdog detects a frozen media clock even when readyState still looks healthy');
+  assert.strictEqual(watch.manager.state, context.PlaybackManager.STATES.RETRYING, 'independent watchdog detects a frozen media clock even when readyState still looks healthy');
   watch.manager.recovery.cancel();
 
   var breakerCalls = 0, breaker = harness(function () { breakerCalls++; return Promise.resolve(stream('circuit', 'mpegts')); });
@@ -196,7 +196,7 @@ async function testCancellationAndErrorPolicy() {
   assert.strictEqual(h.loads[0].source.channelId, 'new');
 
   var C = context.PlaybackErrorClassifier;
-  [['HTTP 401', 'AUTH_ERROR', false], ['HTTP 403', 'AUTH_ERROR', false], ['HTTP 404', 'HTTP_ERROR', false], ['HTTP 503', 'HTTP_ERROR', true], ['Token expired', 'TOKEN_EXPIRED', true], ['Network timeout', 'TIMEOUT', true], ['HTTP 429 rate limited', 'HTTP_ERROR', true]].forEach(function (row) {
+  [['HTTP 401', 'AUTHENTICATION_ERROR', false], ['HTTP 403', 'AUTHENTICATION_ERROR', false], ['HTTP 404', 'HTTP_ERROR', false], ['HTTP 503', 'HTTP_ERROR', true], ['Token expired', 'TOKEN_ERROR', true], ['Network timeout', 'TIMEOUT_ERROR', true], ['HTTP 429 rate limited', 'HTTP_ERROR', true]].forEach(function (row) {
     var error = C(new Error(row[0]));
     assert.strictEqual(error.code, row[1], row[0] + ' has normalized error code');
     assert.strictEqual(error.retryable, row[2], row[0] + ' has correct retry policy');
@@ -216,6 +216,44 @@ async function testCancellationAndErrorPolicy() {
 }
 
 
+async function testExplicitDeadlineAndSafeDiagnostics() {
+  var never = harness(function () { return new Promise(function () {}); });
+  never.manager.timeouts.resolve = 12; never.manager.recovery.delays = [5, 8, 12];
+  never.manager.play({ id: 'slow', type: 'live', name: 'Slow' }, {});
+  await wait(30);
+  assert.ok(never.states.some(function (entry) { return entry.state === context.PlaybackManager.STATES.TIMEOUT && entry.detail.phase === 'resolve'; }), 'a pending resolver reaches the deterministic TIMEOUT state');
+  assert.ok(never.states.some(function (entry) { return entry.state === context.PlaybackManager.STATES.RETRYING; }), 'a timeout enters the bounded retry state rather than retaining LOADING');
+  never.manager.stop();
+
+  var d = context.StreamTypeDetector.detect('https://edge.example/live/42.m3u8?token=private');
+  assert.strictEqual(d.protocol, 'https'); assert.strictEqual(d.mimeType, 'application/vnd.apple.mpegurl'); assert.strictEqual(d.extension, 'm3u8');
+  assert.strictEqual(context.StreamTypeDetector.detect('http://edge.example/live/42.ts').type, 'mpegts', 'HTTP MPEG-TS is classified before adapter selection');
+  assert.strictEqual(context.StreamTypeDetector.detect('https://edge.example/live/42.ts').protocol, 'https', 'HTTPS MPEG-TS preserves its transport diagnostic');
+  var normalized = context.StreamResolver.normalize({ streamUrl: 'http://edge.example/live/42.ts', streamType: 'mpegts', mimeType: 'video/mp2t', token: 'private', cookies: 'sid=private' }, { type: 'stalker' }, { id: 42, type: 'live' });
+  assert.strictEqual(normalized.protocol, 'http'); assert.strictEqual(normalized.container, 'ts'); assert.strictEqual(normalized.streamUrl, normalized.url);
+  assert.strictEqual(normalized.token, 'private'); assert.strictEqual(normalized.cookies, 'sid=private');
+  var opaqueHls = context.StreamResolver.normalize({ url: 'https://edge.example/get.php?output=m3u8', streamType: 'unknown' }, { type: 'stalker' }, { id: 43, type: 'live' });
+  assert.strictEqual(opaqueHls.streamType, 'hls', 'an extensionless resolved URL is re-detected rather than locked as unknown');
+  var sourceSummary = context.StreamInspector.sourceSummary(normalized);
+  assert.strictEqual(sourceSummary.tokenPresent, true); assert.strictEqual(sourceSummary.cookiePresent, true); assert.strictEqual(sourceSummary.protocol, 'http');
+  var summary = context.StreamInspector.hlsSummary([{ width: 0, height: 0, audioCodec: 'mp4a.40.2' }, { width: 1920, height: 1080, videoCodec: 'avc1.640028', audioCodec: 'mp4a.40.2' }]);
+  assert.strictEqual(summary.mixedAudioOnly, true); assert.strictEqual(summary.selectableVideoLevel, 1, 'mixed HLS masters select an actual video rendition');
+
+  var starts = harness(function () { return Promise.resolve(stream('no-frame', 'hls')); });
+  starts.manager.timeouts.start = 12; starts.manager.recovery.delays = [5, 8, 12];
+  await starts.manager.play({ id: 'no-frame', type: 'live' }, {}); await wait(30);
+  assert.ok(starts.states.some(function (entry) { return entry.state === context.PlaybackManager.STATES.TIMEOUT && entry.detail.phase === 'start'; }), 'a source that produces no media event cannot remain in LOADING');
+  starts.manager.stop();
+
+  var stalker = harness(function () { return Promise.resolve(stream('stalker-refresh', 'hls')); }), refreshes = 0;
+  await stalker.manager.play({ id: 'stalker-refresh', type: 'live' }, { provider: 'stalker' });
+  stalker.manager.refreshSession = function (provider) { refreshes++; assert.strictEqual(provider, 'stalker'); return Promise.resolve(true); };
+  stalker.manager._retry(stalker.manager.currentSession(), 3, { code: 'NETWORK_ERROR' }); await wait(0);
+  assert.strictEqual(refreshes, 1, 'only the final Stalker recovery attempt refreshes the provider session');
+  stalker.manager.stop();
+}
+
+
 (async function () {
   await testDetectionAndNormalization();
   await testSessionRaceAndRapidSwitching();
@@ -223,5 +261,6 @@ async function testCancellationAndErrorPolicy() {
   await testSmartBufferAndMetrics();
   await testAdaptiveRecoveryFingerprintWatchdogAndCircuit();
   await testCancellationAndErrorPolicy();
+  await testExplicitDeadlineAndSafeDiagnostics();
   console.log('Playback manager regression checks passed');
 })().catch(function (error) { console.error(error.stack || error); process.exitCode = 1; });

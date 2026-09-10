@@ -68,3 +68,20 @@ or simply `./build.sh tv`.
 - Favorites support named personal collections (including a default **My List**), per-channel hide/order controls, and portable backup/restore. Audio/subtitle choices are remembered per item when the webOS player exposes tracks; manual quality selection is presented only for adaptive HLS streams.
 - **Connection diagnostics** reports the selected provider, declared capabilities, cache footprint, last login timing and a user-triggered safe catalogue/playback-link check. It never starts a second stream, and it never displays credentials or a full stream URL.
 - Keep the package small: no bundled audio/video assets.
+
+## Playback Engine (v2.7.1)
+
+Live playback uses one stable HTML5 `<video>` surface through a provider-neutral pipeline:
+
+```
+Provider → authentication → StreamResolver → normalized StreamSource →
+webOS strategy adapter → PlaybackManager state machine
+```
+
+Xtream and Stalker return the same normalized source contract (`streamUrl`, stream type, MIME/protocol/container, headers, in-memory cookie/token context and metadata). Provider API logic never enters the player adapter. The manager has isolated session IDs, aborts obsolete resolver work while zapping, destroys the prior hls.js instance/source before replacement, and uses bounded recovery: player reinitialization, fresh resolution, then one Stalker session refresh. It reaches `TIMEOUT` and then a bounded retry/error path rather than retaining an infinite loading state.
+
+The existing **Stats** panel (INFO / BLUE) is the developer diagnostics surface. It exposes safe metadata only—provider, redacted source origin, protocol, MIME, stream type, selected strategy, current state/event, HLS variant facts, HTTP response metadata when explicitly probed, retry count and time to first frame. Opening it requests only an opt-in 4 KiB Range probe after playback begins; normal playback performs neither a HEAD request nor a stream prefetch.
+
+For Stalker, `create_link` is required to produce a fresh URL. A failed or empty result is reported as `STREAM_RESOLUTION_ERROR` rather than falling back to a stale `cmd`. Same-origin links retain their active MAG headers/cookies/token in memory; credentials are deliberately not forwarded to a different CDN origin. HLS is native-first on capable webOS hardware, with one hls.js fallback only when native playback fails or source authentication requires it. Mixed audio-only/video HLS manifests are parsed from the real hls.js manifest and start on a video rendition; WebOS compatibility warnings are recorded in diagnostics.
+
+Validation is automated with provider, resolver, state-machine, cancellation, buffering, HLS fallback, deadline and Stalker-session tests. Final device acceptance still requires testing the subscriber's actual streams on their target LG webOS version, because portal authorization and codec support cannot be proven from a development fixture.

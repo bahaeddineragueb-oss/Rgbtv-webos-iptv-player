@@ -5,12 +5,12 @@ var http = require('http'), https = require('https'), url = require('url'), os =
 var service = new Service('com.rgbtv.app.service');
 /* Provider M3U/XMLTV exports commonly reach 5–40 MiB. Keep a bounded 64 MiB
    response ceiling while allowing the client-facing 120-second playlist timeout. */
-var MAX_REQUEST_BODY = 1024 * 1024, MAX_RESPONSE_BODY = 64 * 1024 * 1024, MAX_TIMEOUT = 120000;
+var MAX_REQUEST_BODY = 1024 * 1024, MAX_RESPONSE_BODY = 64 * 1024 * 1024, MAX_INSPECTION_BODY = 64 * 1024, MAX_TIMEOUT = 120000;
 var DEFAULT_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3',
   'Accept': '*/*', 'Accept-Encoding': 'identity', 'Connection': 'keep-alive'
 };
-var ALLOWED_HEADERS = { 'accept': 1, 'accept-language': 1, 'authorization': 1, 'content-type': 1, 'cookie': 1, 'referer': 1, 'user-agent': 1, 'x-user-agent': 1 };
+var ALLOWED_HEADERS = { 'accept': 1, 'accept-language': 1, 'authorization': 1, 'content-type': 1, 'cookie': 1, 'referer': 1, 'user-agent': 1, 'x-user-agent': 1, 'range': 1 };
 /* A Stalker login is several small, authenticated requests. Reusing a bounded
    connection pool prevents a new TCP connection for every handshake/profile call,
    which is a common trigger for anti-flood rules on older portals. */
@@ -94,6 +94,9 @@ function rateError(delay) { var e = new Error('HTTP 429 rate limited — retry i
 function doFetch(opts, cb, redirects, rateRetries, startedAt, skipRateGate) {
   redirects = redirects || 0; rateRetries = rateRetries || 0; startedAt = startedAt || Date.now();
   var u = validHttpUrl(opts.url), body = opts.body == null ? null : String(opts.body), finished = false;
+  /* maxBytes is accepted only for opt-in diagnostics. Normal portal/catalogue
+     calls retain the documented 64 MiB ceiling. */
+  var responseLimit = Number(opts.maxBytes) > 0 ? Math.max(1, Math.min(MAX_INSPECTION_BODY, Number(opts.maxBytes))) : MAX_RESPONSE_BODY;
   if (!u) { cb(new Error('Only absolute HTTP(S) URLs are allowed')); return; }
   if (unsafeTarget(u.hostname)) { cb(new Error('Loopback and link-local proxy targets are blocked')); return; }
   if (['GET', 'HEAD', 'POST'].indexOf(String(opts.method || 'GET').toUpperCase()) < 0) { cb(new Error('HTTP method not allowed')); return; }
@@ -139,20 +142,30 @@ function doFetch(opts, cb, redirects, rateRetries, startedAt, skipRateGate) {
       doFetch(nextOpts, finish, redirects + 1, rateRetries, startedAt); return;
     }
     var chunks = [], size = 0;
+    function resultFromChunks(truncated) {
+      var raw = Buffer.concat(chunks);
+      /* Inspection always requests identity encoding. Should a broken endpoint
+         ignore that request, metadata is still useful even if its tiny sample is
+         compressed, so do not reject the diagnostic response. */
+      if (truncated) { finish(null, { status: res.statusCode, headers: res.headers, body: raw.toString('utf8'), bytesRead: size, redirects: redirects, finalUrl: opts.url, truncated: true }); return; }
+      decodeResponse(raw, res.headers['content-encoding'], function (err, bodyOut) {
+        if (err) { finish(new Error('Could not decode server response')); return; }
+        if (bodyOut.length > responseLimit) { finish(new Error('Response body too large')); return; }
+        finish(null, { status: res.statusCode, headers: res.headers, body: bodyOut.toString('utf8'), bytesRead: size, redirects: redirects, finalUrl: opts.url });
+      });
+    }
     res.on('data', function (c) {
       if (finished) return;
       size += c.length;
-      if (size > MAX_RESPONSE_BODY) { try { req.abort(); } catch (e) { } finish(new Error('Response body too large')); return; }
+      if (size > responseLimit) {
+        /* A diagnostic Range was ignored. Keep only the bounded sample and stop
+           instead of proxying a potentially endless MPEG-TS response. */
+        if (Number(opts.maxBytes) > 0) { chunks.push(c.slice(0, Math.max(0, responseLimit - (size - c.length)))); resultFromChunks(true); try { res.destroy(); } catch (e) { } return; }
+        try { req.abort(); } catch (e2) { } finish(new Error('Response body too large')); return;
+      }
       chunks.push(c);
     });
-    res.on('end', function () {
-      if (finished) return;
-      decodeResponse(Buffer.concat(chunks), res.headers['content-encoding'], function (err, bodyOut) {
-        if (err) { finish(new Error('Could not decode server response')); return; }
-        if (bodyOut.length > MAX_RESPONSE_BODY) { finish(new Error('Response body too large')); return; }
-        finish(null, { status: res.statusCode, headers: res.headers, body: bodyOut.toString('utf8') });
-      });
-    });
+    res.on('end', function () { if (!finished) resultFromChunks(false); });
     res.on('error', function (e) { finish(e); });
   });
   req.on('timeout', function () { try { req.abort(); } catch (e) { } finish(new Error('Timeout')); });

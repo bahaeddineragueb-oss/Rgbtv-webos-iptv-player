@@ -26,16 +26,16 @@ var Player = (function () {
   }
   function playbackUi(state, detail) {
     detail = detail || {};
-    if (state === PlaybackManager.STATES.RESOLVING || state === PlaybackManager.STATES.LOADING || state === PlaybackManager.STATES.STARTING) {
+    if (state === PlaybackManager.STATES.RESOLVING_STREAM || state === PlaybackManager.STATES.STREAM_RESOLVED || state === PlaybackManager.STATES.PREPARING_PLAYER || state === PlaybackManager.STATES.LOADING) {
       if (detail.fallback || detail.recoveryLevel) transition(true, current);
       error(null); loading(true, detail.fallback ? T('p.engineFallback') : detail.resolving ? T('connecting') : detail.elapsed ? T('opening', { s: detail.elapsed }) : T('loading'));
-    } else if (state === PlaybackManager.STATES.READY || state === PlaybackManager.STATES.PLAYING) {
+    } else if (state === PlaybackManager.STATES.CAN_PLAY || state === PlaybackManager.STATES.PLAYING) {
       loading(false); error(null); if (state === PlaybackManager.STATES.PLAYING) { transition(false); els['osd-play'].innerHTML = ICON_PAUSE; }
     } else if (state === PlaybackManager.STATES.PAUSED) {
       loading(false); error(null); els['osd-play'].innerHTML = ICON_PLAY;
     } else if (state === PlaybackManager.STATES.BUFFERING) {
       loading(true, detail.networkLost ? T('p.networkLost') : T('buffering'));
-    } else if (state === PlaybackManager.STATES.RECOVERING) {
+    } else if (state === PlaybackManager.STATES.RETRYING) {
       transition(true, current); error(null); loading(true, T('reconnecting', { n: detail.attempt, max: detail.max }));
       if (detail.attempt > 1) UI.toast(T('p.interrupted', { n: detail.attempt, max: detail.max }), 2500, '↻');
     } else if (state === PlaybackManager.STATES.ERROR) {
@@ -48,6 +48,14 @@ var Player = (function () {
   function clearSource() {
     destroyHls();
     try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) { }
+  }
+  function requiresScriptTransport(stream) {
+    var headers = stream && stream.headers || {}, key;
+    /* Native HTMLVideoElement cannot attach bearer/cookie headers. When a portal
+       explicitly made them part of a resolved HLS source, use the one adapter
+       that can attempt permitted headers rather than silently dropping them. */
+    for (key in headers) if (Object.prototype.hasOwnProperty.call(headers, key) && /^(authorization|cookie)$/i.test(key) && headers[key]) return true;
+    return false;
   }
   function hlsHeaderSetup(headers) {
     var safe = {}, key, value, has = false;
@@ -72,16 +80,33 @@ var Player = (function () {
       maxBufferLength: 18, maxMaxBufferLength: 30, liveSyncDurationCount: 3, enableWorker: false,
       fragLoadingTimeOut: 20000, manifestLoadingTimeOut: 10000,
       manifestLoadingMaxRetry: 0, levelLoadingMaxRetry: 0, fragLoadingMaxRetry: 0
-    }, setup = hlsHeaderSetup(stream.headers), instance;
+    }, setup = hlsHeaderSetup(stream.headers), instance, manifestHint = null;
     if (setup) cfg.xhrSetup = setup;
+    /* Cookie-bearing requests need the browser credential mode too. The server
+       must still opt in through CORS; a failure becomes a classified diagnostic,
+       never a false PLAYING state. */
+    if (stream.cookies) cfg.xhrSetup = (function (previous) { return function (xhr) { try { xhr.withCredentials = true; } catch (e) { } if (previous) previous(xhr); }; })(cfg.xhrSetup);
     instance = new Hls(cfg); hls = instance; instance._rgbSession = session;
     instance.loadSource(stream.url); instance.attachMedia(video);
+    if (Hls.Events.MANIFEST_LOADED) instance.on(Hls.Events.MANIFEST_LOADED, function (event, data) {
+      if (hls !== instance || !manager.isCurrent(session)) return;
+      var body = data && data.networkDetails && (data.networkDetails.responseText || data.networkDetails.response || '') || '';
+      manifestHint = StreamInspector.hlsSummary([], data && data.audioTracks || [], body);
+    });
     if (Hls.Events.AUDIO_TRACKS_UPDATED) instance.on(Hls.Events.AUDIO_TRACKS_UPDATED, function () { if (hls === instance && manager.isCurrent(session)) applyHlsTrackPreferences(); });
     if (Hls.Events.SUBTITLE_TRACKS_UPDATED) instance.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, function () { if (hls === instance && manager.isCurrent(session)) applyHlsTrackPreferences(); });
-    instance.on(Hls.Events.MANIFEST_PARSED, function () {
+    instance.on(Hls.Events.MANIFEST_PARSED, function (event, data) {
       if (hls !== instance || !manager.isCurrent(session)) return;
-      applyHlsTrackPreferences();
-      video.play().catch(function (e) { if (hls === instance && manager.isCurrent(session)) manager.mediaError({ message: e && e.message || 'Unable to start HLS playback' }); });
+      /* hls.js has parsed the actual master playlist. On mixed video/audio-only
+         masters, pin the first visual level for startup so old webOS decoders do
+         not receive an audio-only rendition as their initial video selection. */
+      var summary = StreamInspector.hlsSummary(data && data.levels || instance.levels || [], data && data.audioTracks || instance.audioTracks || []);
+      if (manifestHint) { summary.extXMedia = summary.extXMedia || manifestHint.extXMedia; summary.extXMediaVideo = summary.extXMediaVideo || manifestHint.extXMediaVideo; summary.nativeCompatibilityWarning = summary.nativeCompatibilityWarning || manifestHint.nativeCompatibilityWarning; }
+      if (summary.mixedAudioOnly && summary.selectableVideoLevel >= 0) {
+        try { instance.startLevel = summary.selectableVideoLevel; instance.nextAutoLevel = summary.selectableVideoLevel; } catch (levelError) { }
+      }
+      manager.hlsManifest(summary, session); applyHlsTrackPreferences();
+      video.play().catch(function (e) { if (hls === instance && manager.isCurrent(session)) manager.mediaError({ code: 'PLAYER_ERROR', phase: 'player', message: e && e.message || 'Unable to start HLS playback' }); });
       setTimeout(function () { if (hls === instance && manager.isCurrent(session)) updateQualityBadge(); }, 1000);
     });
     instance.on(Hls.Events.ERROR, function (ev, data) {
@@ -91,6 +116,18 @@ var Player = (function () {
   }
   function canUseHls() { return !!(window.Hls && Hls.isSupported && Hls.isSupported()); }
   function canPlayDash() { try { return !!(video && video.canPlayType && video.canPlayType('application/dash+xml')); } catch (e) { return false; } }
+  function developerDiagnosticsEnabled() {
+    try { return !!(window.RGBTvDebug || (Store.settings && Store.settings().developerDiagnostics)); } catch (e) { return false; }
+  }
+  function inspectSource(stream, force) {
+    /* Opt-in, bounded Range observation only. It is deliberately not part of the
+       source-resolution critical path and therefore cannot create slow starts or
+       a second media request for normal viewers. */
+    if (!(force || developerDiagnosticsEnabled()) || !U.inspectStream) return null;
+    return U.inspectStream(stream.url, stream.headers || {}, { timeout: 12000, maxBytes: 4096 }).then(function (detail) {
+      return detail || null;
+    });
+  }
   function mediaSnapshot() {
     var end = 0;
     try { end = video.buffered && video.buffered.length ? video.buffered.end(video.buffered.length - 1) : 0; } catch (e) { }
@@ -113,9 +150,13 @@ var Player = (function () {
   function reloadSource(stream, session, engine) { if (!manager.isCurrent(session)) return false; loadSource(stream, session, engine); return true; }
   function loadSource(stream, session, forcedEngine) {
     if (!manager.isCurrent(session)) return;
-    var setting = Store.settings().engine, nativeHls = false, useHls;
+    var setting = Store.settings().engine, nativeHls = false, useHls, requiresHeaders = requiresScriptTransport(stream);
     try { nativeHls = !!video.canPlayType('application/vnd.apple.mpegurl'); } catch (e) { }
-    useHls = stream.type === 'hls' && canUseHls() && (forcedEngine === 'hls' || setting === 'hlsjs' || (setting === 'auto' && !nativeHls));
+    /* Native webOS media remains the first HLS strategy when it can play the
+       playlist. HLS.js is selected only for an actual missing native capability,
+       an explicit diagnostics setting, a controlled native fallback, or a stream
+       whose bearer/cookie headers cannot be attached by HTMLVideoElement. */
+    useHls = stream.type === 'hls' && canUseHls() && (forcedEngine === 'hls' || setting === 'hlsjs' || (setting === 'auto' && (!nativeHls || requiresHeaders)));
     current.url = stream.url; current.streamHeaders = stream.headers || {};
     if (useHls) { startHls(stream, session); return; }
     destroyHls();
@@ -123,8 +164,8 @@ var Player = (function () {
        and let the hardware-backed HTML5 media pipeline open it immediately. */
     try {
       video.src = stream.url; video.load();
-      video.play().catch(function (e) { if (manager.isCurrent(session)) manager.mediaError({ message: e && e.message || 'Unable to start native playback' }); });
-    } catch (e2) { manager.mediaError({ message: e2.message || 'Unable to assign media source' }); }
+      video.play().catch(function (e) { if (manager.isCurrent(session)) manager.mediaError({ code: 'PLAYER_ERROR', phase: 'player', message: e && e.message || 'Unable to start native playback' }); });
+    } catch (e2) { manager.mediaError({ code: 'PLAYER_ERROR', phase: 'player', message: e2.message || 'Unable to assign media source' }); }
   }
   function sourceResolved(stream, session, context) {
     if (!manager.isCurrent(session) || !current) return;
@@ -151,7 +192,8 @@ var Player = (function () {
     var savedRatio = Store.settings().aspectRatio; ratioMode = ['fit', 'fill', 'stretch'].indexOf(savedRatio); if (ratioMode < 0) ratioMode = 0; applyRatio(); updateTrackControls();
     manager = new PlaybackManager({
       resolve: function (item, opt) { return StreamResolver.resolve(App.provider, item, opt); },
-      adapter: { clear: clearSource, load: loadSource, reload: reloadSource, snapshot: mediaSnapshot, canUseHls: canUseHls, canPlayDash: canPlayDash, recoverMedia: recoverHlsMedia, recoverBuffer: recoverBuffer },
+      refreshSession: function (provider, opt) { return App.provider && App.provider.type === provider && App.provider.refreshSession ? App.provider.refreshSession(opt) : Promise.resolve(false); },
+      adapter: { clear: clearSource, load: loadSource, reload: reloadSource, snapshot: mediaSnapshot, canUseHls: canUseHls, canPlayDash: canPlayDash, recoverMedia: recoverHlsMedia, recoverBuffer: recoverBuffer, inspect: inspectSource },
       onState: playbackUi,
       onSource: sourceResolved,
       onError: function () { /* state renderer supplies the bounded retry result */ }
@@ -163,9 +205,15 @@ var Player = (function () {
     video.addEventListener('waiting', function () { if (mediaBelongsToCurrentSession()) manager.mediaEvent('waiting', mediaDetail()); });
     video.addEventListener('stalled', function () { if (mediaBelongsToCurrentSession()) manager.mediaEvent('stalled', mediaDetail()); });
     video.addEventListener('loadedmetadata', function () { if (!mediaBelongsToCurrentSession()) return; applyNativeTrackPreference(); updateQualityBadge(); manager.mediaEvent('loadedmetadata', mediaDetail()); });
-    video.addEventListener('canplay', function () { if (!mediaBelongsToCurrentSession()) return; manager.mediaEvent('canplay', mediaDetail()); });
+    video.addEventListener('loadeddata', function () { if (mediaBelongsToCurrentSession()) manager.mediaEvent('loadeddata', mediaDetail()); });
+    video.addEventListener('canplay', function () { if (mediaBelongsToCurrentSession()) manager.mediaEvent('canplay', mediaDetail()); });
+    video.addEventListener('canplaythrough', function () { if (mediaBelongsToCurrentSession()) manager.mediaEvent('canplaythrough', mediaDetail()); });
+    video.addEventListener('durationchange', function () { if (mediaBelongsToCurrentSession()) manager.mediaEvent('durationchange', mediaDetail()); });
     video.addEventListener('playing', function () { if (!mediaBelongsToCurrentSession()) return; manager.mediaEvent('playing', mediaDetail()); els['osd-play'].innerHTML = ICON_PAUSE; });
-    video.addEventListener('pause', function () { els['osd-play'].innerHTML = ICON_PLAY; if (mediaBelongsToCurrentSession()) manager.mediaEvent('pause'); });
+    video.addEventListener('pause', function () { els['osd-play'].innerHTML = ICON_PLAY; if (mediaBelongsToCurrentSession()) manager.mediaEvent('pause', mediaDetail()); });
+    video.addEventListener('suspend', function () { if (mediaBelongsToCurrentSession()) manager.mediaEvent('suspend', mediaDetail()); });
+    video.addEventListener('emptied', function () { if (mediaBelongsToCurrentSession()) manager.mediaEvent('emptied', mediaDetail()); });
+    video.addEventListener('abort', function () { if (mediaBelongsToCurrentSession()) manager.mediaEvent('abort', mediaDetail()); });
     video.addEventListener('timeupdate', function () {
       if (!mediaBelongsToCurrentSession()) return;
       var advanced = video.currentTime !== lastTime; if (advanced) lastTime = video.currentTime;
@@ -594,7 +642,7 @@ var Player = (function () {
   function toggleStats(force) {
     statsOpen = force == null ? !statsOpen : !!force; els['stats-box'].classList.toggle('show', statsOpen);
     clearInterval(statsTimer); statsPrev = null; brHist = [];
-    if (statsOpen) { renderStats(); statsTimer = setInterval(renderStats, 1000); }
+    if (statsOpen) { renderStats(); if (manager && manager.inspectNow) manager.inspectNow(); statsTimer = setInterval(renderStats, 1000); }
   }
   function fmtBits(bps) { if (!bps || !isFinite(bps)) return T('stats.unknown'); return bps >= 1e6 ? (bps / 1e6).toFixed(2) + ' Mbps' : Math.round(bps / 1e3) + ' kbps'; }
   function bufferAhead() { try { var b = video.buffered, t = video.currentTime; for (var i = 0; i < b.length; i++) if (b.start(i) <= t && b.end(i) >= t) return b.end(i) - t; } catch (e) { } return 0; }
@@ -629,12 +677,25 @@ var Player = (function () {
     rows.push([T('stats.engine'), hls ? T('stats.hlsjs') : T('stats.native')]);
     if (manager && manager.diagnostics) {
       var metric = manager.diagnostics();
-      rows.push([T('stats.state'), manager.state]);
+      /* INFO / BLUE is the existing developer diagnostic surface. Values are
+         strictly source metadata and redacted origin, never passwords/tokens. */
+      rows.push(['Provider', metric.provider || (current && current.provider) || '—']);
+      rows.push(['Stream', [metric.protocol, metric.streamType || container].filter(Boolean).join(' · ') || '—']);
+      if (metric.mimeType) rows.push(['MIME', metric.mimeType]);
+      if (metric.hlsMaster) rows.push(['HLS master', metric.videoVariants + ' video / ' + metric.audioOnlyVariants + ' audio-only']);
+      if (metric.nativeCompatibilityWarning) rows.push(['webOS HLS', metric.nativeCompatibilityWarning, 'warn']);
+      rows.push(['Strategy', metric.strategy || (hls ? 'hls.js' : 'native')]);
+      rows.push([T('stats.state'), metric.currentState || manager.state]);
+      if (metric.lastEvent) rows.push(['Event', metric.lastEvent]);
+      if (metric.httpStatus || metric.inspectionError) rows.push(['HTTP', metric.httpStatus ? String(metric.httpStatus) : 'probe unavailable', metric.httpStatus >= 400 ? 'bad' : '']);
+      if (metric.redirects) rows.push(['Redirects', String(metric.redirects)]);
       if (metric.streamResolveTime) rows.push([T('stats.resolve'), metric.streamResolveTime + ' ms']);
       if (metric.startupDuration) rows.push([T('stats.startup'), metric.startupDuration + ' ms']);
+      if (metric.timeToFirstFrame) rows.push(['First frame', metric.timeToFirstFrame + ' ms']);
       if (metric.bufferingCount) rows.push([T('stats.bufferEvents'), String(metric.bufferingCount), 'warn']);
       if (metric.bufferingDuration) rows.push([T('stats.bufferTime'), (metric.bufferingDuration / 1000).toFixed(1) + ' s', 'warn']);
       if (metric.recoveryCount) rows.push([T('stats.recoveries'), String(metric.recoveryCount), 'warn']);
+      if (metric.retryCount) rows.push(['Retries', String(metric.retryCount), 'warn']);
       if (metric.lastErrorCode) rows.push([T('stats.error'), metric.lastErrorCode, 'warn']);
     }
     if (lat != null && lat < 90) rows.push([T('stats.latency'), lat.toFixed(1) + ' s']);

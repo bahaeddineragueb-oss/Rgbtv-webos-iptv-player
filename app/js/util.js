@@ -58,7 +58,7 @@ var U = (function () {
     return out;
   }
   function lunaFetch(url, opt) {
-    return luna('fetch', { url: url, method: opt.method || 'GET', headers: opt.headers || {}, body: opt.body || null, timeout: opt.timeout || 20000, insecureTls: opt.insecureTls === true }).then(function (r) {
+    return luna('fetch', { url: url, method: opt.method || 'GET', headers: opt.headers || {}, body: opt.body || null, timeout: opt.timeout || 20000, maxBytes: Number(opt.maxBytes) || 0, insecureTls: opt.insecureTls === true }).then(function (r) {
       if (r.status >= 200 && r.status < 300) {
         if (opt.json) {
           try {
@@ -66,10 +66,10 @@ var U = (function () {
             /* Stalker uses session cookies in addition to its bearer token. Keep
                response metadata available only to callers that explicitly need it
                so existing providers continue to receive their plain JSON value. */
-            return opt.responseMeta ? { data: data, status: r.status, headers: r.headers || {} } : data;
+            return opt.responseMeta ? { data: data, status: r.status, headers: r.headers || {}, bytesRead: Number(r.bytesRead) || 0, redirects: Number(r.redirects) || 0, finalUrl: r.finalUrl || url } : data;
           } catch (e) { throw new Error('Invalid JSON from server'); }
         }
-        return opt.responseMeta ? { data: r.body, status: r.status, headers: r.headers || {} } : r.body;
+        return opt.responseMeta ? { data: r.body, status: r.status, headers: r.headers || {}, bytesRead: Number(r.bytesRead) || String(r.body || '').length, redirects: Number(r.redirects) || 0, finalUrl: r.finalUrl || url } : r.body;
       }
       throw httpError(r.status, r.headers || {});
     });
@@ -108,9 +108,9 @@ var U = (function () {
         if (x.readyState !== 4 || done) return;
         if (x.status >= 200 && x.status < 300 || (x.status === 0 && x.responseText)) {
           if (opt.json) {
-            try { var parsed = JSON.parse(x.responseText); finish(resolve, opt.responseMeta ? { data: parsed, status: x.status, headers: xhrHeaders(x) } : parsed); }
+            try { var parsed = JSON.parse(x.responseText); finish(resolve, opt.responseMeta ? { data: parsed, status: x.status, headers: xhrHeaders(x), bytesRead: String(x.responseText || '').length, finalUrl: x.responseURL || url } : parsed); }
             catch (e) { finish(reject, new Error('Invalid JSON from server')); }
-          } else finish(resolve, opt.responseMeta ? { data: x.responseText, status: x.status, headers: xhrHeaders(x) } : x.responseText);
+          } else finish(resolve, opt.responseMeta ? { data: x.responseText, status: x.status, headers: xhrHeaders(x), bytesRead: String(x.responseText || '').length, finalUrl: x.responseURL || url } : x.responseText);
         } else finish(reject, httpError(x.status, xhrHeaders(x), x.status === 0 ? ' (network/CORS)' : ''));
       };
       x.ontimeout = function () { finish(reject, new Error('Timeout')); };
@@ -127,8 +127,8 @@ var U = (function () {
       hostCbs[id] = function (json) {
         var r; try { r = JSON.parse(json); } catch (e) { reject(new Error('Network error')); return; }
         if (r.status >= 200 && r.status < 300) {
-          if (opt.json) { try { var data = JSON.parse(r.body); resolve(opt.responseMeta ? { data: data, status: r.status, headers: r.headers || {} } : data); } catch (e) { reject(new Error('Invalid JSON from server')); } }
-          else resolve(opt.responseMeta ? { data: r.body, status: r.status, headers: r.headers || {} } : r.body);
+          if (opt.json) { try { var data = JSON.parse(r.body); resolve(opt.responseMeta ? { data: data, status: r.status, headers: r.headers || {}, bytesRead: Number(r.bytesRead) || 0, redirects: Number(r.redirects) || 0, finalUrl: r.finalUrl || url } : data); } catch (e) { reject(new Error('Invalid JSON from server')); } }
+          else resolve(opt.responseMeta ? { data: r.body, status: r.status, headers: r.headers || {}, bytesRead: Number(r.bytesRead) || String(r.body || '').length, redirects: Number(r.redirects) || 0, finalUrl: r.finalUrl || url } : r.body);
         } else reject(r.status ? httpError(r.status, r.headers || {}) : new Error(r.error && /timed? ?out/i.test(r.error) ? 'Timeout' : 'Network error'));
       };
       try { RGBTvHost.fetchAsync(id, url, opt.method || 'GET', JSON.stringify(opt.headers || {}), opt.body || '', opt.timeout || 20000); }
@@ -138,6 +138,17 @@ var U = (function () {
   function getJSON(url, headers, opt) {
     opt = opt || {}; opt.json = true; opt.headers = headers;
     return http(url, opt);
+  }
+  /* Developer-only range probe. It never runs in normal playback and sends no
+     HEAD request. A tiny GET Range reveals status/content-type/redirects and
+     whether bytes arrived without downloading a live stream. */
+  function inspectStream(url, headers, opt) {
+    opt = opt || {}; var h = {}, k;
+    for (k in headers || {}) if (Object.prototype.hasOwnProperty.call(headers, k)) h[k] = headers[k];
+    h.Range = 'bytes=0-' + Math.max(0, Math.min(65535, (Number(opt.maxBytes) || 4096) - 1)); h.Accept = h.Accept || '*/*';
+    return http(url, { method: 'GET', headers: h, timeout: Math.max(1000, Math.min(20000, Number(opt.timeout) || 12000)), maxBytes: Math.max(1, Math.min(65536, Number(opt.maxBytes) || 4096)), proxy: true, responseMeta: true }).then(function (response) {
+      return { httpStatus: Number(response.status) || 0, contentType: String(response.headers && (response.headers['content-type'] || response.headers['Content-Type']) || '').split(';')[0].trim(), redirects: Number(response.redirects) || 0, mediaBytes: Number(response.bytesRead) || String(response.data || '').length, finalUrl: response.finalUrl || '' };
+    });
   }
 
   /* SHA-1 (used for Stalker device signatures) */
@@ -194,5 +205,5 @@ var U = (function () {
   window.addEventListener('resize', function () { fitScreen(); });
   window.addEventListener('orientationchange', function () { fitScreen(); });
 
-  return { luna: luna, fitScreen: fitScreen, scale: 1, $: $, $$: $$, el: el, esc: esc, pad: pad, fmtTime: fmtTime, clock: clock, hm: hm, b64dec: b64dec, clamp: clamp, debounce: debounce, qs: qs, uuid: uuid, randomMac: randomMac, normUrl: normUrl, isAdult: isAdult, http: http, getJSON: getJSON, sha1: sha1 };
+  return { luna: luna, fitScreen: fitScreen, scale: 1, $: $, $$: $$, el: el, esc: esc, pad: pad, fmtTime: fmtTime, clock: clock, hm: hm, b64dec: b64dec, clamp: clamp, debounce: debounce, qs: qs, uuid: uuid, randomMac: randomMac, normUrl: normUrl, isAdult: isAdult, http: http, getJSON: getJSON, inspectStream: inspectStream, sha1: sha1 };
 })();
