@@ -9,7 +9,6 @@
   <link rel="stylesheet" href="css/theme-layout-contract.css">
   <link rel="stylesheet" href="css/experience.css">
   <link rel="stylesheet" href="css/theme-signatures.css">
-  <link rel="stylesheet" href="css/player-ui.css">
 </head>
 <body data-theme="dark">
 <div id="app">
@@ -316,7 +315,7 @@
         <div class="setting-row"><div><b data-i18n="pair.btn">Add from phone</b><p class="muted" data-i18n="pair.set.d">Show a QR code; type the server details on your phone instead of the remote.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="pair-phone">📱 QR</button></div>
         <div class="setting-row"><div><b data-i18n="backup.title">Backup &amp; restore</b><p class="muted" data-i18n="backup.settings.d">Create a portable backup code for profiles, favorites and settings.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="backup-open" data-i18n="backup.open">Open</button></div>
         <div class="setting-row"><div><b data-i18n="set.profile">Profile</b><p class="muted" id="settings-account-info"></p></div><div class="setting-actions"><button class="btn ghost focusable" data-nav="settings" data-action="edit-account" data-i18n="edit">Edit</button><button class="btn ghost focusable" data-nav="settings" data-action="switch-account" data-i18n="switch">Switch</button></div></div>
-        <div class="setting-row"><div><b data-i18n="set.about">About</b><p class="muted">RGBTv v2.6.2 · Ultimate Player UI for LG webOS · Xtream Codes · Stalker Portal · M3U · Native player + hls.js</p></div><button class="btn ghost focusable" data-nav="settings" data-action="exit-app" data-i18n="set.exit">Exit App</button></div>
+        <div class="setting-row"><div><b data-i18n="set.about">About</b><p class="muted">RGBTv v2.6.1 · Player V2 for LG webOS · Xtream Codes · Stalker Portal · M3U · Native player + hls.js</p></div><button class="btn ghost focusable" data-nav="settings" data-action="exit-app" data-i18n="set.exit">Exit App</button></div>
       </div>
     </section>
   </main>
@@ -356,53 +355,40 @@
 
 <!-- ================= PLAYER ================= -->
 <div id="screen-player" class="screen"><button class="host-back" data-action="host-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15.4 5.4 14 4l-8 8 8 8 1.4-1.4L8.8 12z"/></svg></button>
-  <!-- The one stable webOS media element. Player UI never creates a second decoder. -->
   <video id="video" autoplay playsinline disableRemotePlayback></video>
+  <!-- Fallback grading layer: native webOS video planes may ignore CSS filters. -->
   <div class="picture-fx" id="picture-fx" aria-hidden="true"></div>
-
-  <!-- Brief, non-interactive handoff information prevents a featureless black zap. -->
-  <div class="player-transition" id="player-transition" aria-live="polite">
-    <div class="pt-card"><div class="pt-logo" id="player-transition-logo"></div><div class="pt-copy"><span class="pt-kicker" id="player-transition-status" data-i18n="p.starting">Starting stream…</span><b id="player-transition-title"></b><em id="player-transition-category"></em></div></div>
-  </div>
-  <!-- State-driven activity indicator: compact for buffer/recovery, never timer-driven. -->
-  <div class="player-loading" id="player-loading" role="status" aria-live="polite"><div class="player-activity"><div class="loader"></div><span id="player-loading-text">Loading…</span></div></div>
-  <div class="player-error" id="player-error" role="alert"><div class="player-error-kicker" data-i18n="p.playbackIssue">Playback issue</div><strong id="player-error-text" data-i18n="p.unable">Unable to play this channel</strong><p id="player-error-detail" data-i18n="p.errorHelp">The stream could not be started. You can try another channel or retry.</p><div class="player-error-actions"><button class="btn focusable" data-nav="osd" data-action="p-retry" id="player-retry" data-i18n="retry" style="display:none">Retry</button><button class="btn ghost focusable" data-nav="osd" data-action="p-next" id="player-error-next" data-i18n="p.next" style="display:none">Next channel</button><button class="btn ghost focusable" data-nav="osd" data-action="p-prev" id="player-error-prev" data-i18n="p.previous" style="display:none">Previous channel</button><button class="btn ghost focusable" data-nav="osd" data-action="p-back" id="player-error-back" data-i18n="p.backChannels" style="display:none">Back</button></div></div>
-
-  <!-- Hidden by default. Everything below is a remote-first, 10-foot overlay. -->
-  <div class="osd" id="osd" aria-hidden="true">
-    <header class="osd-top player-topbar">
+  <div class="player-transition" id="player-transition" aria-hidden="true"><span data-i18n="p.starting">Starting</span><b id="player-transition-title"></b></div>
+  <div class="player-loading" id="player-loading"><div class="loader"></div><span id="player-loading-text">Loading…</span></div>
+  <div class="player-error" id="player-error"><span id="player-error-text"></span><div class="player-error-actions"><button class="btn focusable" data-nav="osd" data-action="p-retry" id="player-retry" data-i18n="retry" style="display:none">Retry</button><button class="btn ghost focusable" data-nav="osd" data-action="p-prev" id="player-error-prev" data-i18n="p.previous" style="display:none">Previous</button><button class="btn ghost focusable" data-nav="osd" data-action="p-next" id="player-error-next" data-i18n="p.next">Next</button><button class="btn ghost focusable" data-nav="osd" data-action="p-back" id="player-error-back" data-i18n="p.backChannels" style="display:none">Back to channels</button></div></div>
+  <div class="osd" id="osd">
+    <div class="osd-top">
       <div class="osd-logo" id="osd-logo"></div>
-      <div class="osd-channel"><div class="osd-title" id="osd-title"></div><div class="osd-sub" id="osd-sub"></div></div>
-      <div class="osd-right"><div class="osd-quality" id="osd-quality" style="display:none"></div><span class="osd-live" id="osd-live"><i></i><span data-i18n="p.live">LIVE</span></span><time class="osd-clock" id="osd-clock"></time></div>
-    </header>
-    <div class="osd-bottom player-bottom">
-      <section class="osd-epg" id="osd-epg" aria-live="polite"></section>
-      <div class="vod-progress" id="osd-vod"><div class="osd-progress"><div class="osd-buffer" id="osd-buffer"></div><div class="osd-played" id="osd-played"></div></div><div class="osd-times"><span id="osd-cur">00:00</span><span id="osd-dur">00:00</span></div></div>
-      <nav class="osd-controls" aria-label="Player controls">
-        <div class="osd-control-group" id="osd-channel-controls">
-          <button class="osd-btn focusable" data-nav="osd" data-action="p-recall" id="osd-prev"><b>◀|</b><span data-i18n="p.previousChannel">Previous Channel</span></button>
-          <button class="osd-btn focusable primary" data-nav="osd" data-action="p-play" id="osd-play"><b class="osd-play-icon"><svg viewBox="0 0 24 24" width="34" height="34" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg></b><span data-i18n="p.playPause">Play / Pause</span></button>
-          <button class="osd-btn focusable" data-nav="osd" data-action="p-next" id="osd-next"><b>|▶</b><span data-i18n="p.next">Next</span></button>
-        </div>
-        <div class="osd-control-group osd-sound-controls">
-          <button class="osd-btn focusable" data-nav="osd" data-action="p-mute" id="osd-mute"><b id="osd-mute-icon">🔊</b><span data-i18n="p.mute">Mute</span></button>
-          <button class="osd-btn focusable" data-nav="osd" data-action="p-volume" id="osd-volume"><b id="osd-volume-value">70%</b><span data-i18n="p.volume">Volume</span></button>
-        </div>
-        <div class="osd-control-group osd-tools-controls">
-          <button class="osd-btn focusable" data-nav="osd" data-action="p-fav" id="osd-fav"><b id="osd-fav-icon">☆</b><span data-i18n="p.favorite">Favorite</span></button>
-          <button class="osd-btn focusable" data-nav="osd" data-action="p-epg" id="osd-epg-btn"><b>▤</b><span data-i18n="p.epg">EPG</span></button>
-          <button class="osd-btn focusable" data-nav="osd" data-action="p-settings" id="osd-settings"><b>⚙</b><span data-i18n="p.settings">Settings</span></button>
-          <button class="osd-btn focusable" data-nav="osd" data-action="p-list" id="osd-list-btn"><b>☷</b><span data-i18n="p.channels">Channels</span></button>
-        </div>
-      </nav>
+      <div><div class="osd-title" id="osd-title"></div><div class="osd-sub" id="osd-sub"></div></div>
+      <div class="osd-right"><div class="osd-quality" id="osd-quality" style="display:none"></div><div class="osd-clock" id="osd-clock"></div></div>
+    </div>
+    <div class="osd-bottom">
+      <div class="osd-epg" id="osd-epg"></div>
+      <div class="osd-progress" id="osd-progress"><div class="osd-buffer" id="osd-buffer"></div><div class="osd-played" id="osd-played"></div></div>
+      <div class="osd-times"><span id="osd-cur">00:00</span><span id="osd-dur">00:00</span></div>
+      <div class="osd-controls">
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-prev"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-recall" data-i18n="p.recall">Recall</button>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-rew"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M11 18V6l-8.5 6zm.5-6 8.5 6V6z"/></svg></button>
+        <button class="osd-btn focusable big" data-nav="osd" data-action="p-play" id="osd-play"><svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg></button>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-ffw"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M4 18l8.5-6L4 6zm9 0 8.5-6L13 6z"/></svg></button>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-next"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M6 18l8.5-6L6 6zM16 6h2v12h-2z"/></svg></button>
+        <span class="spacer"></span>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-audio" id="osd-audio" data-i18n="p.audio">Audio</button>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-subs" id="osd-subs" data-i18n="p.subs">Subtitles</button>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-picture" id="osd-picture" data-i18n="p.picture">Picture</button>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-ratio" id="osd-ratio">Fit</button>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-fav" id="osd-fav">☆</button>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-stats" id="osd-stats" data-i18n="p.stats">Stats</button>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-list" id="osd-list-btn" data-i18n="p.channels">Channels</button>
+      </div>
     </div>
   </div>
-
-  <!-- Reused for Settings, the in-player EPG and safe channel information. -->
-  <aside class="player-panel" id="player-panel" aria-live="polite"><div class="player-panel-shell"><header class="player-panel-head"><div><span class="panel-kicker" id="player-panel-kicker"></span><h2 id="player-panel-title"></h2></div><button class="panel-close focusable" data-nav="player-panel" data-action="p-panel-close" data-i18n="close">Close</button></header><div class="player-panel-content" id="player-panel-content"></div><footer class="player-panel-foot" id="player-panel-foot"></footer></div></aside>
-  <div class="volume-overlay" id="volume-overlay" aria-live="polite"><span id="volume-icon">🔊</span><b id="volume-label">Volume 70%</b><i><em id="volume-bar"></em></i></div>
-  <div class="recovery-indicator" id="recovery-indicator" aria-live="polite"><span class="recovery-dot"></span><span id="recovery-text" data-i18n="p.recoveringConnection">Recovering connection…</span></div>
-
   <div class="zap-list" id="zap-list"></div>
   <div class="channel-number" id="channel-number"></div>
   <div class="zap-preview" id="zap-preview"></div>

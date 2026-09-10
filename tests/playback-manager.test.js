@@ -170,8 +170,7 @@ async function testAdaptiveRecoveryFingerprintWatchdogAndCircuit() {
   watch.snapshot.readyState = 4; watch.snapshot.currentTime = 10; watch.manager.mediaEvent('playing', { currentTime: 10 });
   watch.manager.lastCurrentTimeAt = Date.now() - 13000; watch.manager._watchdog();
   assert.strictEqual(watch.manager.state, context.PlaybackManager.STATES.RECOVERING, 'independent watchdog detects a frozen media clock even when readyState still looks healthy');
-  watch.manager.mediaEvent('timeupdate', { progressed: true, currentTime: 11 });
-  assert.strictEqual(watch.manager.state, context.PlaybackManager.STATES.PLAYING, 'real decoded-clock progress cancels recovery so no stale spinner remains over a recovered stream');
+  watch.manager.recovery.cancel();
 
   var breakerCalls = 0, breaker = harness(function () { breakerCalls++; return Promise.resolve(stream('circuit', 'mpegts')); });
   for (var i = 0; i < 4; i++) { await breaker.manager.play({ id: 'circuit', type: 'live' }, {}); breaker.manager.mediaError({ status: 404, message: 'HTTP 404' }); }

@@ -363,11 +363,7 @@ var PlaybackManager = (function () {
           recovered = this._bufferProgressed(now); this.lastProgress = now; this.lastCurrentTime = Number(detail.currentTime) || 0; this.lastCurrentTimeAt = now;
           this.metrics.lastCurrentTime = this.lastCurrentTime; this.metrics.lastCurrentTimeAt = now;
           if (!this.metrics.playingAt) { this.metrics.playingAt = now; this.metrics.startupDuration = Math.max(0, now - this.metrics.startupStartedAt); this.metrics.timeToFirstFrame = this.metrics.startupDuration; this.metrics.channelSwitchDuration = this.metrics.startupDuration; }
-          /* A genuinely advancing decoded clock is authoritative health. It also
-             cancels a pending recovery UI/timer so a stale spinner cannot remain
-             over a stream that has already resumed. */
-          if (this.state === STATES.RECOVERING) { this.recovery.cancel(); this.circuit.success(this._circuitKey()); this._setState(STATES.PLAYING, { recovered: true, progressSignal: true }); }
-          else if (this.state !== STATES.PLAYING) this._setState(STATES.PLAYING, { recovered: recovered, progressSignal: true });
+          if (this.state !== STATES.PLAYING && this.state !== STATES.RECOVERING) this._setState(STATES.PLAYING, { recovered: recovered, progressSignal: true });
         }
         return;
       }
