@@ -50,7 +50,7 @@ var App = (function () {
     var s = Store.settings();
     document.body.setAttribute('data-focus', s.focusStyle || 'glow'); document.body.classList.toggle('large', !!s.largeUi);
     U.$('#sec-home').setAttribute('data-layout', s.layout || 'classic');
-    document.body.classList.toggle('hubmode', isHub(s.layout)); // hub styles: no top menu on Home, breadcrumb "Home ›" elsewhere
+    document.body.classList.toggle('hubmode', isHub(s.layout)); // hub content layout; the final theme contract keeps the real menu visible and reachable
     Nav.setPointerMode(s.pointer || 'click');
   }
   function tickClock() {

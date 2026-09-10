@@ -1,6 +1,6 @@
 {
   "id": "com.rgbtv.app",
-  "version": "2.2.4",
+  "version": "2.2.5",
   "vendor": "RGBTv",
   "type": "web",
   "main": "index.html",

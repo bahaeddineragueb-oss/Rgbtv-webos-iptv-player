@@ -1,0 +1,226 @@
+/* RGBTv — final theme layout contract.
+   This file loads after every visual theme. It owns only the geometry of the
+   status strip, navigation dock and content area; palette/card styling remains
+   in style.css and theme-expansion.css. Keeping one final authority prevents a
+   theme-specific rule from hiding a menu, covering the clock, or shrinking the
+   Home hub below its designed 1920px width. */
+
+/* A usable navigation item must never be painted behind content or disabled by
+   the Hub layout. The Home tiles remain available; this is the always-visible
+   route to every section and to Settings. */
+.topbar{z-index:40;overflow:visible}
+.topbar>.logo,.topbar>.brand,.topbar-right{z-index:45}
+.mainnav{z-index:50;visibility:visible;opacity:1;pointer-events:auto}
+.mainnav .nav-item{pointer-events:auto}
+body.hubmode .mainnav{display:flex!important;visibility:visible!important;opacity:1!important}
+
+/* -------------------------------------------------------------------------
+   Standard dock: full-width status row, then a single compact horizontal menu.
+   This is deliberately used by Glass too. Its former vertical menu was wider
+   than the header after the protected clock row was restored. */
+body[data-theme="dark"] .topbar,
+body[data-theme="aurora"] .topbar,
+body[data-theme="midnight"] .topbar,
+body[data-theme="oled"] .topbar,
+body[data-theme="crimson"] .topbar,
+body[data-theme="emerald"] .topbar,
+body[data-theme="sunset"] .topbar,
+body[data-theme="royal"] .topbar,
+body[data-theme="ramadan"] .topbar,
+body[data-theme="cinema"] .topbar,
+body[data-theme="glass"] .topbar,
+body[data-theme="arcade"] .topbar,
+body[data-theme="mono"] .topbar,
+body[data-theme="majlis"] .topbar,
+body[data-theme="family"] .topbar{height:166px;overflow:visible}
+
+body[data-theme="dark"] #content,
+body[data-theme="aurora"] #content,
+body[data-theme="midnight"] #content,
+body[data-theme="oled"] #content,
+body[data-theme="crimson"] #content,
+body[data-theme="emerald"] #content,
+body[data-theme="sunset"] #content,
+body[data-theme="royal"] #content,
+body[data-theme="ramadan"] #content,
+body[data-theme="cinema"] #content,
+body[data-theme="glass"] #content,
+body[data-theme="arcade"] #content,
+body[data-theme="mono"] #content,
+body[data-theme="majlis"] #content,
+body[data-theme="family"] #content{top:166px;left:0;right:0;bottom:0}
+
+body[data-theme="dark"] .mainnav,
+body[data-theme="aurora"] .mainnav,
+body[data-theme="midnight"] .mainnav,
+body[data-theme="oled"] .mainnav,
+body[data-theme="crimson"] .mainnav,
+body[data-theme="emerald"] .mainnav,
+body[data-theme="sunset"] .mainnav,
+body[data-theme="royal"] .mainnav,
+body[data-theme="ramadan"] .mainnav,
+body[data-theme="cinema"] .mainnav,
+body[data-theme="glass"] .mainnav,
+body[data-theme="arcade"] .mainnav,
+body[data-theme="mono"] .mainnav,
+body[data-theme="majlis"] .mainnav,
+body[data-theme="family"] .mainnav{top:80px;left:38px;right:38px;width:auto;height:72px;padding:0;display:flex!important;align-items:center;justify-content:center;background:transparent;border:0}
+
+body[data-theme="dark"] .nav-item,
+body[data-theme="aurora"] .nav-item,
+body[data-theme="midnight"] .nav-item,
+body[data-theme="oled"] .nav-item,
+body[data-theme="crimson"] .nav-item,
+body[data-theme="emerald"] .nav-item,
+body[data-theme="sunset"] .nav-item,
+body[data-theme="royal"] .nav-item,
+body[data-theme="ramadan"] .nav-item,
+body[data-theme="cinema"] .nav-item,
+body[data-theme="glass"] .nav-item,
+body[data-theme="arcade"] .nav-item,
+body[data-theme="mono"] .nav-item,
+body[data-theme="majlis"] .nav-item,
+body[data-theme="family"] .nav-item{display:inline-flex;width:auto;height:58px;line-height:58px;margin:0 3px;padding:0 13px;font-size:21px}
+
+body[data-theme="dark"] .nav-item .nv-ico,
+body[data-theme="aurora"] .nav-item .nv-ico,
+body[data-theme="midnight"] .nav-item .nv-ico,
+body[data-theme="oled"] .nav-item .nv-ico,
+body[data-theme="crimson"] .nav-item .nv-ico,
+body[data-theme="emerald"] .nav-item .nv-ico,
+body[data-theme="sunset"] .nav-item .nv-ico,
+body[data-theme="royal"] .nav-item .nv-ico,
+body[data-theme="ramadan"] .nav-item .nv-ico,
+body[data-theme="cinema"] .nav-item .nv-ico,
+body[data-theme="glass"] .nav-item .nv-ico,
+body[data-theme="arcade"] .nav-item .nv-ico,
+body[data-theme="mono"] .nav-item .nv-ico,
+body[data-theme="majlis"] .nav-item .nv-ico,
+body[data-theme="family"] .nav-item .nv-ico{width:22px;height:22px;margin-right:7px}
+body[data-theme="dark"] .nav-item .nv-ico svg,
+body[data-theme="aurora"] .nav-item .nv-ico svg,
+body[data-theme="midnight"] .nav-item .nv-ico svg,
+body[data-theme="oled"] .nav-item .nv-ico svg,
+body[data-theme="crimson"] .nav-item .nv-ico svg,
+body[data-theme="emerald"] .nav-item .nv-ico svg,
+body[data-theme="sunset"] .nav-item .nv-ico svg,
+body[data-theme="royal"] .nav-item .nv-ico svg,
+body[data-theme="ramadan"] .nav-item .nv-ico svg,
+body[data-theme="cinema"] .nav-item .nv-ico svg,
+body[data-theme="glass"] .nav-item .nv-ico svg,
+body[data-theme="arcade"] .nav-item .nv-ico svg,
+body[data-theme="mono"] .nav-item .nv-ico svg,
+body[data-theme="majlis"] .nav-item .nv-ico svg,
+body[data-theme="family"] .nav-item .nv-ico svg{width:22px;height:22px}
+
+/* Glass originally made only the Home header a vertical 270px rail. Reset all
+   of those geometry properties explicitly so the standard dock above wins. */
+body[data-theme="glass"] #screen-home>.topbar{position:relative;left:auto;top:auto;width:1920px;padding:0 50px;border-right:0;border-bottom:1px solid rgba(185,228,255,.27)}
+body[data-theme="glass"] .topbar-right{left:auto;right:50px;top:14px;width:auto;transform:none;-webkit-transform:none}
+body[data-theme="glass"] #content .section{width:1920px}
+
+/* -------------------------------------------------------------------------
+   Side docks: only normal content routes reserve a side rail. The complete
+   Home Hub keeps its full-width canvas below (see the Hub rule at the end). */
+body[data-theme="guidepro"] .topbar,
+body[data-theme="ocean"] .topbar{width:1920px;height:82px;overflow:visible}
+body[data-theme="guidepro"] #content,
+body[data-theme="ocean"] #content{top:82px;left:252px;right:0;bottom:0}
+body[data-theme="guidepro"] #content .section,
+body[data-theme="ocean"] #content .section{width:auto}
+body[data-theme="guidepro"] .mainnav,
+body[data-theme="ocean"] .mainnav{top:94px;left:14px;right:auto;width:222px;height:898px;padding:15px 10px;display:block!important;background:rgba(4,14,24,.93);border:0;border-right:1px solid var(--line)}
+body[data-theme="guidepro"] .nav-item,
+body[data-theme="ocean"] .nav-item{display:flex;width:100%;height:58px;line-height:58px;margin:5px 0;padding:0 14px;font-size:20px}
+body[data-theme="guidepro"] .nav-item .nv-ico,
+body[data-theme="ocean"] .nav-item .nv-ico,
+body[data-theme="guidepro"] .nav-item .nv-ico svg,
+body[data-theme="ocean"] .nav-item .nv-ico svg{width:24px;height:24px}
+body[data-theme="guidepro"] .nav-item .nv-ico,
+body[data-theme="ocean"] .nav-item .nv-ico{margin-right:10px}
+
+/* Cyberpunk uses the opposite rail, but its header must not clip descendants. */
+body[data-theme="cyberpunk"] .topbar{width:1920px;height:82px;overflow:visible;clip-path:none;-webkit-clip-path:none}
+body[data-theme="cyberpunk"] #content{top:82px;left:0;right:252px;bottom:0}
+body[data-theme="cyberpunk"] #content .section{width:auto}
+body[data-theme="cyberpunk"] .mainnav{top:94px;left:auto;right:14px;width:222px;height:898px;padding:15px 10px;display:block!important;background:rgba(14,4,31,.94);border:0;border-left:2px solid var(--accent);clip-path:none;-webkit-clip-path:none}
+body[data-theme="cyberpunk"] .nav-item{display:flex;width:100%;height:58px;line-height:58px;margin:5px 0;padding:0 14px;font-size:19px}
+body[data-theme="cyberpunk"] .nav-item .nv-ico,
+body[data-theme="cyberpunk"] .nav-item .nv-ico svg{width:23px;height:23px}
+body[data-theme="cyberpunk"] .nav-item .nv-ico{margin-right:9px}
+
+/* RTL mirrors the side dock and, importantly, reserves the matching side of
+   content. Icons retain their natural text direction. */
+body.rtl[data-theme="guidepro"] #content,
+body.rtl[data-theme="ocean"] #content{left:0;right:252px}
+body.rtl[data-theme="guidepro"] .mainnav,
+body.rtl[data-theme="ocean"] .mainnav{left:auto;right:14px;border-right:0;border-left:1px solid var(--line)}
+body.rtl[data-theme="cyberpunk"] #content{left:252px;right:0}
+body.rtl[data-theme="cyberpunk"] .mainnav{left:14px;right:auto;border-left:0;border-right:2px solid var(--accent)}
+body.rtl[data-theme="guidepro"] .nav-item .nv-ico,
+body.rtl[data-theme="ocean"] .nav-item .nv-ico,
+body.rtl[data-theme="cyberpunk"] .nav-item .nv-ico{margin-right:0;margin-left:10px}
+
+/* -------------------------------------------------------------------------
+   Bottom docks: the content stops above the menu, so no focused card can be
+   hidden under it. */
+body[data-theme="receiver"] .topbar,
+body[data-theme="sports"] .topbar,
+body[data-theme="neocrt"] .topbar{height:82px;overflow:visible}
+body[data-theme="receiver"] #content,
+body[data-theme="sports"] #content,
+body[data-theme="neocrt"] #content{top:82px;left:0;right:0;bottom:92px}
+body[data-theme="receiver"] .mainnav,
+body[data-theme="sports"] .mainnav,
+body[data-theme="neocrt"] .mainnav{top:988px;left:0;right:0;width:auto;height:92px;padding:12px 28px;display:flex!important;align-items:center;justify-content:center;border:0;border-top:2px solid var(--accent);background:rgba(4,12,9,.95)}
+body[data-theme="sports"] .mainnav{background:rgba(3,22,24,.96);border-top-width:4px}
+body[data-theme="neocrt"] .mainnav{background:repeating-linear-gradient(0deg,rgba(0,0,0,.15) 0,rgba(0,0,0,.15) 1px,rgba(5,18,12,.96) 1px,rgba(5,18,12,.96) 4px)}
+body[data-theme="receiver"] .nav-item,
+body[data-theme="sports"] .nav-item,
+body[data-theme="neocrt"] .nav-item{display:inline-flex;width:auto;height:58px;line-height:58px;margin:0 3px;padding:0 13px;font-size:20px}
+body[data-theme="receiver"] .nav-item .nv-ico,
+body[data-theme="sports"] .nav-item .nv-ico,
+body[data-theme="neocrt"] .nav-item .nv-ico,
+body[data-theme="receiver"] .nav-item .nv-ico svg,
+body[data-theme="sports"] .nav-item .nv-ico svg,
+body[data-theme="neocrt"] .nav-item .nv-ico svg{width:22px;height:22px}
+body[data-theme="receiver"] .nav-item .nv-ico,
+body[data-theme="sports"] .nav-item .nv-ico,
+body[data-theme="neocrt"] .nav-item .nv-ico{margin-right:7px}
+
+/* The Hub tile arrangements are deliberately 1800px wide. Do not squeeze or
+   scale them for a themed side rail: use the safe full-width top dock only on
+   Hub Home. Other sections immediately return to the selected side dock. */
+body.hub-root[data-theme="guidepro"] .topbar,
+body.hub-root[data-theme="ocean"] .topbar,
+body.hub-root[data-theme="cyberpunk"] .topbar{width:1920px;height:166px;overflow:visible}
+body.hub-root[data-theme="guidepro"] #content,
+body.hub-root[data-theme="ocean"] #content,
+body.hub-root[data-theme="cyberpunk"] #content{top:166px;left:0;right:0;bottom:0}
+body.hub-root[data-theme="guidepro"] #content .section,
+body.hub-root[data-theme="ocean"] #content .section,
+body.hub-root[data-theme="cyberpunk"] #content .section{width:1920px}
+body.hub-root[data-theme="guidepro"] .mainnav,
+body.hub-root[data-theme="ocean"] .mainnav,
+body.hub-root[data-theme="cyberpunk"] .mainnav{top:80px;left:38px;right:38px;width:auto;height:72px;padding:0;display:flex!important;align-items:center;justify-content:center;background:transparent;border:0}
+body.hub-root[data-theme="guidepro"] .nav-item,
+body.hub-root[data-theme="ocean"] .nav-item,
+body.hub-root[data-theme="cyberpunk"] .nav-item{display:inline-flex;width:auto;height:58px;line-height:58px;margin:0 3px;padding:0 13px;font-size:21px}
+body.hub-root[data-theme="guidepro"] .nav-item .nv-ico,
+body.hub-root[data-theme="ocean"] .nav-item .nv-ico,
+body.hub-root[data-theme="cyberpunk"] .nav-item .nv-ico,
+body.hub-root[data-theme="guidepro"] .nav-item .nv-ico svg,
+body.hub-root[data-theme="ocean"] .nav-item .nv-ico svg,
+body.hub-root[data-theme="cyberpunk"] .nav-item .nv-ico svg{width:22px;height:22px}
+body.hub-root[data-theme="guidepro"] .nav-item .nv-ico,
+body.hub-root[data-theme="ocean"] .nav-item .nv-ico,
+body.hub-root[data-theme="cyberpunk"] .nav-item .nv-ico{margin-right:7px}
+body.rtl.hub-root[data-theme="guidepro"] .nav-item .nv-ico,
+body.rtl.hub-root[data-theme="ocean"] .nav-item .nv-ico,
+body.rtl.hub-root[data-theme="cyberpunk"] .nav-item .nv-ico{margin-right:0;margin-left:7px}
+
+/* Large UI keeps the menu readable while staying inside the protected dock. */
+body.large .mainnav .nav-item{font-size:23px}
+body.large[data-theme="guidepro"] .mainnav .nav-item,
+body.large[data-theme="ocean"] .mainnav .nav-item,
+body.large[data-theme="cyberpunk"] .mainnav .nav-item{font-size:21px}
