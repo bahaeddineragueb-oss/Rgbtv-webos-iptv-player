@@ -5,7 +5,7 @@ var Player = (function () {
      available on OK, while the channel list stays a separate panel over the video. */
   var osdInteractive = false, zapVList = null, zapRequest = 0;
   var onEnded = null, canPlay = null, getLiveChannels = null, posKey = null, posTimer = null, seekAccum = 0, seekTimer = null, numBuf = '', numTimer = null, zapOpen = false, trackMenuOpen = false, playGeneration = 0;
-  var dual = { on: false, item: null, index: -1, list: null, audio: 'main', loading: false, generation: 0, pickerOpen: false, pickerRequest: 0, picker: null };
+  var dual = { on: false, item: null, index: -1, list: null, audio: 'main', loading: false, generation: 0, readyTimer: null, pickerOpen: false, pickerRequest: 0, picker: null };
   var els = {};
   /* auto-reconnect state */
   var rc = { attempts: 0, timer: null, stallTimer: null, lastTime: -1, lastProgress: 0, lastOpt: null, active: false };
@@ -17,7 +17,7 @@ var Player = (function () {
 
   function init() {
     video = U.$('#video'); secondaryVideo = U.$('#video-secondary'); try { video.preload = 'auto'; secondaryVideo.preload = 'auto'; } catch (e) { }
-    ['osd', 'osd-title', 'osd-sub', 'osd-logo', 'osd-clock', 'osd-played', 'osd-buffer', 'osd-cur', 'osd-dur', 'osd-play', 'player-loading', 'player-loading-text', 'player-error', 'zap-list', 'channel-number', 'track-menu', 'osd-fav', 'osd-ratio', 'osd-list-btn', 'osd-audio', 'osd-subs', 'osd-quality', 'stats-box', 'zap-preview', 'osd-stats', 'osd-epg', 'osd-dual', 'osd-dual-select', 'osd-dual-next', 'osd-dual-audio', 'dual-primary-label', 'dual-secondary-label', 'dual-picker', 'dual-picker-list', 'dual-picker-count', 'autonext', 'an-bar', 'an-count', 'an-title'].forEach(function (id) { els[id] = document.getElementById(id); });
+    ['osd', 'osd-title', 'osd-sub', 'osd-logo', 'osd-clock', 'osd-played', 'osd-buffer', 'osd-cur', 'osd-dur', 'osd-play', 'player-loading', 'player-loading-text', 'player-error', 'zap-list', 'channel-number', 'track-menu', 'osd-fav', 'osd-ratio', 'osd-list-btn', 'osd-audio', 'osd-subs', 'osd-quality', 'stats-box', 'zap-preview', 'osd-stats', 'osd-epg', 'osd-dual', 'osd-dual-select', 'osd-dual-next', 'osd-dual-audio', 'dual-primary-label', 'dual-secondary-label', 'dual-status', 'dual-status-text', 'dual-picker', 'dual-picker-list', 'dual-picker-count', 'autonext', 'an-bar', 'an-count', 'an-title'].forEach(function (id) { els[id] = document.getElementById(id); });
     /* Buffering indicator: webOS fires 'waiting'/'stalled' very often on live TS/HLS even while the picture keeps
        moving, and sometimes never fires 'playing' afterwards -> spinner stuck in the middle. So: show it only if the
        stall lasts > 800ms, and hide it as soon as currentTime advances again (real progress), not only on 'playing'. */
@@ -102,6 +102,12 @@ var Player = (function () {
      Two independent <video> elements are used. The secondary stream is muted by
      default because TV hardware normally exposes a single audio output. */
   function destroySecondaryHls() { if (secondaryHls) { try { secondaryHls.destroy(); } catch (e) { } secondaryHls = null; } }
+  function setDualStatus(on, text) {
+    if (!els['dual-status']) return;
+    els['dual-status'].classList.toggle('show', !!on);
+    if (text && els['dual-status-text']) els['dual-status-text'].textContent = text;
+  }
+  function clearDualTimer() { clearTimeout(dual.readyTimer); dual.readyTimer = null; }
   function updateDualControls() {
     var live = current && current.type === 'live', active = live && dual.on;
     if (els['osd-dual']) {
@@ -121,47 +127,74 @@ var Player = (function () {
     updateDualControls();
     UI.toast(dual.audio === 'main' ? T('p.dualAudio1') : T('p.dualAudio2'), 1800, '🔊');
   }
+  function dualReady(generation) {
+    if (generation !== dual.generation || !dual.loading || !current || current.type !== 'live') return;
+    clearDualTimer(); dual.loading = false; dual.on = true;
+    var screen = U.$('#screen-player'); if (screen) { screen.classList.remove('dual-pending'); screen.classList.add('dual'); }
+    setDualStatus(false); setDualAudio('main'); updateDualControls();
+  }
+  function dualFailed(generation) {
+    if (generation !== dual.generation) return;
+    UI.toast(T('p.dualError'), 5500, '⚠'); stopDual();
+  }
   function stopDual() {
     /* Invalidate pending streamUrl calls and stale hls/video error callbacks. */
-    dual.generation++;
+    dual.generation++; clearDualTimer();
     dual.on = false; dual.item = null; dual.index = -1; dual.list = null; dual.loading = false; dual.audio = 'main';
     if (dual.pickerOpen) closeDualPicker(false);
     destroySecondaryHls();
-    if (secondaryVideo) { try { secondaryVideo.pause(); secondaryVideo.removeAttribute('src'); secondaryVideo.load(); secondaryVideo.muted = true; } catch (e) { } }
+    if (secondaryVideo) { secondaryVideo.onplaying = null; secondaryVideo.onerror = null; try { secondaryVideo.pause(); secondaryVideo.removeAttribute('src'); secondaryVideo.load(); secondaryVideo.muted = true; } catch (e) { } }
     if (video) video.muted = false;
-    var screen = U.$('#screen-player'); if (screen) screen.classList.remove('dual');
+    var screen = U.$('#screen-player'); if (screen) { screen.classList.remove('dual'); screen.classList.remove('dual-pending'); }
+    setDualStatus(false);
     if (els['dual-primary-label']) { els['dual-primary-label'].textContent = ''; els['dual-secondary-label'].textContent = ''; }
     updateDualControls();
     if (Nav.current && (Nav.current() === els['osd-dual-next'] || Nav.current() === els['osd-dual-audio'])) Nav.focus(els['osd-dual']);
   }
-  function startSecondarySource(url, item, generation) {
+  function startSecondarySource(url, item, generation, forceHls) {
     destroySecondaryHls();
     var eng = Store.settings().engine, isHlsUrl = isHlsStream(url), hlsOk = isHlsUrl && window.Hls && Hls.isSupported();
-    if (hlsOk && (eng === 'hlsjs' || (eng === 'auto' && !secondaryVideo.canPlayType('application/vnd.apple.mpegurl')))) {
-      secondaryHls = new Hls({ maxBufferLength: 15, maxMaxBufferLength: 30, liveSyncDurationCount: 3, enableWorker: false, fragLoadingTimeOut: 20000, manifestLoadingTimeOut: 10000 });
+    var useHls = hlsOk && (forceHls || eng === 'hlsjs' || (eng === 'auto' && !secondaryVideo.canPlayType('application/vnd.apple.mpegurl')));
+    secondaryVideo.onplaying = function () { dualReady(generation); };
+    secondaryVideo.onerror = function () {
+      if (generation !== dual.generation || dual.item !== item) return;
+      /* Some webOS native decoders accept the HLS URL yet do not start a second
+         session. Retry it once through hls.js before declaring dual unsupported. */
+      if (!useHls && hlsOk && !item._dualTriedHls) { item._dualTriedHls = true; startSecondarySource(url, item, generation, true); return; }
+      dualFailed(generation);
+    };
+    if (useHls) {
+      try { secondaryVideo.pause(); secondaryVideo.removeAttribute('src'); secondaryVideo.load(); } catch (e) { }
+      secondaryHls = new Hls({ maxBufferLength: 8, maxMaxBufferLength: 16, liveSyncDurationCount: 2, enableWorker: false, fragLoadingTimeOut: 12000, manifestLoadingTimeOut: 10000, manifestLoadingMaxRetry: 1, levelLoadingMaxRetry: 1, fragLoadingMaxRetry: 2 });
       secondaryHls.loadSource(url); secondaryHls.attachMedia(secondaryVideo);
-      secondaryHls.on(Hls.Events.MANIFEST_PARSED, function () { if (generation === dual.generation) secondaryVideo.play().catch(function () { }); });
-      secondaryHls.on(Hls.Events.ERROR, function (ev, data) { if (data.fatal && generation === dual.generation) { UI.toast(T('p.dualError'), 3000, '⚠'); stopDual(); } });
-    } else { secondaryVideo.src = url; secondaryVideo.load(); secondaryVideo.play().catch(function () { }); }
-    secondaryVideo.onerror = function () { if (dual.on && dual.item === item && generation === dual.generation) { UI.toast(T('p.dualError'), 3000, '⚠'); stopDual(); } };
+      secondaryHls.on(Hls.Events.MANIFEST_PARSED, function () { if (generation === dual.generation) secondaryVideo.play().catch(function () { dualFailed(generation); }); });
+      secondaryHls.on(Hls.Events.ERROR, function (ev, data) {
+        if (data.fatal && generation === dual.generation) {
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR && !secondaryHls._recovered) { secondaryHls._recovered = true; secondaryHls.recoverMediaError(); }
+          else dualFailed(generation);
+        }
+      });
+    } else {
+      secondaryVideo.src = url; secondaryVideo.load(); secondaryVideo.play().catch(function () { if (generation === dual.generation) secondaryVideo.onerror(); });
+    }
   }
   function loadDualItem(item, itemIndex, source) {
-    if (!item || !App.provider) return;
+    if (!item || !App.provider || !current || current.type !== 'live') return;
     var generation = ++dual.generation;
-    dual.loading = true;
+    clearDualTimer(); dual.loading = true; dual.on = false; dual.item = item; dual.index = itemIndex; dual.list = source || playlist; dual.audio = 'main'; item._dualTriedHls = false;
+    var screen = U.$('#screen-player'); if (screen) { screen.classList.remove('dual'); screen.classList.add('dual-pending'); }
+    els['dual-primary-label'].textContent = current.name || current.title || '';
+    els['dual-secondary-label'].textContent = item.name || '';
+    setDualStatus(true, T('p.dualLoadingStream')); updateDualControls();
+    /* A second decoder can fail without firing a media error on older TVs. Keep the
+       main channel alive and restore the full view with an actionable explanation. */
+    dual.readyTimer = setTimeout(function () { dualFailed(generation); }, 20000);
     App.provider.streamUrl(item).then(function (streamUrl) {
       /* The user may have zapped, disabled dual view, or selected a newer secondary item meanwhile. */
       if (generation !== dual.generation || !current || current.type !== 'live') return;
       if (!streamUrl) throw new Error('No stream URL');
-      dual.loading = false; dual.on = true; dual.item = item; dual.index = itemIndex; dual.list = source || playlist; dual.audio = 'main';
-      var screen = U.$('#screen-player'); if (screen) screen.classList.add('dual');
-      els['dual-primary-label'].textContent = current.name || current.title || '';
-      els['dual-secondary-label'].textContent = item.name || '';
-      startSecondarySource(streamUrl, item, generation); setDualAudio('main'); updateDualControls();
-    }).catch(function () {
-      if (generation !== dual.generation) return;
-      dual.loading = false; UI.toast(T('p.dualError'), 3000, '⚠'); stopDual();
-    });
+      startSecondarySource(streamUrl, item, generation, false);
+    }).catch(function () { dualFailed(generation); });
   }
   function permit(item, done) {
     if (!canPlay) { done(); return; }
@@ -224,7 +257,18 @@ var Player = (function () {
   function toggleDual() {
     if (!current || current.type !== 'live') { UI.toast(T('p.dualLive'), 2500, '⚠'); return; }
     if (dual.on || dual.loading) { stopDual(); return; }
-    openDualPicker();
+    /* One press should visibly start Dual View. Pick the next available live
+       service; the separate "Choose 2nd" control remains available to replace it. */
+    var pick = findDualIndex(index, playlist);
+    if (pick >= 0) { UI.toast(T('p.dualOpening'), 2200, '◫'); permit(playlist[pick], function () { loadDualItem(playlist[pick], pick, playlist); }); return; }
+    var source = getLiveChannels ? getLiveChannels() : Promise.resolve(playlist);
+    Promise.resolve(source).then(function (list) {
+      if (dual.on || dual.loading || !current || current.type !== 'live') return;
+      var at = -1; (list || []).forEach(function (ch, i) { if (String(ch.id) === String(current.id)) at = i; });
+      var next = findDualIndex(at, list || []);
+      if (next < 0) { UI.toast(T('p.dualNeed'), 3000, '⚠'); return; }
+      UI.toast(T('p.dualOpening'), 2200, '◫'); permit(list[next], function () { loadDualItem(list[next], next, list); });
+    }).catch(function () { UI.toast(T('p.dualNeed'), 3000, '⚠'); });
   }
   function nextDual() {
     if (!dual.on || dual.loading) return openDualPicker();

@@ -46,7 +46,7 @@ Install on a TV in Developer Mode:
 
 ```bash
 ares-setup-device            # add the TV (IP + passphrase from the Developer Mode app)
-ares-install -d tv dist/com.rgbtv.app_2.2.1_all.ipk
+ares-install -d tv dist/com.rgbtv.app_2.2.2_all.ipk
 ares-launch  -d tv com.rgbtv.app
 ```
 
@@ -58,7 +58,8 @@ or simply `./build.sh tv`.
 - M3U supports quoted/unquoted attributes, relative stream URLs, stable item IDs, and an optional XMLTV EPG URL (or `url-tvg` declared in the playlist). The packaged Luna service is used automatically when a playlist/guide needs a CORS-safe fetch; direct browser XHR remains the fallback.
 - Stalker/Ministra needs the Luna service for its MAG cookie and bearer-token handshake. It tries common portal roots (`/server/load.php`, `/c/server/load.php`, and `/stalker_portal/...`) before reporting a connection failure. HTTPS certificates are verified by default; a clearly labelled per-profile switch is available only for a self-signed portal you trust.
 - The **Ramadan** theme has a dedicated emerald/gold skin and a Home prayer card. It uses the existing Prayer Times setting and does **not** turn notifications on when they were disabled.
-- Live Player offers **Dual View** for two live channels: the secondary channel begins muted and Yellow changes the audio source. Actual availability depends on the TV having two hardware decoder sessions; the app will show an error and return to single view if it cannot open the second stream.
+- Live Player offers **Dual View** for two live channels: pressing Dual opens the next available live channel immediately, while **Choose 2nd** lets you replace it. The secondary channel begins muted and Yellow changes the audio source. It retries an HLS secondary stream with hls.js when native video does not start, and restores the main picture with a clear explanation after 20 seconds. Actual availability still depends on the TV and subscription permitting two simultaneous live streams.
 - Selecting a live channel starts with a **classic receiver information banner**: number, logo, name, current programme, next programme and progress. Press **LEFT** (or select **Channels** in the player controls) to open the virtualized right-side channel panel; UP/DOWN browses, OK watches, and LEFT/BACK closes it. This remains responsive with large playlists.
+- Navigation now uses protected, theme-specific docks so it never overlaps the clock/profile strip: Guide Pro and Ocean use a left rail; Receiver X, Sports Arena and Neo CRT use a bottom dock; Cyberpunk uses a right rail; the remaining themes use a safe lower top bar.
 - Phone pairing is time-limited and QR-token protected; review the received profile on the TV before it is stored.
 - Keep the package small: no bundled audio/video assets.
