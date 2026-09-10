@@ -6,11 +6,17 @@
  *   seriesCategories(), seriesList(catId), seriesInfo(id)
  *   shortEPG(streamId), streamUrl(item) -> Promise<url>
  */
+/* Full media catalogues are often much larger than live TV. A webOS Luna call
+   needs the same 120 s window used for large M3U downloads instead of the short
+   default intended for a small metadata response. */
+var XTREAM_CATALOG_TIMEOUT = 120000;
+function xtreamCatalogAction(action) { return action === 'get_live_streams' || action === 'get_vod_categories' || action === 'get_vod_streams' || action === 'get_series_categories' || action === 'get_series'; }
+
 function XtreamProvider(acc) {
   this.acc = acc;
   this.base = U.normUrl(acc.url);
   this.user = acc.username; this.pass = acc.password;
-  this.type = 'xtream';
+  this.type = 'xtream'; this.apiProxy = acc.apiProxy === true;
   this.serverInfo = null; this.userInfo = null;
   this._mem = {}; this._pending = {};
 }
@@ -19,7 +25,16 @@ XtreamProvider.prototype = {
     var q = { username: this.user, password: this.pass };
     if (action) q.action = action;
     if (params) for (var k in params) q[k] = params[k];
-    return U.getJSON(this.base + '/player_api.php?' + U.qs(q));
+    /* get.php M3U accounts can use this optional fast path through Luna, which
+       avoids CORS/browser-UA rejection before falling back to their playlist.
+       Large catalogues get a longer request budget on either transport. */
+    var opt = null;
+    if (this.apiProxy || xtreamCatalogAction(action)) {
+      opt = {};
+      if (this.apiProxy) opt.proxy = true;
+      if (xtreamCatalogAction(action)) opt.timeout = XTREAM_CATALOG_TIMEOUT;
+    }
+    return U.getJSON(this.base + '/player_api.php?' + U.qs(q), null, opt);
   },
   login: function () {
     var self = this;
@@ -41,34 +56,48 @@ XtreamProvider.prototype = {
   vodCategories: function () { return this._cats('get_vod_categories', 'vod_cats'); },
   seriesCategories: function () { return this._cats('get_series_categories', 'series_cats'); },
 
-  /* Load a full list once per session (memory), optionally persisted when small enough, then filter locally. */
+  _catalogAction: function (kind) { return kind === 'live' ? 'get_live_streams' : kind === 'vod' ? 'get_vod_streams' : 'get_series'; },
+  _mapList: function (kind, r) {
+    var arr = Array.isArray(r) ? r : [], list = new Array(arr.length), i, x;
+    for (i = 0; i < arr.length; i++) {
+      x = arr[i];
+      if (kind === 'live') list[i] = { type: 'live', id: String(x.stream_id), name: x.name, num: x.num, logo: x.stream_icon || '', catId: String(x.category_id), epgId: x.epg_channel_id || '', archive: Number(x.tv_archive) === 1, archiveDays: Number(x.tv_archive_duration) || 0 };
+      else if (kind === 'vod') list[i] = { type: 'movie', id: String(x.stream_id), name: x.name, poster: x.stream_icon || '', catId: String(x.category_id), rating: x.rating || x.rating_5based || '', ext: x.container_extension || 'mp4', added: Number(x.added) || 0, year: x.year || '' };
+      else list[i] = { type: 'series', id: String(x.series_id), name: x.name, poster: x.cover || '', catId: String(x.category_id), rating: x.rating || '', plot: x.plot || '', year: x.releaseDate || x.release_date || '', genre: x.genre || '', cast: x.cast || '', backdrop: (x.backdrop_path && x.backdrop_path[0]) || '', added: Number(x.last_modified) || 0 };
+    }
+    return list;
+  },
+  /* The explicit All category still downloads the complete catalogue. Normal
+     category selection uses the provider's category_id endpoint so older TVs do
+     not have to hold a giant VOD/series response before showing any titles. */
   _all: function (kind) {
     var self = this;
     if (this._mem[kind]) return Promise.resolve(this._mem[kind]);
     if (this._pending[kind]) return this._pending[kind];
     var cached = Store.cacheGet(this.acc.id, kind + '_all', 3600e3);
     if (cached) { this._mem[kind] = cached; return Promise.resolve(cached); }
-    var action = kind === 'live' ? 'get_live_streams' : kind === 'vod' ? 'get_vod_streams' : 'get_series';
-    var p = this._api(action).then(function (r) {
-      var arr = Array.isArray(r) ? r : [], list = new Array(arr.length), i, x;
-      for (i = 0; i < arr.length; i++) {
-        x = arr[i];
-        if (kind === 'live') list[i] = { type: 'live', id: String(x.stream_id), name: x.name, num: x.num, logo: x.stream_icon || '', catId: String(x.category_id), epgId: x.epg_channel_id || '', archive: Number(x.tv_archive) === 1, archiveDays: Number(x.tv_archive_duration) || 0 };
-        else if (kind === 'vod') list[i] = { type: 'movie', id: String(x.stream_id), name: x.name, poster: x.stream_icon || '', catId: String(x.category_id), rating: x.rating || x.rating_5based || '', ext: x.container_extension || 'mp4', added: Number(x.added) || 0, year: x.year || '' };
-        else list[i] = { type: 'series', id: String(x.series_id), name: x.name, poster: x.cover || '', catId: String(x.category_id), rating: x.rating || '', plot: x.plot || '', year: x.releaseDate || x.release_date || '', genre: x.genre || '', cast: x.cast || '', backdrop: (x.backdrop_path && x.backdrop_path[0]) || '', added: Number(x.last_modified) || 0 };
-      }
+    var p = this._api(this._catalogAction(kind)).then(function (r) {
+      var list = self._mapList(kind, r);
       self._mem[kind] = list; delete self._pending[kind];
       Store.cacheSet(self.acc.id, kind + '_all', list); // silently skipped when too large
       return list;
     }, function (e) { delete self._pending[kind]; throw e; });
     this._pending[kind] = p; return p;
   },
+  _category: function (kind, catId) {
+    var self = this, id = String(catId), memKey = kind + ':cat:' + id, cacheKey = kind + '_cat_' + id;
+    if (this._mem[memKey]) return Promise.resolve(this._mem[memKey]);
+    if (this._pending[memKey]) return this._pending[memKey];
+    var cached = Store.cacheGet(this.acc.id, cacheKey, 3600e3);
+    if (cached) { this._mem[memKey] = cached; return Promise.resolve(cached); }
+    var p = this._api(this._catalogAction(kind), { category_id: id }).then(function (r) {
+      var list = self._mapList(kind, r); self._mem[memKey] = list; delete self._pending[memKey];
+      Store.cacheSet(self.acc.id, cacheKey, list); return list;
+    }, function (e) { delete self._pending[memKey]; throw e; });
+    this._pending[memKey] = p; return p;
+  },
   _filtered: function (kind, catId) {
-    return this._all(kind).then(function (list) {
-      if (!catId) return list; var out = [], c = String(catId);
-      for (var i = 0; i < list.length; i++) if (list[i].catId === c) out.push(list[i]);
-      return out;
-    });
+    return catId == null || catId === '' ? this._all(kind) : this._category(kind, catId);
   },
   liveStreams: function (catId) { return this._filtered('live', catId); },
   vodStreams: function (catId) { return this._filtered('vod', catId); },

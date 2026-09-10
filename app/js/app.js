@@ -1,7 +1,7 @@
 /* RGBTv — application controller (v1.1) */
 var App = (function () {
   var screen = 'splash', section = 'home', account = null, provider = null;
-  var live = { cats: [], catId: null, list: [], selected: null, previewTimer: null, epgTimer: null, previewVideo: null, previewHls: null };
+  var live = { cats: [], catId: null, list: [], selected: null, previewTimer: null, epgTimer: null, previewVideo: null, previewHls: null, previewGeneration: 0 };
   var movies = { cats: [], catId: null, list: [] }, series = { cats: [], catId: null, list: [] };
   var details = { base: null, info: null, season: null, list: null };
   var editingId = null, addType = 'xtream', addAvatar = 'red', playerReturn = null, manageMode = false;
@@ -35,27 +35,37 @@ var App = (function () {
   var ACCENTS = { violet: '#6d5dfc', blue: '#3b82f6', cyan: '#06b6d4', green: '#22c55e', gold: '#eab308', orange: '#f97316', red: '#ef4444', pink: '#ec4899' };
   function hexRgba(hex, a) { var n = parseInt(hex.slice(1), 16); return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + a + ')'; }
   function applyTheme() {
-    var s = Store.settings(); document.body.setAttribute('data-theme', s.theme || 'aurora');
+    var s = Store.settings();
+    /* Ramadan mode styles the existing prayer feature; it never enables reminders without consent. */
+    document.body.setAttribute('data-theme', s.theme || 'aurora'); document.body.classList.toggle('ramadan-mode', s.theme === 'ramadan'); document.body.classList.toggle('tstruct', s.theme === 'ramadan');
     // accent override: written as inline custom properties on <body> so it wins over the theme rules
     var st = document.body.style, hex = ACCENTS[s.accent];
     ['--accent', '--fglow', '--glowc', '--glow1'].forEach(function (v) { st.removeProperty(v); });
-    if (hex) { st.setProperty('--accent', hex); st.setProperty('--fglow', hexRgba(hex, .6)); st.setProperty('--glowc', hexRgba(hex, .6)); st.setProperty('--glow1', hexRgba(hex, .34)); }
+    if (hex && s.theme !== 'ramadan') { st.setProperty('--accent', hex); st.setProperty('--fglow', hexRgba(hex, .6)); st.setProperty('--glowc', hexRgba(hex, .6)); st.setProperty('--glow1', hexRgba(hex, .34)); }
     document.body.setAttribute('data-corners', s.corners || 'round'); document.body.classList.toggle('noglow', s.glow === false);
+    if (s.theme === 'ramadan' && window.Adhan) {
+      Adhan.tick();
+      if (Adhan.strip) setTimeout(function () { Adhan.strip(); }, 0);
+    }
   }
   function isHub(lay) { return lay === 'spotlight' || lay === 'trio' || lay === 'mosaic' || lay === 'dashboard'; }
   function applyUi() {
     var s = Store.settings();
     document.body.setAttribute('data-focus', s.focusStyle || 'glow'); document.body.classList.toggle('large', !!s.largeUi);
     U.$('#sec-home').setAttribute('data-layout', s.layout || 'classic');
-    document.body.classList.toggle('hubmode', isHub(s.layout)); // hub styles: no top menu on Home, breadcrumb "Home ›" elsewhere
+    document.body.classList.toggle('hubmode', isHub(s.layout)); // hub content layout; the final theme contract keeps the real menu visible and reachable
     Nav.setPointerMode(s.pointer || 'click');
+    if (s.theme === 'ramadan' && window.Adhan && Adhan.strip) Adhan.strip();
   }
   function tickClock() {
     var d = new Date(); U.$('#clock').textContent = U.clock(d);
     var de = U.$('#clock-date'); if (de) { try { de.textContent = d.toLocaleDateString(I18n.get() === 'ar' ? 'ar' : 'en-GB', { weekday: 'short', day: 'numeric', month: 'short' }); } catch (e) { de.textContent = d.toDateString(); } }
     if (Weather && Weather.refresh && d.getSeconds() % 30 === 0) Weather.refresh();
   }
-  function applyLang() { I18n.set(Store.settings().lang || 'en'); }
+  function applyLang() {
+    I18n.set(Store.settings().lang || 'en');
+    if (window.Adhan && Adhan.strip) Adhan.strip();
+  }
   function T(k, v) { return I18n.t(k, v); }
 
   /* ---------- boot ---------- */
@@ -64,6 +74,8 @@ var App = (function () {
     if (hostPlat === 'xbox') document.body.classList.add('xbox', 'console'); else if (window.RGBTvHost) { document.body.classList.add('mobile', 'touch'); if (window.Touch && Touch.init) Touch.init(); } else if (window.RGBTvDesktop || /Electron/.test(navigator.userAgent)) document.body.classList.add('desktop');
     U.fitScreen(); setTimeout(U.fitScreen, 300); setTimeout(U.fitScreen, 1500); setTimeout(U.fitScreen, 4000);
     applyLang(); applyTheme(); applyUi(); Player.init();
+    /* Player zapping has its own entry points, so centralize the live-channel lock gate. */
+    Player.setCanPlay(function (ch) { return needsUnlock(ch) ? askUnlock(ch) : true; });
     setInterval(tickClock, 1000); tickClock(); setTimeout(function () { Weather.refresh(); }, 2500); Adhan.start();
     var spot = U.el('div'); spot.id = 'spot'; U.$('#screen-home').insertBefore(spot, U.$('#screen-home .topbar'));
     initAmbient();
@@ -81,7 +93,7 @@ var App = (function () {
   /* ---------- profiles ---------- */
   function showAccounts(keepManage) {
     if (provider && provider.destroy) provider.destroy();
-    provider = null; account = null; App.account = null; App.provider = null;
+    provider = null; account = null; App.account = null; App.provider = null; unlocked = {};
     if (!keepManage) manageMode = false;
     var list = Store.accounts();
     UI.renderAccounts(list, manageMode); showScreen('accounts');
@@ -125,7 +137,7 @@ var App = (function () {
       var p = createProvider(acc);
       return p.login().then(function (info) {
         acc.lastLogin = Date.now(); if (info && info.expires) acc.expires = info.expires; Store.updateAccount(acc); Store.setLastAccount(acc.id);
-        account = acc; provider = p; App.account = acc; App.provider = p;
+        account = acc; provider = p; App.account = acc; App.provider = p; unlocked = {};
         live.cats = []; movies.cats = []; series.cats = [];
         U.$('#chip-name').textContent = acc.name; U.$('#chip-avatar').src = Avatars.url(acc.avatar);
         updateExpiry(info); updateNewBadges();
@@ -147,7 +159,8 @@ var App = (function () {
     UI.renderAvatarPicker(addAvatar, function (id) { addAvatar = id; });
     setAddType(acc ? acc.type : 'xtream');
     U.$('#kids-switch').setAttribute('data-on', acc && acc.kids ? '1' : '0');
-    if (acc) { ['name', 'url', 'username', 'password', 'mac', 'sn', 'deviceId', 'epg', 'pin'].forEach(function (k) { if (f[k]) f[k].value = acc[k] || ''; }); }
+    U.$('#tls-switch').setAttribute('data-on', acc && acc.insecureTls ? '1' : '0');
+    if (acc) { ['name', 'url', 'username', 'password', 'mac', 'sn', 'deviceId', 'epg', 'pin', 'm3uProfile', 'm3uUserAgent', 'm3uReferer'].forEach(function (k) { if (f[k]) f[k].value = k === 'm3uProfile' ? (acc[k] || 'auto') : (acc[k] || ''); }); }
     else { f.mac.value = Store.device().mac; }
     showScreen('add'); Nav.focus(f.name);
   }
@@ -162,16 +175,23 @@ var App = (function () {
     var acc = { id: editingId || undefined, type: addType, name: f.name.value.trim(), url: f.url.value.trim(), avatar: addAvatar, pin: f.pin.value.trim(), kids: U.$('#kids-switch').getAttribute('data-on') === '1' };
     if (!acc.name || !acc.url) { err.textContent = 'Name and URL are required.'; return; }
     if (acc.pin && !/^\d{4}$/.test(acc.pin)) { err.textContent = 'PIN must be exactly 4 digits.'; return; }
+    if (acc.kids && !acc.pin) { err.textContent = 'Kids profiles require a 4-digit PIN.'; return; }
     if (addType === 'xtream') {
       var m = acc.url.match(/^(https?:\/\/[^\/]+)\/.*[?&]username=([^&]+)&password=([^&]+)/i);
-      if (m) { acc.url = m[1]; f.username.value = decodeURIComponent(m[2]); f.password.value = decodeURIComponent(m[3]); }
+      if (m) { var parsedUser = safeDecode(m[2]), parsedPass = safeDecode(m[3]); if (parsedUser == null || parsedPass == null) { err.textContent = 'Invalid encoded username or password in URL.'; return; } acc.url = m[1]; f.username.value = parsedUser; f.password.value = parsedPass; }
       acc.username = f.username.value.trim(); acc.password = f.password.value.trim();
       if (!acc.username || !acc.password) { err.textContent = 'Username and password are required.'; return; }
     } else if (addType === 'stalker') {
-      acc.mac = f.mac.value.trim().toUpperCase().replace(/-/g, ':'); acc.sn = f.sn.value.trim(); acc.deviceId = f.deviceId.value.trim();
+      acc.mac = f.mac.value.trim().toUpperCase().replace(/-/g, ':'); acc.sn = f.sn.value.trim(); acc.deviceId = f.deviceId.value.trim(); acc.insecureTls = U.$('#tls-switch').getAttribute('data-on') === '1';
       if (!/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(acc.mac)) { err.textContent = 'Invalid MAC address (format 00:1A:79:XX:XX:XX).'; return; }
       acc.token = null; acc.endpoint = null;
-    } else acc.epg = f.epg.value.trim();
+    } else {
+      acc.epg = f.epg.value.trim();
+      acc.m3uProfile = /^(auto|vu|webos|android|vlc)$/.test(f.m3uProfile.value) ? f.m3uProfile.value : 'auto';
+      acc.m3uUserAgent = f.m3uUserAgent.value.trim(); acc.m3uReferer = f.m3uReferer.value.trim();
+      if (/[\r\n]/.test(acc.m3uUserAgent) || acc.m3uUserAgent.length > 512) { err.textContent = 'Invalid User-Agent.'; return; }
+      if (acc.m3uReferer && (!/^https?:\/\//i.test(acc.m3uReferer) || /[\r\n]/.test(acc.m3uReferer) || acc.m3uReferer.length > 2048)) { err.textContent = 'Referer must be a valid HTTP(S) URL.'; return; }
+    }
     if (editingId) { var old = Store.getAccount(editingId); for (var k in acc) old[k] = acc[k]; Store.updateAccount(old); Store.clearCache(editingId); acc = old; }
     else acc = Store.addAccount(acc);
     manageMode = false; openAccount(acc.id, true);
@@ -200,27 +220,50 @@ var App = (function () {
     pairCall('pairStart', { lang: I18n.get() }).then(function (r) {
       if (!pair.on) return;
       var ips = (r.ips || []).filter(function (ip) { return !/^169\.254\./.test(ip); });
-      if (!ips.length) { st.className = 'pair-status bad'; txt.textContent = T('pair.noLan'); qr.innerHTML = '<div class="qr-wait">' + U.esc(T('pair.noLan')) + '</div>'; return; }
-      var link = 'http://' + ips[0] + ':' + r.port + '/?lang=' + I18n.get();
-      urlEl.textContent = ips[0] + ':' + r.port; U.$('#pair-alt').textContent = T('pair.alt') + (ips.length > 1 ? ' · ' + ips.slice(1).map(function (ip) { return ip + ':' + r.port; }).join(' · ') : '');
+      if (!ips.length) { st.className = 'pair-status bad'; txt.textContent = T('pair.noLan'); qr.innerHTML = '<div class="qr-wait">' + U.esc(T('pair.noLan')) + '</div>'; pair.on = false; pairCall('pairStop', {}).catch(function () { }); return; }
+      if (!/^[a-f0-9]{32,}$/i.test(String(r.token || ''))) throw new Error(T('pair.noService'));
+      var link = 'http://' + ips[0] + ':' + r.port + '/?lang=' + I18n.get() + '&token=' + encodeURIComponent(r.token);
+      urlEl.textContent = link.replace(/^http:\/\//, ''); U.$('#pair-alt').textContent = T('pair.alt') + (ips.length > 1 ? ' · ' + ips.slice(1).map(function (ip) { return ip + ':' + r.port + '/?lang=' + I18n.get() + '&token=' + r.token; }).join(' · ') : '');
       if (window.RGBTvDesktop) U.$('#pair-alt').textContent += ' — ' + T('pair.firewall');
       try { var q = qrcode(0, 'M'); q.addData(link); q.make(); qr.innerHTML = q.createSvgTag({ cellSize: 1, margin: 0, scalable: true }); } catch (e) { qr.innerHTML = '<div class="qr-wait">' + U.esc(link) + '</div>'; }
       st.className = 'pair-status'; txt.textContent = T('pair.waiting');
       clearInterval(pair.timer); pair.timer = setInterval(pollPair, 2000);
     }).catch(function (e) { st.className = 'pair-status bad'; txt.textContent = (/no luna/.test(e.message) ? T('pair.noService') : e.message); qr.innerHTML = '<div class="qr-wait">' + U.esc(txt.textContent) + '</div>'; });
   }
+  function safeDecode(v) { try { return decodeURIComponent(v); } catch (e) { return null; } }
+  function accountFromPair(d) {
+    d = d || {};
+    var type = /^(xtream|stalker|m3u)$/.test(d.type) ? d.type : '', name = String(d.name || '').trim().slice(0, 40), serverUrl = String(d.url || '').trim();
+    if (!type || !name || !/^https?:\/\/[^\s/]+/i.test(serverUrl)) return null;
+    var acc = { type: type, name: name, url: serverUrl, avatar: Avatars.list()[Store.accounts().length % Avatars.list().length], pin: /^\d{4}$/.test(d.pin || '') ? d.pin : '', kids: false };
+    if (type === 'xtream') {
+      var m = acc.url.match(/^(https?:\/\/[^\/]+)\/.*[?&]username=([^&]+)&password=([^&]+)/i);
+      if (m) { var user = safeDecode(m[2]), pass = safeDecode(m[3]); if (user == null || pass == null) return null; acc.url = m[1]; acc.username = user; acc.password = pass; }
+      else { acc.username = String(d.username || '').trim(); acc.password = String(d.password || '').trim(); }
+      if (!acc.username || !acc.password) return null;
+    } else if (type === 'stalker') {
+      acc.mac = String(d.mac || '').trim().toUpperCase().replace(/-/g, ':');
+      if (!/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(acc.mac)) return null;
+      acc.endpoint = null;
+    } else acc.epg = String(d.epg || '').trim();
+    return acc;
+  }
+  function returnFromPair() {
+    if (pair.from === 'home' && account) { showScreen('home'); Nav.focusScope('settings') || Nav.focusFirst(); }
+    else if (pair.from === 'add') { showScreen('add'); Nav.focus(U.$('#add-form').name); }
+    else showAccounts();
+  }
   function pollPair() {
     if (!pair.on) { clearInterval(pair.timer); return; }
     pairCall('pairPoll', {}).then(function (r) {
       var items = (r && r.items) || []; if (!items.length) return;
-      var d = items[items.length - 1], acc = { type: /^(xtream|stalker|m3u)$/.test(d.type) ? d.type : 'xtream', name: String(d.name || '').trim().slice(0, 40), url: String(d.url || '').trim(), avatar: Avatars.list()[Store.accounts().length % Avatars.list().length], pin: /^\d{4}$/.test(d.pin || '') ? d.pin : '', kids: false };
-      if (acc.type === 'xtream') { var m = acc.url.match(/^(https?:\/\/[^\/]+)\/.*[?&]username=([^&]+)&password=([^&]+)/i); if (m) { acc.url = m[1]; acc.username = decodeURIComponent(m[2]); acc.password = decodeURIComponent(m[3]); } else { acc.username = String(d.username || '').trim(); acc.password = String(d.password || '').trim(); } }
-      else if (acc.type === 'stalker') { acc.mac = String(d.mac || '').trim().toUpperCase().replace(/-/g, ':') || Store.device().mac; acc.token = null; acc.endpoint = null; }
-      else acc.epg = String(d.epg || '').trim();
-      if (!/^https?:\/\//i.test(acc.url)) acc.url = 'http://' + acc.url;
-      U.$('#pair-status').className = 'pair-status ok'; U.$('#pair-status-text').textContent = T('pair.received', { n: acc.name });
-      acc = Store.addAccount(acc); UI.toast(T('pair.received', { n: acc.name }), 3000, '📱');
-      setTimeout(function () { stopPair(true); manageMode = false; openAccount(acc.id, true); }, 1200);
+      var acc = accountFromPair(items[0]);
+      if (!acc) { U.$('#pair-status').className = 'pair-status bad'; U.$('#pair-status-text').textContent = T('pair.invalid'); return; }
+      stopPair(true);
+      UI.modal(T('pair.confirm'), U.esc(acc.name) + '<br><small>' + U.esc(acc.type.toUpperCase() + ' · ' + acc.url) + '</small>', [{ label: T('pair.add'), value: true }, { label: T('cancel'), value: false, ghost: true }]).then(function (ok) {
+        if (!ok) { returnFromPair(); return; }
+        acc = Store.addAccount(acc); UI.toast(T('pair.received', { n: acc.name }), 3000, '📱'); manageMode = false; openAccount(acc.id, true);
+      });
     }).catch(function () { });
   }
   function stopPair(silent) { pair.on = false; clearInterval(pair.timer); pair.timer = null; pairCall('pairStop', {}).catch(function () { }); if (!silent) { if (pair.from === 'home' && account) { showScreen('home'); Nav.focusScope('settings') || Nav.focusFirst(); } else if (pair.from === 'add') { showScreen('add'); Nav.focus(U.$('#add-form').name); } else showAccounts(); } }
@@ -285,6 +328,7 @@ var App = (function () {
   function parentalOn() { return account && (account.kids || Store.settings().parental); }
   var hero = { items: [], idx: 0, timer: null, clockTimer: null, onNowTimer: null };
   function renderHome() {
+    if (Store.settings().theme === 'guidepro') { renderGuideHome(); return; }
     var lay = Store.settings().layout || 'classic'; U.$('#sec-home').setAttribute('data-layout', lay);
     document.body.classList.toggle('hubmode', isHub(lay)); document.body.classList.toggle('hub-root', isHub(lay));
     if (isHub(lay)) { stopHero(); renderHub(lay); return; }
@@ -319,11 +363,24 @@ var App = (function () {
       if (sl.length) { rows.insertBefore(UI.row(T('home.latestSeries'), sl), sk); sl.slice(0, 3).forEach(function (x) { heroPool.push({ it: x, tag: T('home.latestSeries') }); }); startHero(heroPool); }
       return provider.liveStreams().catch(function () { return []; });
     }).then(function (lv) {
-      if (!alive()) return; var bad = adultCatIds(); lv = (lv || []).filter(function (x) { return !bad[x.catId]; }).slice(0, 30);
+      if (!alive()) return; lv = prepareLiveList(lv || []).slice(0, 30);
       if (lv.length) rows.insertBefore(UI.row(T('home.liveChannels'), lv), sk);
       sk.remove();
       if (!rows.children.length) rows.appendChild(U.el('div', 'empty', T('home.empty')));
     });
+  }
+  /* Guide Pro makes Home a live control desk rather than a poster-first landing page. */
+  function renderGuideHome() {
+    var rows = U.$('#home-rows'), heroEl = U.$('#hero'); stopHero(); document.body.classList.remove('hubmode', 'hub-root'); U.$('#hub').innerHTML = '';
+    heroEl.classList.add('plain'); U.$('#hero-title')._item = null; U.$('#hero-title').textContent = T('guide.title'); U.$('#hero-tag').textContent = T('guide.kicker'); U.$('#hero-desc').textContent = T('guide.hint'); U.$('#hero-meta').innerHTML = '';
+    U.$('[data-action="hero-play"]').textContent = T('nav.live'); U.$('[data-action="hero-info"]').textContent = T('guide.open'); U.$('#hero-poster').classList.remove('show'); U.$('#hero-bg').style.backgroundImage = '';
+    rows.innerHTML = ''; rows.style.transform = ''; UI.skeletonRows(rows, 1);
+    var token = renderGuideHome._t = (renderGuideHome._t || 0) + 1;
+    provider.liveStreams(null).then(function (list) {
+      if (token !== renderGuideHome._t || section !== 'home') return; list = prepareLiveList(list).slice(0, 20); rows.innerHTML = '';
+      if (list.length) rows.appendChild(UI.row(T('guide.title'), list, { max: 20 })); else rows.appendChild(U.el('div', 'empty', T('noChannels')));
+    }).catch(function () { if (token === renderGuideHome._t) rows.innerHTML = '<div class="empty">' + U.esc(T('noChannels')) + '</div>'; });
+    Nav.focus(U.$('[data-action="hero-info"]'));
   }
   /* ---- Hub layouts (VIU-style / IBO-style) ---- */
   var HUB_ICONS = {
@@ -398,7 +455,7 @@ var App = (function () {
     var token = renderHub._t = (renderHub._t || 0) + 1; function alive() { return renderHub._t === token && section === 'home' && account && document.body.contains(hub); }
     var bad = adultCatIds();
     provider.liveStreams().catch(function () { return []; }).then(function (lv) {
-      if (!alive()) return; lv = (lv || []).filter(function (x) { return !bad[x.catId]; });
+      if (!alive()) return; lv = prepareLiveList(lv || []);
       U.$('.t-sub', tLive).textContent = T('hub.live.s', { n: lv.length }); setTilePosters(tLive, lv.filter(function (x) { return x.logo; }).slice(0, 3).map(function (x) { return { src: x.logo, logo: true }; }));
       var favLive = favs.filter(function (f) { return f.type === 'live' && f.logo; }); if (favLive.length) setTilePosters(tFav, favLive.slice(0, 3).map(function (x) { return { src: x.logo, logo: true }; }));
       return provider.vodStreams().catch(function () { return []; });
@@ -420,6 +477,7 @@ var App = (function () {
   /* ---- hero carousel ---- */
   function setHeroWelcome() {
     var titleEl = U.$('#hero-title'); titleEl._item = null; titleEl.textContent = T('home.welcome', { name: account.name });
+    U.$('[data-action="hero-play"]').textContent = T('play'); U.$('[data-action="hero-info"]').textContent = T('details');
     U.$('#hero-desc').textContent = T('home.tagline', { src: account.type === 'xtream' ? 'Xtream Codes' : account.type === 'stalker' ? 'Stalker Portal' : 'M3U' });
     U.$('#hero-tag').textContent = account.type.toUpperCase(); U.$('#hero-meta').innerHTML = '';
     U.$('#hero-bg').style.backgroundImage = ''; U.$('#hero').classList.add('plain'); U.$('#hero-poster').classList.remove('show'); U.$('#hero-dots').innerHTML = '';
@@ -480,6 +538,13 @@ var App = (function () {
   }
   function hydrate(h) { var it = {}; for (var k in h) it[k] = h[k]; return it; }
   function adultCatIds() { var bad = {}; if (!parentalOn()) return bad; [live.cats, movies.cats, series.cats].forEach(function (l) { l.forEach(function (x) { if (U.isAdult(x.name) || x.censored) bad[x.id] = 1; }); }); return bad; }
+  /* Personal hiding and ordering are applied after the provider result, so they work
+     identically for M3U, Xtream and Stalker without ever modifying the source list. */
+  function prepareLiveList(list) {
+    var bad = adultCatIds();
+    list = (list || []).filter(function (x) { return !bad[x.catId] && !Store.isChannelHidden(account.id, x.id); });
+    return Store.sortChannels(account.id, list);
+  }
   function withAll(cats, name) { return [{ id: null, name: name }].concat(cats.filter(function (c) { return !(parentalOn() && (U.isAdult(c.name) || c.censored)); })); }
 
   /* ---------- live ---------- */
@@ -495,7 +560,7 @@ var App = (function () {
   function selectLiveCat(c) {
     live.catId = c.id; U.$('#live-cat-title').textContent = c.name; U.$('#live-channels')._vlist = null; live.vl = null; UI.skeletonList(U.$('#live-channels'), 9);
     provider.liveStreams(c.id).then(function (list) {
-      var bad = adultCatIds(); list = list.filter(function (x) { return !bad[x.catId]; });
+      list = prepareLiveList(list);
       live.list = list; list.forEach(function (x) { x.catName = c.name; });
       U.$('#live-channels').classList.remove('sk-list');
       live.vl = UI.renderChannels(U.$('#live-channels'), list, live.selected && live.selected.id, function (ch) { previewChannel(ch); }, function (ch, i) { playLive(ch, i); });
@@ -507,20 +572,24 @@ var App = (function () {
     live.selected = ch; clearTimeout(live.previewTimer); clearTimeout(live.epgTimer);
     if (live.vl) live.vl.setSelected(ch.id);
     live.epgTimer = setTimeout(function () { provider.shortEPG(ch.id, 12).then(function (l) { if (live.selected === ch) UI.renderEpg(l); }); }, 600);
-    if (Store.settings().preview && !needsUnlock(ch) && !Nav.byPointer()) live.previewTimer = setTimeout(function () { startPreview(ch); }, 1200);
+    /* M3U browsing stays decoder-free: on many TVs an invisible preview competes with the
+       requested channel and is the main cause of a long first-buffer delay. */
+    if (Store.settings().preview && App.provider && App.provider.type !== 'm3u' && !needsUnlock(ch) && !Nav.byPointer()) live.previewTimer = setTimeout(function () { startPreview(ch); }, 1200);
   }
   function startPreview(ch) {
-    stopPreview(); var box = U.$('#live-preview'); box.innerHTML = '';
+    stopPreview(); var generation = ++live.previewGeneration, box = U.$('#live-preview'); box.innerHTML = '';
     var v = document.createElement('video'); v.autoplay = true; v.setAttribute('disableRemotePlayback', ''); box.appendChild(v); live.previewVideo = v;
     provider.streamUrl(ch).then(function (url) {
-      if (live.selected !== ch) return;
+      if (live.selected !== ch || generation !== live.previewGeneration || live.previewVideo !== v) return;
       var eng = Store.settings().engine;
       if (/\.m3u8(\?|$)/i.test(url) && window.Hls && Hls.isSupported() && (eng === 'hlsjs' || (eng === 'auto' && !v.canPlayType('application/vnd.apple.mpegurl')))) { live.previewHls = new Hls({ enableWorker: false, maxBufferLength: 15 }); live.previewHls.loadSource(url); live.previewHls.attachMedia(v); }
       else { v.src = url; v.play().catch(function () { }); }
-      v.onerror = function () { if (live.selected === ch && !v._retried) { v._retried = true; setTimeout(function () { if (live.selected === ch) { v.src = url; v.play().catch(function () { }); } }, 3000); } };
+      v.onerror = function () { if (live.selected === ch && generation === live.previewGeneration && live.previewVideo === v && !v._retried) { v._retried = true; setTimeout(function () { if (live.selected === ch && generation === live.previewGeneration && live.previewVideo === v) { v.src = url; v.play().catch(function () { }); } }, 3000); } };
     }).catch(function () { });
   }
   function stopPreview() {
+    /* Invalidate an outstanding streamUrl promise before tearing down this decoder. */
+    live.previewGeneration++;
     clearTimeout(live.previewTimer);
     if (live.previewHls) { try { live.previewHls.destroy(); } catch (e) { } live.previewHls = null; }
     if (live.previewVideo) { try { live.previewVideo.pause(); live.previewVideo.removeAttribute('src'); live.previewVideo.load(); } catch (e) { } live.previewVideo = null; }
@@ -532,13 +601,30 @@ var App = (function () {
     if (live.vl) { var idx = live.vl.items.indexOf(ch); if (idx >= 0) live.vl.refreshItem(idx); }
     if (on && live.selected === ch) stopPreview();
   }
-  var unlocked = {}; // channel ids unlocked this session
-  function needsUnlock(ch) { return ch && ch.type === 'live' && Store.isLocked(account.id, ch.id) && !unlocked[ch.id]; }
+  function openChannelTools(ch) {
+    if (!ch || !account) return;
+    var returnGuide = guide && guide.open;
+    UI.modal(T('channels.tools'), U.esc(ch.name || '') + '<br><small>' + U.esc(T('channels.tools.d')) + '</small>', [
+      { label: T('channels.hide'), value: 'hide', danger: true },
+      { label: T('channels.up'), value: 'up', ghost: true }, { label: T('channels.down'), value: 'down', ghost: true },
+      { label: T('channels.reset'), value: 'reset', ghost: true }, { label: T('channels.restoreHidden'), value: 'restore', ghost: true }, { label: T('cancel'), value: null, ghost: true }
+    ]).then(function (action) {
+      if (!action) { if (returnGuide) { Nav.setContainer(U.$('#guide-overlay')); Nav.focus(U.$('#guide-list .focusable')); } return; }
+      if (returnGuide) closeGuide(false);
+      if (action === 'hide') {  Store.toggleChannelHidden(account.id, ch.id); UI.toast(T('channels.hidden'), 2200, '✓'); live.selected = null; selectLiveCat({ id: live.catId, name: live.catId == null ? T('allChannels') : (live.cats.filter(function (c) { return c.id === live.catId; })[0] || {}).name || '' }); return; }
+      if (action === 'reset') { Store.clearChannelOrder(account.id); UI.toast(T('channels.resetDone'), 2200, '✓'); selectLiveCat({ id: live.catId, name: live.catId == null ? T('allChannels') : (live.cats.filter(function (c) { return c.id === live.catId; })[0] || {}).name || '' }); return; }
+      if (action === 'restore') { Store.clearHiddenChannels(account.id); UI.toast(T('channels.unhide'), 2200, '✓'); selectLiveCat({ id: live.catId, name: live.catId == null ? T('allChannels') : (live.cats.filter(function (c) { return c.id === live.catId; })[0] || {}).name || '' }); return; }
+      if (Store.moveChannel(account.id, live.list, ch.id, action === 'up' ? -1 : 1)) { UI.toast(T('channels.moved'), 1800, '↕'); selectLiveCat({ id: live.catId, name: live.catId == null ? T('allChannels') : (live.cats.filter(function (c) { return c.id === live.catId; })[0] || {}).name || '' }); }
+    });
+  }
+  var unlocked = {}; // account + channel ids unlocked only for the current session
+  function unlockKey(ch) { return account.id + ':' + String(ch.id); }
+  function needsUnlock(ch) { return ch && account && ch.type === 'live' && Store.isLocked(account.id, ch.id) && !unlocked[unlockKey(ch)]; }
   function askUnlock(ch) {
     return new Promise(function (resolve) {
       var buf = '', ov = U.$('#locked-overlay'), dots = U.$$('#lock-dots i');
       function paint() { dots.forEach(function (d, i) { d.classList.toggle('on', i < buf.length); }); }
-      function done(ok) { ov.classList.remove('show'); document.removeEventListener('keydown', kd, true); if (ok) unlocked[ch.id] = 1; resolve(ok); }
+      function done(ok) { ov.classList.remove('show'); document.removeEventListener('keydown', kd, true); if (ok) unlocked[unlockKey(ch)] = 1; resolve(ok); }
       function kd(ev) {
         var c = ev.keyCode; ev.stopPropagation(); ev.preventDefault();
         if (c >= 48 && c <= 57) { buf = (buf + String(c - 48)).slice(0, 4); paint(); if (buf.length === 4) { if (buf === account.pin) done(true); else { buf = ''; paint(); U.$('#lock-dots').classList.add('shake'); setTimeout(function () { U.$('#lock-dots').classList.remove('shake'); }, 450); } } }
@@ -553,6 +639,75 @@ var App = (function () {
     Player.play(UI.toPlayable(ch), { list: live.list.length ? live.list : [ch], index: i != null ? i : live.list.indexOf(ch) });
   }
   function playLiveFrom(ch, list) { live.list = list; var i = list.indexOf(ch); playLive(ch, i < 0 ? 0 : i); }
+
+  /* ---------- full TV guide ---------- */
+  var guide = { open: false, list: [], request: 0, vl: null };
+  function guidePrograms(row, channel) {
+    var nowEl = U.$('.gr-now', row), nextEl = U.$('.gr-next', row), bar = U.$('.gr-progress i', row), token = guide.request;
+    provider.shortEPG(channel.epgId || channel.id, 4).then(function (programmes) {
+      if (!guide.open || token !== guide.request || !document.body.contains(row)) return;
+      var now = Date.now() / 1000, cur = null, next = null;
+      (programmes || []).forEach(function (p) { if (p.start <= now && p.end > now) cur = p; else if (p.start > now && !next) next = p; });
+      nowEl.textContent = cur ? U.hm(cur.start) + '  ' + cur.title : T('noEpg');
+      nextEl.textContent = next ? U.hm(next.start) + '  ' + next.title : '—';
+      bar.style.width = cur ? Math.max(0, Math.min(100, Math.round((now - cur.start) / (cur.end - cur.start) * 100))) + '%' : '0';
+    }).catch(function () { if (guide.open && token === guide.request) nowEl.textContent = T('noEpg'); });
+  }
+  function renderGuide(list) {
+    var box = U.$('#guide-list'); box.innerHTML = ''; guide.list = list.slice(); guide.vl = null;
+    U.$('#guide-sub').textContent = T('guide.hint');
+    if (!guide.list.length) { box.innerHTML = '<div class="guide-empty">' + U.esc(T('noChannels')) + '</div>'; return; }
+    guide.vl = new VList({
+      container: box, itemH: 72, nav: 'guide', overscan: 3,
+      render: function (ch, i) {
+        var row = U.el('button', 'guide-row focusable'); row._channel = ch;
+        row.innerHTML = '<span class="gr-channel"><b>' + U.esc(ch.num || i + 1) + '</b><i style="' + (ch.logo ? 'background-image:url(\'' + U.esc(ch.logo) + '\')' : '') + '"></i><em>' + U.esc(ch.name || '—') + '</em></span><span class="gr-now">…</span><span class="gr-next">…</span><span class="gr-progress"><i></i></span>';
+        guidePrograms(row, ch); return row;
+      },
+      onSelect: function (ch, i) { closeGuide(false); live.list = guide.list; playLive(ch, i); }
+    });
+    guide.vl.setItems(guide.list); guide.vl.focusIndex(0, true);
+  }
+  function openGuide() {
+    if (!provider || guide.open) return;
+    guide.open = true; guide.request++; U.$('#guide-overlay').classList.add('show'); U.$('#guide-list').innerHTML = '<div class="guide-loading"><div class="loader"></div>' + U.esc(T('guide.loading')) + '</div>'; U.$('#guide-sub').textContent = T('guide.loading'); Nav.setContainer(U.$('#guide-overlay'));
+    /* Always request the full live catalogue: a guide should not silently contain only
+       the category currently highlighted in Live TV. Providers cache this result. */
+    provider.liveStreams(null).then(function (list) { if (guide.open) renderGuide(prepareLiveList(list || [])); }).catch(function () { if (guide.open) renderGuide([]); });
+  }
+  function closeGuide(refocus) {
+    if (!guide.open) return; guide.open = false; guide.request++; U.$('#guide-overlay').classList.remove('show'); Nav.setContainer(activeScreen());
+    if (refocus !== false) Nav.focus(live.vl && live.vl.items.length ? live.vl.elementAt(live.vl.index) || U.$('#live-channels .focusable') : U.$('#live-cats .focusable'));
+  }
+  function refreshGuide() { if (!guide.open) return; guide.request++; U.$('#guide-list').innerHTML = '<div class="guide-loading"><div class="loader"></div>' + U.esc(T('guide.loading')) + '</div>'; provider.liveStreams(null).then(function (list) { if (guide.open) renderGuide(prepareLiveList(list)); }).catch(function () { if (guide.open) renderGuide([]); }); }
+
+  /* ---------- portable backup ---------- */
+  var backup = { open: false };
+  function openBackup() {
+    if (backup.open) return; backup.open = true;
+    U.$('#backup-overlay').classList.add('show'); U.$('#backup-code').value = ''; U.$('#backup-status').textContent = ''; U.$('#backup-secret-switch').setAttribute('data-on', '0');
+    Nav.setContainer(U.$('#backup-overlay')); Nav.focus(U.$('[data-action="backup-export"]'));
+  }
+  function closeBackup() {
+    if (!backup.open) return; backup.open = false; U.$('#backup-overlay').classList.remove('show'); Nav.setContainer(activeScreen());
+    if (screen === 'home' && section === 'settings') Nav.focus(U.$('[data-action="backup-open"]')); else Nav.focusFirst();
+  }
+  function exportBackup() {
+    var includeSecrets = U.$('#backup-secret-switch').getAttribute('data-on') === '1', code = Store.exportBackup(includeSecrets);
+    if (!code) { U.$('#backup-status').textContent = T('backup.invalid'); return; }
+    U.$('#backup-code').value = code; U.$('#backup-status').textContent = T('backup.created');
+    try { U.$('#backup-code').focus(); U.$('#backup-code').select(); } catch (e) { }
+  }
+  function confirmImportBackup() {
+    var code = U.$('#backup-code').value.trim(); if (!code) { U.$('#backup-status').textContent = T('backup.invalid'); return; }
+    UI.modal(T('backup.restoreTitle'), T('backup.restoreConfirm'), [{ label: T('backup.restore'), value: true, danger: true }, { label: T('cancel'), value: false, ghost: true }]).then(function (yes) {
+      if (!yes) { Nav.setContainer(U.$('#backup-overlay')); Nav.focus(U.$('[data-action="backup-import"]')); return; }
+      try {
+        var result = Store.importBackup(code); applyLang(); applyTheme(); applyUi(); closeBackup(); showAccounts();
+        UI.toast(T('backup.restored', { n: result.count }), 3500, '✓'); if (result.needsCredentials) setTimeout(function () { UI.toast(T('backup.needsCredentials'), 5500, '⚠'); }, 700);
+      } catch (e) { U.$('#backup-status').textContent = T('backup.invalid'); }
+    });
+  }
   function playCatchup(ch, e) {
     var dur = Math.ceil((e.end - e.start) / 60);
     Promise.resolve(provider.catchupUrl(ch, e.start, dur)).then(function (url) {
@@ -567,8 +722,11 @@ var App = (function () {
     U.$('#movies-cats')._vlist = null; UI.skeletonList(U.$('#movies-cats'), 8); U.$('#movies-grid')._vlist = null; UI.skeletonGrid(U.$('#movies-grid'));
     provider.vodCategories().then(function (cats) {
       movies.cats = cats; U.$('#movies-cats').classList.remove('sk-list');
-      UI.renderCats(U.$('#movies-cats'), withAll(cats, T('allMovies')), null, 'mcat', function (c) { selectGridCat('movies', c); });
-      selectGridCat('movies', { id: null, name: T('allMovies') }); Nav.focus(U.$('#movies-cats .cat-item'));
+      /* Start with a real category when available. The explicit All item remains
+         available, but loading every VOD title first is what overwhelms many TVs. */
+      var first = cats.length ? cats[0] : { id: null, name: T('allMovies') };
+      UI.renderCats(U.$('#movies-cats'), withAll(cats, T('allMovies')), first.id, 'mcat', function (c) { selectGridCat('movies', c); });
+      selectGridCat('movies', first); Nav.focus(U.$('#movies-cats .cat-item.selected') || U.$('#movies-cats .cat-item'));
     }).catch(function (e) { UI.toast('Failed to load: ' + e.message, 3000, '⚠'); });
   }
   function loadSeries() {
@@ -576,8 +734,9 @@ var App = (function () {
     U.$('#series-cats')._vlist = null; UI.skeletonList(U.$('#series-cats'), 8); U.$('#series-grid')._vlist = null; UI.skeletonGrid(U.$('#series-grid'));
     provider.seriesCategories().then(function (cats) {
       series.cats = cats; U.$('#series-cats').classList.remove('sk-list');
-      UI.renderCats(U.$('#series-cats'), withAll(cats, T('allSeries')), null, 'scat', function (c) { selectGridCat('series', c); });
-      selectGridCat('series', { id: null, name: T('allSeries') }); Nav.focus(U.$('#series-cats .cat-item'));
+      var first = cats.length ? cats[0] : { id: null, name: T('allSeries') };
+      UI.renderCats(U.$('#series-cats'), withAll(cats, T('allSeries')), first.id, 'scat', function (c) { selectGridCat('series', c); });
+      selectGridCat('series', first); Nav.focus(U.$('#series-cats .cat-item.selected') || U.$('#series-cats .cat-item'));
     }).catch(function (e) { UI.toast('Failed to load: ' + e.message, 3000, '⚠'); });
   }
   function selectGridCat(kind, c) {
@@ -585,6 +744,14 @@ var App = (function () {
     U.$('#' + kind + '-cat-title').textContent = c.name; grid._vlist = null; UI.skeletonGrid(grid);
     var p = kind === 'movies' ? provider.vodStreams(c.id) : provider.seriesList(c.id);
     p.then(function (list) {
+      /* A credential-bearing get.php source may start on Xtream metadata and
+         fall back to its text playlist. Rebuild the category rail once so its
+         category IDs match the new source instead of leaving an empty grid. */
+      if (provider && provider.catalogFallback) {
+        provider.catalogFallback = false; st.cats = [];
+        if (kind === 'movies') loadMovies(); else loadSeries();
+        return;
+      }
       var bad = adultCatIds(); list = list.filter(function (x) { return !bad[x.catId]; });
       st.list = list; U.$('#' + kind + '-count').textContent = list.length + ' items';
       if (!list.length) { grid._vlist = null; grid.innerHTML = '<div class="empty">No items in this category.</div>'; return; }
@@ -606,7 +773,7 @@ var App = (function () {
     UI.skeletonRows(rows, 1);
     Promise.all([provider.liveStreams().catch(function () { return []; }), provider.vodStreams().catch(function () { return []; }), provider.seriesList().catch(function () { return []; })]).then(function (r) {
       rows.innerHTML = ''; var bad = adultCatIds(); var f = function (x) { return !bad[x.catId] && (x.name || '').toLowerCase().indexOf(q) >= 0; };
-      var l = r[0].filter(f).slice(0, 40), m = r[1].filter(f).slice(0, 40), s = r[2].filter(f).slice(0, 40);
+      var l = prepareLiveList(r[0]).filter(f).slice(0, 40), m = r[1].filter(f).slice(0, 40), s = r[2].filter(f).slice(0, 40);
       if (l.length) rows.appendChild(UI.row(T('search.channels'), l, { max: 20 })); if (m.length) rows.appendChild(UI.row(T('search.movies'), m, { max: 20 })); if (s.length) rows.appendChild(UI.row(T('search.series'), s, { max: 20 }));
       if (!l.length && !m.length && !s.length) rows.innerHTML = '<div class="empty">' + U.esc(T('search.none', { q: q })) + '</div>';
     });
@@ -642,7 +809,7 @@ var App = (function () {
     var s = Store.settings();
     if (k === 'lang') { Store.setSetting(k, I18n.next()); applyLang(); updateExpiry(null); live.cats = []; movies.cats = []; series.cats = []; if (section === 'home') renderHome(); }
     else if (k === 'refresh') { var steps = [0, 3, 6, 12, 24], i = steps.indexOf(s.refreshHours); Store.setSetting('refreshHours', steps[(i + 1) % steps.length]); scheduleRefresh(); }
-    else if (k === 'theme') { var th = ['aurora', 'midnight', 'oled', 'ocean', 'crimson', 'emerald', 'sunset', 'royal']; Store.setSetting(k, th[(th.indexOf(s.theme) + 1) % th.length]); applyTheme(); }
+    else if (k === 'theme') { var th = ['aurora', 'midnight', 'oled', 'ocean', 'crimson', 'emerald', 'sunset', 'royal', 'ramadan', 'cinema', 'glass', 'arcade', 'mono', 'majlis', 'guidepro', 'receiver', 'sports', 'family', 'neocrt', 'cyberpunk']; Store.setSetting(k, th[(th.indexOf(s.theme) + 1) % th.length]); applyTheme(); if (section === 'home') renderHome(); }
     else if (k === 'liveFormat') Store.setSetting(k, s.liveFormat === 'ts' ? 'm3u8' : 'ts');
     else if (k === 'engine') Store.setSetting(k, { auto: 'native', native: 'hlsjs', hlsjs: 'auto' }[s.engine]);
     else if (k === 'parental') { if (account.kids) { UI.toast(T('kids.locked'), 2500, '🔒'); return; } Store.setSetting(k, !s[k]); }
@@ -769,6 +936,15 @@ var App = (function () {
     if (Adhan.handleKey(name)) return true;
     if (amb.on) { hideAmbient(); return true; }
     if (UI.modalOpen()) { if (name === 'BACK' || name === 'BACK2') { UI.closeModal(); return true; } return false; }
+    if (guide.open) {
+      if (name === 'BACK' || name === 'BACK2') { closeGuide(); return true; }
+      if (name === 'BLUE') { var gr = Nav.current(); if (gr && gr._channel) openChannelTools(gr._channel); return true; }
+      return false;
+    }
+    if (backup.open) {
+      if (name === 'BACK' || name === 'BACK2') { closeBackup(); return true; }
+      return false;
+    }
     if (screen === 'player') return Player.handleKey(name, code);
     if (screen === 'pin') {
       if (code >= 48 && code <= 57) { pinKey(String(code - 48)); return true; }
@@ -800,6 +976,7 @@ var App = (function () {
       if (name === 'RED' && (section === 'movies' || section === 'series' || section === 'home' || section === 'favorites' || section === 'search')) { var c = Nav.current(); if (c && c._item) { toggleFavItem(c._item); if (c._vlist) c._vlist.refreshItem(Number(c.getAttribute('data-i'))); else { var f = c.querySelector('.fav'); if (f) f.remove(); else if (c.querySelector('.thumb')) c.querySelector('.thumb').appendChild(U.el('div', 'fav', '★')); } return true; } }
       if (name === 'GREEN') { showSection('favorites'); Nav.focus(U.$('.nav-item[data-section="favorites"]')); return true; }
       if (name === 'YELLOW' && section === 'live' && live.selected) { toggleLockChannel(live.selected); return true; }
+      if (name === 'BLUE' && section === 'live') { if (live.selected) openChannelTools(live.selected); else openGuide(); return true; }
       if (name === 'YELLOW') { showSection('search'); return true; }
       if ((name === 'CH_UP' || name === 'CH_DOWN') && !(Nav.current() && Nav.current()._vlist)) { var order = NAV_ORDER, i = order.indexOf(section); showSection(order[(i + (name === 'CH_UP' ? 1 : order.length - 1)) % order.length]); Nav.focus(U.$('.nav-item[data-section="' + section + '"]')); return true; }
     }
@@ -841,14 +1018,14 @@ var App = (function () {
 
   function bindEvents() {
     document.addEventListener('click', function (ev) {
-      var t = ev.target; while (t && t !== document && !(t.getAttribute && (t.getAttribute('data-action') || t.getAttribute('data-section') || t.getAttribute('data-type') || t.getAttribute('data-setting') || t.getAttribute('data-theme-pick') || t.getAttribute('data-layout-pick') || t.getAttribute('data-accent-pick') || t.id === 'kids-switch'))) t = t.parentNode;
+      var t = ev.target; while (t && t !== document && !(t.getAttribute && (t.getAttribute('data-action') || t.getAttribute('data-section') || t.getAttribute('data-type') || t.getAttribute('data-setting') || t.getAttribute('data-theme-pick') || t.getAttribute('data-layout-pick') || t.getAttribute('data-accent-pick') || t.id === 'kids-switch' || t.id === 'tls-switch' || t.id === 'backup-secret-switch'))) t = t.parentNode;
       if (!t || t === document) return;
       var a = t.getAttribute('data-action'), sec = t.getAttribute('data-section'), typ = t.getAttribute('data-type'), set = t.getAttribute('data-setting');
-      if (t.id === 'kids-switch') { t.setAttribute('data-on', t.getAttribute('data-on') === '1' ? '0' : '1'); return; }
+      if (t.id === 'kids-switch' || t.id === 'tls-switch' || t.id === 'backup-secret-switch') { t.setAttribute('data-on', t.getAttribute('data-on') === '1' ? '0' : '1'); return; }
       if (sec) { showSection(sec); if ((t.classList.contains('tile') || t.classList.contains('util')) && !document.body.classList.contains('hubmode')) Nav.focus(U.$('.nav-item[data-section="' + sec + '"]')); else if (t.id === 'hub-home') Nav.focus(U.$('#hub .tile')); return; }
       if (typ && t.classList.contains('tab')) { setAddType(typ); return; }
       if (set) { toggleSetting(set); return; }
-      var tp = t.getAttribute('data-theme-pick'); if (tp) { Store.setSetting('theme', tp); applyTheme(); renderSettings(); return; }
+      var tp = t.getAttribute('data-theme-pick'); if (tp) { Store.setSetting('theme', tp); if (tp === 'ramadan') Store.setSetting('accent', 'auto'); applyTheme(); renderSettings(); if (section === 'home') renderHome(); return; }
       var lp = t.getAttribute('data-layout-pick'); if (lp) { Store.setSetting('layout', lp); applyUi(); renderSettings(); UI.toast(T('lay.' + lp), 2000, '✓'); return; }
       var ap = t.getAttribute('data-accent-pick'); if (ap) { Store.setSetting('accent', ap); applyTheme(); renderSettings(); return; }
       switch (a) {
@@ -864,10 +1041,17 @@ var App = (function () {
         case 'wx-location': case 'wx-unit': case 'wx-refresh': case 'wx-retry': Weather.action(a); break;
         case 'adhan-enable': case 'adhan-toggle': case 'adhan-method': case 'adhan-test': case 'adhan-refresh': case 'adhan-retry': Adhan.action(a); break;
         case 'pair-cancel': stopPair(); break;
+        case 'guide-open': openGuide(); break;
+        case 'guide-close': closeGuide(); break;
+        case 'guide-refresh': refreshGuide(); break;
+        case 'backup-open': openBackup(); break;
+        case 'backup-close': closeBackup(); break;
+        case 'backup-export': exportBackup(); break;
+        case 'backup-import': confirmImportBackup(); break;
         case 'clear-cache': Store.clearCache(account.id); live.cats = []; movies.cats = []; series.cats = []; UI.toast(T('toast.cache'), 2000, '✓'); break;
         case 'refresh-now': refreshPlaylists(true); break;
         case 'hero-play': var h = U.$('#hero-title')._item; if (h) openItem(h); else showSection('live'); break;
-        case 'hero-info': var h2 = U.$('#hero-title')._item; if (h2) openItem(h2); else showSection('movies'); break;
+        case 'hero-info': var h2 = U.$('#hero-title')._item; if (h2) openItem(h2); else if (Store.settings().theme === 'guidepro') openGuide(); else showSection('movies'); break;
         case 'details-play': playMovie(false); break;
         case 'details-resume': playMovie(true); break;
         case 'details-trailer': playTrailer(); break;

@@ -1,4 +1,4 @@
-# RGBTv — webOS TV source (v2.1.0)
+# RGBTv — webOS TV source (v2.2.9)
 
 Pure HTML5 web app for LG webOS (3.0+): ES5 JavaScript, legacy-safe CSS, native <video> + hls.js.
 
@@ -7,7 +7,8 @@ RGBTv-webOS/
 ├─ app/                      the application (packaged as-is)
 │  ├─ appinfo.json           id com.rgbtv.app, version, icons, permissions
 │  ├─ index.html             single page, all screens
-│  ├─ css/style.css          themes, hub styles, RTL, TV-safe layout (1920×1080 stage scaled to any TV)
+│  ├─ css/style.css          base themes, hub styles, RTL, TV-safe layout (1920×1080 stage scaled to any TV)
+│  ├─ css/theme-layout-contract.css  final menu/status/content geometry for every theme
 │  ├─ img/                   icon / largeIcon / splash / bg
 │  └─ js/
 │     ├─ util.js             DOM helpers, HTTP (XHR + Luna proxy), fitScreen, SHA-1
@@ -39,14 +40,14 @@ RGBTv-webOS/
 ```bash
 npm install -g @webos-tools/cli          # once
 ares-package app services/com.rgbtv.app.service -o dist
-# → dist/com.rgbtv.app_2.1.0_all.ipk
+# → dist/com.rgbtv.app_2.2.9_all.ipk
 ```
 
 Install on a TV in Developer Mode:
 
 ```bash
 ares-setup-device            # add the TV (IP + passphrase from the Developer Mode app)
-ares-install -d tv dist/com.rgbtv.app_2.1.0_all.ipk
+ares-install -d tv dist/com.rgbtv.app_2.2.9_all.ipk
 ares-launch  -d tv com.rgbtv.app
 ```
 
@@ -55,5 +56,11 @@ or simply `./build.sh tv`.
 ## Notes
 - Do not add ES6 syntax (arrow functions, let/const, template strings) in `app/js` — older webOS browsers will fail to parse.
 - Avoid CSS `inset`, flex `gap`, `backdrop-filter`, `@supports`, and `Element.closest()` for the same reason.
-- The Luna service is required for Stalker portals and for "Add from phone"; Xtream/M3U work without it.
+- M3U supports quoted/unquoted attributes, relative stream URLs, stable item IDs, and an optional XMLTV EPG URL (or `url-tvg` declared in the playlist). It downloads the text playlist once with a 120-second timeout, caches parsed items for six hours, and sends the parsed direct stream URL to the player without a per-channel control request. The packaged Luna service is preferred for CORS-safe playlist/guide fetches; it retains same-origin redirect cookies, requests identity encoding, handles gzip/deflate responses, accepts downloads up to 64 MiB, and allows the full 120-second timeout. The app reports login-page, HTTP-status, network, and timeout failures separately. A credential-bearing `get.php` M3U URL first tries the compatible Xtream API through the same Luna/native-safe path for fast metadata, then falls back automatically to the valid text playlist if the API or a large catalogue request is unavailable. Xtream and Stalker catalogue pages receive a 120-second budget; the Movies and Series screens first load a concrete category so the TV can render titles without waiting for an entire provider catalogue.
+- Stalker/Ministra needs the Luna service for its MAG cookie and bearer-token handshake. It tries common portal roots (`/server/load.php`, `/c/server/load.php`, and `/stalker_portal/...`) before reporting a connection failure. HTTPS certificates are verified by default; a clearly labelled per-profile switch is available only for a self-signed portal you trust.
+- The **Ramadan** theme is a dedicated emerald-and-gold layout: an Islamic geometric gradient background, crescent brand mark, arched navigation, gold-framed mihrab feature panel, and a persistent five-prayer/Hijri-date strip in classic Home. It reuses the cached AlAdhan calendar, clearly reports disabled or unavailable times, stays hidden in Hub layouts, and does **not** turn notifications on when they were disabled.
+- The player is deliberately single-decoder: Dual View was removed because many webOS TVs expose only one reliable hardware video plane. This keeps channel zapping and playback predictable.
+- Selecting a live channel starts with a **classic receiver information banner**: number, logo, name, current programme, next programme and progress. Press **LEFT** (or select **Channels** in the player controls) to open the virtualized right-side channel panel; UP/DOWN browses, OK watches, and LEFT/BACK closes it. This remains responsive with large playlists.
+- `theme-layout-contract.css` is the single final authority for navigation geometry: Guide Pro and Ocean use a left rail; Receiver X, Sports Arena and Neo CRT use a bottom dock; Cyberpunk uses a right rail; the remaining themes (including Glass) use a safe lower top bar. Every dock preserves the clock/profile strip and remains rendered and remote-accessible. On Hub Home, a side-rail theme automatically uses the safe full-width top dock so the 1920px Hub tiles are never squeezed or clipped; RTL mirrors side rails and their content reservation.
+- Phone pairing is time-limited and QR-token protected; review the received profile on the TV before it is stored.
 - Keep the package small: no bundled audio/video assets.

@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>RGBTv</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/theme-expansion.css">
+<link rel="stylesheet" href="css/theme-layout-contract.css">
 </head>
 <body data-theme="dark">
 <div id="app">
@@ -102,8 +104,13 @@
           <label>Serial Number (optional)<input class="focusable" data-nav="add-form" name="sn" placeholder="auto"></label>
           <label>Device ID (optional)<input class="focusable" data-nav="add-form" name="deviceId" placeholder="auto"></label>
         </div>
+        <div class="switch-row compact"><div><b data-i18n="stalker.insecure">Allow self-signed HTTPS</b><p class="muted" data-i18n="stalker.insecure.d">Only enable this for a portal you trust.</p></div><button type="button" class="switch focusable" data-nav="add-form" id="tls-switch" data-on="0"><i></i></button></div>
       </div>
       <div class="type-fields" data-for="m3u">
+        <label><span data-i18n="m3u.profile">Playlist connection profile</span><select class="focusable" data-nav="add-form" name="m3uProfile"><option value="auto" data-i18n="m3u.profile.auto">Automatic (webOS, Android, VU &amp; VLC)</option><option value="vu" data-i18n="m3u.profile.vu">VU IPTV compatible</option><option value="webos" data-i18n="m3u.profile.webos">webOS browser</option><option value="android" data-i18n="m3u.profile.android">Android IPTV client</option><option value="vlc" data-i18n="m3u.profile.vlc">VLC</option></select></label>
+        <label><span data-i18n="m3u.agent">Provider User-Agent (optional)</span><input class="focusable" data-nav="add-form" name="m3uUserAgent" maxlength="512" autocapitalize="off" spellcheck="false" data-i18n-ph="m3u.agent.ph" placeholder="Only if supplied by your provider"></label>
+        <label><span data-i18n="m3u.referer">Provider Referer URL (optional)</span><input class="focusable" data-nav="add-form" name="m3uReferer" maxlength="2048" inputmode="url" autocapitalize="off" spellcheck="false" data-i18n-ph="m3u.referer.ph" placeholder="https://provider.example/"></label>
+        <p class="muted" data-i18n="m3u.headers.d">Use these only when your provider documents them. You may also append |User-Agent=…&amp;Referer=… to the playlist URL.</p>
         <label>EPG URL (optional)<input class="focusable" data-nav="add-form" name="epg" placeholder="http://…/xmltv.xml"></label>
       </div>
       <div class="switch-row">
@@ -137,6 +144,7 @@
       <button class="nav-item focusable" data-section="adhan" data-nav="topnav"><span class="nv-ico"><svg viewBox="0 0 24 24"><path d="M12 2c.6 1.8 1.6 3 3 3.6-1.4.6-2.4 1.8-3 3.6-.6-1.8-1.6-3-3-3.6 1.4-.6 2.4-1.8 3-3.6zM4 22v-9l3-2.5V8h2v2.5l3 2.5v9h-2v-6H6v6H4zm11-13.5c1.6-1 3.8-.9 5.3.4-1.2 0-2.3.5-3.1 1.3-.7.8-1 1.9-1 3 0 1.2.4 2.3 1.2 3.1.8.8 1.9 1.2 3 1.1-1.6 1.3-3.8 1.4-5.4.4-1.9-1.2-2.7-3.6-1.9-5.7.4-1.1 1.1-2 1.9-2.6z"/></svg></span><span data-i18n="nav.adhan">Adhan</span></button>
       <button class="nav-item focusable" data-section="settings" data-nav="topnav"><span class="nv-ico"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3H9l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L4.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.4 7.4 0 0 0 1.7 1L9 21h6l.4-2.7a7.4 7.4 0 0 0 1.7-1l2.5 1 2-3.5zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></span><span data-i18n="nav.settings">Settings</span></button>
     </nav>
+    <div class="prayer-strip" id="prayer-strip" aria-live="polite"></div>
     <button class="hub-home focusable" id="hub-home" data-section="home" data-nav="topnav"><span class="hh-ico">⌂</span><span data-i18n="hub.home">Home</span><span class="hh-sep">›</span><span id="hub-cur"></span></button>
     <div class="topbar-right">
       <div class="expiry hidden" id="expiry"></div>
@@ -177,7 +185,7 @@
     <section id="sec-live" class="section browse">
       <aside class="cat-panel"><div class="panel-title" data-i18n="categories">Categories</div><div class="cat-list" id="live-cats"></div></aside>
       <div class="channel-panel">
-        <div class="panel-title" id="live-cat-title">All Channels</div>
+        <div class="panel-title"><span id="live-cat-title">All Channels</span><button class="guide-open focusable" data-nav="chl" data-action="guide-open" data-i18n="guide.open">TV Guide</button></div>
         <div class="channel-list" id="live-channels"></div>
       </div>
       <div class="preview-panel">
@@ -192,6 +200,7 @@
           <span><i class="k red"></i><b data-i18n="leg.fav">Favorite</b></span>
           <span><i class="k green"></i><b data-i18n="leg.mylist">My List</b></span>
           <span><i class="k yellow"></i><b data-i18n="leg.lock">Lock</b></span>
+          <span><i class="k blue"></i><b data-i18n="leg.manage">Organize</b></span>
           <span><i class="k ok">OK</i><b data-i18n="leg.play">Play</b></span>
         </div>
       </div>
@@ -248,6 +257,18 @@
             <button class="swatch focusable" data-nav="settings" data-theme-pick="emerald" data-theme="emerald"><i></i><span class="nm" data-i18n="theme.emerald">Emerald</span></button>
             <button class="swatch focusable" data-nav="settings" data-theme-pick="sunset" data-theme="sunset"><i></i><span class="nm" data-i18n="theme.sunset">Sunset</span></button>
             <button class="swatch focusable" data-nav="settings" data-theme-pick="royal" data-theme="royal"><i></i><span class="nm" data-i18n="theme.royal">Royal</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="ramadan" data-theme="ramadan"><i></i><span class="nm" data-i18n="theme.ramadan">Ramadan</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="cinema" data-theme="cinema"><i></i><span class="nm" data-i18n="theme.cinema">Cinema</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="glass" data-theme="glass"><i></i><span class="nm" data-i18n="theme.glass">Glass</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="arcade" data-theme="arcade"><i></i><span class="nm" data-i18n="theme.arcade">Arcade</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="mono" data-theme="mono"><i></i><span class="nm" data-i18n="theme.mono">Mono</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="majlis" data-theme="majlis"><i></i><span class="nm" data-i18n="theme.majlis">Majlis</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="guidepro" data-theme="guidepro"><i></i><span class="nm" data-i18n="theme.guidepro">Guide Pro</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="receiver" data-theme="receiver"><i></i><span class="nm" data-i18n="theme.receiver">Receiver X</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="sports" data-theme="sports"><i></i><span class="nm" data-i18n="theme.sports">Sports Arena</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="family" data-theme="family"><i></i><span class="nm" data-i18n="theme.family">Family Hub</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="neocrt" data-theme="neocrt"><i></i><span class="nm" data-i18n="theme.neocrt">Neo CRT</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="cyberpunk" data-theme="cyberpunk"><i></i><span class="nm" data-i18n="theme.cyberpunk">Cyberpunk</span></button>
           </div></div>
         <div class="setting-row"><div><b data-i18n="set.accent">Accent color</b><p class="muted" data-i18n="set.accent.d">Color of highlights, buttons and progress bars. Auto follows the theme.</p></div>
           <div class="theme-swatches accents" id="accent-swatches">
@@ -288,8 +309,9 @@
         <div class="setting-row"><div><b data-i18n="set.tmdb">TMDB artwork &amp; ratings</b><p class="muted" data-i18n="set.tmdb.d">Optional. Paste a TMDB API key (v3) to enrich movies &amp; series with backdrops, plots and ratings.</p></div><input class="focusable setting-input" data-nav="settings" id="tmdb-key" placeholder="TMDB API key"></div>
         <div class="setting-row"><div><b data-i18n="set.cache">Clear cache</b><p class="muted" data-i18n="set.cache.d">Remove cached categories, lists, EPG and artwork.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="clear-cache" data-i18n="clear">Clear</button></div>
         <div class="setting-row"><div><b data-i18n="pair.btn">Add from phone</b><p class="muted" data-i18n="pair.set.d">Show a QR code; type the server details on your phone instead of the remote.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="pair-phone">📱 QR</button></div>
+        <div class="setting-row"><div><b data-i18n="backup.title">Backup &amp; restore</b><p class="muted" data-i18n="backup.settings.d">Create a portable backup code for profiles, favorites and settings.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="backup-open" data-i18n="backup.open">Open</button></div>
         <div class="setting-row"><div><b data-i18n="set.profile">Profile</b><p class="muted" id="settings-account-info"></p></div><div class="setting-actions"><button class="btn ghost focusable" data-nav="settings" data-action="edit-account" data-i18n="edit">Edit</button><button class="btn ghost focusable" data-nav="settings" data-action="switch-account" data-i18n="switch">Switch</button></div></div>
-        <div class="setting-row"><div><b data-i18n="set.about">About</b><p class="muted">RGBTv v1.9.0 for LG webOS · Xtream Codes · Stalker Portal · M3U · Native player + hls.js</p></div><button class="btn ghost focusable" data-nav="settings" data-action="exit-app" data-i18n="set.exit">Exit App</button></div>
+        <div class="setting-row"><div><b data-i18n="set.about">About</b><p class="muted">RGBTv v2.2.9 for LG webOS · Xtream Codes · Stalker Portal · M3U · Native player + hls.js</p></div><button class="btn ghost focusable" data-nav="settings" data-action="exit-app" data-i18n="set.exit">Exit App</button></div>
       </div>
     </section>
   </main>
@@ -371,6 +393,23 @@
 
 <!-- ================= AMBIENT SCREENSAVER ================= -->
 <div id="ambient" class="ambient"><div class="amb-bg" id="amb-bg1"></div><div class="amb-bg" id="amb-bg2"></div><div class="amb-shade"></div><div class="amb-clock"><b id="amb-time">--:--</b><span id="amb-date"></span></div><div class="amb-title" id="amb-title"></div><div class="amb-brand"><div class="logo small"><span class="bar r"></span><span class="bar g"></span><span class="bar b"></span></div><div class="brand sm">RGB<span>Tv</span></div></div></div>
+
+<!-- ================= TV GUIDE / BACKUP ================= -->
+<div id="guide-overlay" class="guide-overlay">
+  <div class="guide-shell">
+    <header class="guide-head"><div><span class="guide-kicker" data-i18n="guide.kicker">LIVE SCHEDULE</span><h2 data-i18n="guide.title">TV Guide</h2><p id="guide-sub" data-i18n="guide.loading">Loading channels and programmes…</p></div><div class="guide-head-actions"><button class="btn ghost focusable" data-nav="guide" data-action="guide-refresh" data-i18n="guide.refresh">Refresh</button><button class="btn ghost focusable" data-nav="guide" data-action="guide-close" data-i18n="close">Close</button></div></header>
+    <div class="guide-times"><span data-i18n="guide.channel">Channel</span><span data-i18n="nowLbl">NOW</span><span data-i18n="next">NEXT</span></div>
+    <div class="guide-list" id="guide-list"></div>
+    <footer class="guide-foot" data-i18n="guide.hint">OK plays a channel · BLUE opens channel tools · BACK closes</footer>
+  </div>
+</div>
+<div id="backup-overlay" class="backup-overlay">
+  <div class="backup-shell"><header><div><span class="guide-kicker" data-i18n="backup.kicker">PORTABLE BACKUP</span><h2 data-i18n="backup.title">Backup &amp; restore</h2><p data-i18n="backup.desc">Back up profiles, favorites, channel order and settings. Caches are not included.</p></div><button class="btn ghost focusable" data-nav="backup" data-action="backup-close" data-i18n="close">Close</button></header>
+    <div class="backup-toolbar"><div class="switch-row compact"><div><b data-i18n="backup.secrets">Include account credentials</b><p class="muted" data-i18n="backup.secrets.d">Turn on only for a backup you keep private. M3U links can contain credentials.</p></div><button type="button" class="switch focusable" data-nav="backup" id="backup-secret-switch" data-on="0"><i></i></button></div><button class="btn focusable" data-nav="backup" data-action="backup-export" data-i18n="backup.create">Create backup code</button></div>
+    <textarea class="backup-code focusable" data-nav="backup" id="backup-code" autocapitalize="off" spellcheck="false" data-i18n-ph="backup.placeholder" placeholder="Create a backup code, or paste one here to restore."></textarea>
+    <div class="backup-actions"><button class="btn danger focusable" data-nav="backup" data-action="backup-import" data-i18n="backup.restore">Restore and replace profiles</button><button class="btn ghost focusable" data-nav="backup" data-action="backup-close" data-i18n="cancel">Cancel</button></div><p class="backup-status" id="backup-status"></p>
+  </div>
+</div>
 
 <!-- ================= MODAL / TOAST ================= -->
 <div id="modal" class="modal"><div class="modal-box"><h3 id="modal-title"></h3><p id="modal-text"></p><div class="modal-actions" id="modal-actions"></div></div></div>
