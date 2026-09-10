@@ -91,6 +91,49 @@ function PlaybackErrorClassifier(raw, stream) {
   return new PlaybackError('MEDIA_ERROR', 'Unable to play this stream', true, true, raw, status, retryAfter);
 }
 
+/* SmartBufferManager deliberately owns only observation/debouncing, never source
+ * loading or retry. This prevents noisy live-TV waiting/stalled events from
+ * producing a spinner or reconnect while frames are still progressing. */
+function SmartBufferManager(onBuffering) {
+  this.onBuffering = onBuffering || function () {}; this.timer = null; this.waiting = false;
+  this.lastProgressAt = 0; this.waitingAt = 0; this.bufferingCount = 0;
+}
+SmartBufferManager.prototype = {
+  reset: function (at, clearCount) { if (this.timer) clearTimeout(this.timer); this.timer = null; this.waiting = false; this.waitingAt = 0; if (clearCount) this.bufferingCount = 0; this.lastProgressAt = at || Date.now(); },
+  wait: function () {
+    var self = this;
+    if (this.timer || this.waiting) return;
+    this.waitingAt = Date.now();
+    /* webOS may emit transient waiting for healthy HLS/TS playback. */
+    this.timer = setTimeout(function () { self.timer = null; self.waiting = true; self.bufferingCount++; self.onBuffering({ waitingAt: self.waitingAt, bufferingCount: self.bufferingCount }); }, 700);
+  },
+  progressed: function () {
+    var wasWaiting = this.waiting;
+    if (this.timer) clearTimeout(this.timer); this.timer = null; this.waiting = false; this.waitingAt = 0; this.lastProgressAt = Date.now();
+    return wasWaiting;
+  },
+  pending: function () { return !!this.timer; },
+  destroy: function () { this.reset(0); }
+};
+
+/* Per-session local-only timings. Values contain no URL, credentials, title or
+ * provider payload and can therefore safely feed the advanced player stats. */
+function PlaybackMetrics() { this.reset(0); }
+PlaybackMetrics.prototype = {
+  reset: function (startedAt) {
+    this.startupStartedAt = startedAt || 0; this.streamResolveStartedAt = 0; this.sourceAssignedAt = 0;
+    this.loadStartedAt = 0; this.metadataLoadedAt = 0; this.canPlayAt = 0; this.playingAt = 0;
+    this.startupDuration = 0; this.streamResolveTime = 0; this.bufferingCount = 0; this.recoveryCount = 0;
+    this.retryCount = 0; this.networkErrors = 0; this.lastErrorCode = ''; this.networkState = 0;
+  },
+  snapshot: function () {
+    return { startupStartedAt: this.startupStartedAt, sourceAssignedAt: this.sourceAssignedAt, loadStartedAt: this.loadStartedAt,
+      metadataLoadedAt: this.metadataLoadedAt, canPlayAt: this.canPlayAt, playingAt: this.playingAt, startupDuration: this.startupDuration,
+      streamResolveTime: this.streamResolveTime, bufferingCount: this.bufferingCount, recoveryCount: this.recoveryCount,
+      retryCount: this.retryCount, networkErrors: this.networkErrors, lastErrorCode: this.lastErrorCode, networkState: this.networkState };
+  }
+};
+
 function PlaybackRecoveryManager(callbacks) {
   this.callbacks = callbacks || {}; this.session = 0; this.attempt = 0; this.timer = null;
   this.delays = [2000, 5000, 10000]; this.maxAttempts = this.delays.length;
@@ -141,10 +184,16 @@ var PlaybackManager = (function () {
     this.adapter = options.adapter; this.resolve = options.resolve; this.onState = options.onState || function () {};
     this.onSource = options.onSource || function () {}; this.onError = options.onError || function () {};
     this.sessionId = 0; this.state = STATES.IDLE; this.current = null; this.options = null; this.stream = null; this.engine = 'native';
-    this.abortController = null; this.startedAt = 0; this.lastProgress = 0; this.hasMetadata = false; this.userPaused = false; this.mediaRecovered = false; this.hlsFallbackTried = false;
+    this.abortController = null; this.startedAt = 0; this.lastProgress = 0; this.hasMetadata = false; this.userPaused = false; this.mediaRecovered = false; this.hlsFallbackTried = false; this.networkOffline = false;
+    this.metrics = new PlaybackMetrics();
     var self = this;
+    this.buffer = new SmartBufferManager(function (detail) {
+      if (!self.current || self.userPaused || self.state === STATES.RECOVERING || self.state === STATES.ERROR || self.state === STATES.STOPPING) return;
+      self.metrics.bufferingCount = detail.bufferingCount;
+      self._setState(STATES.BUFFERING, { bufferingCount: detail.bufferingCount }); self._log('Buffering', { count: detail.bufferingCount });
+    });
     this.recovery = new PlaybackRecoveryManager({
-      onRecovering: function (session, error, attempt, max, delay) { self._setState(STATES.RECOVERING, { error: error, attempt: attempt, max: max, delay: delay }); self._log('Recovering', { retry: attempt + '/' + max, error: error.code }); },
+      onRecovering: function (session, error, attempt, max, delay) { self.metrics.recoveryCount++; self.metrics.retryCount = attempt; self._setState(STATES.RECOVERING, { error: error, attempt: attempt, max: max, delay: delay }); self._log('Recovering', { retry: attempt + '/' + max, error: error.code }); },
       onRetry: function (session) { self._retry(session); },
       onGiveUp: function (session, error, attempts) { if (!self.isCurrent(session)) return; self._setState(STATES.ERROR, { error: error, attempt: attempts, max: self.recovery.maxAttempts }); self.onError(error, attempts, self.recovery.maxAttempts); self._log('Error', { code: error && error.code, retries: attempts }); }
     });
@@ -154,6 +203,7 @@ var PlaybackManager = (function () {
     isCurrent: function (session) { return session === this.sessionId && !!this.current; },
     attempts: function () { return this.recovery.attempt; },
     currentSession: function () { return this.sessionId; },
+    diagnostics: function () { return this.metrics.snapshot(); },
     _log: function (event, extra) {
       var stream = this.stream || {}, data = { session: this.sessionId, provider: stream.provider || this.current && this.current.provider || '', channelId: stream.channelId || this.current && this.current.id || '', streamType: stream.type || '', engine: this.engine || '' }, key;
       if (stream.url) data.source = redactedSource(stream.url);
@@ -171,7 +221,8 @@ var PlaybackManager = (function () {
          pause/removeAttribute are now guaranteed to be ignored as stale. */
       this.current = null; this.stream = null; this._abort(); this.recovery.cancel(); this._clear();
       this.current = item; this.options = opt; this.engine = 'native'; this.startedAt = Date.now(); this.lastProgress = this.startedAt;
-      this.hasMetadata = false; this.userPaused = false; this.mediaRecovered = false; this.hlsFallbackTried = false; this.abortController = makeAbortController(); this.recovery.begin(this.sessionId);
+      this.metrics.reset(this.startedAt); this.buffer.reset(this.startedAt, true);
+      this.hasMetadata = false; this.userPaused = false; this.mediaRecovered = false; this.hlsFallbackTried = false; this.networkOffline = false; this.abortController = makeAbortController(); this.recovery.begin(this.sessionId);
       this._setState(STATES.LOADING, { initial: true }); this._log('Channel selected', { provider: opt.provider || '' });
       return this._open(this.sessionId, true, 0);
     },
@@ -179,7 +230,7 @@ var PlaybackManager = (function () {
       var self = this, item = this.current, opt = this.options || {}, request = {};
       if (!this.isCurrent(session)) return Promise.resolve(null);
       this._setState(STATES.LOADING, { initial: !!initial, retry: !initial, resolving: true, attempt: this.recovery.attempt });
-      this.lastProgress = Date.now(); this.hasMetadata = false;
+      this.lastProgress = Date.now(); this.hasMetadata = false; this.metrics.streamResolveStartedAt = this.lastProgress;
       request.signal = this.abortController && this.abortController.signal;
       /* A catch-up URL is already resolved by its provider; normal live retries
          deliberately re-resolve to refresh expiring Stalker/Xtream links. */
@@ -187,6 +238,7 @@ var PlaybackManager = (function () {
       return this.resolve(item, request).then(function (stream) {
         if (!self.isCurrent(session)) return null;
         self.stream = stream; if (initial) self.engine = 'native'; self.mediaRecovered = false;
+        self.metrics.streamResolveTime = Math.max(0, Date.now() - self.metrics.streamResolveStartedAt);
         if (stream.type === 'dash' && (!self.adapter || !self.adapter.canPlayDash || !self.adapter.canPlayDash(stream))) {
           self.fail(new PlaybackError('UNSUPPORTED_FORMAT', 'DASH is not supported by this TV playback engine', false, false, null), session); return null;
         }
@@ -196,7 +248,7 @@ var PlaybackManager = (function () {
         /* Once a native HLS handoff succeeded, recover with that selected engine
            rather than bouncing back and forth between two decoders. */
         var engine = self.engine === 'hls' && self.hlsFallbackTried && stream.type === 'hls' ? 'hls' : 'native';
-        self.engine = engine;
+        self.engine = engine; self.metrics.sourceAssignedAt = Date.now();
         if (self.adapter && self.adapter.load) self.adapter.load(stream, session, engine);
         return stream;
       }, function (error) {
@@ -209,6 +261,8 @@ var PlaybackManager = (function () {
       if (!this.isCurrent(session) || this.state === STATES.STOPPING) return false;
       var error = PlaybackErrorClassifier(raw, this.stream);
       if (error.code === 'USER_CANCELLED') return false;
+      this.metrics.lastErrorCode = error.code;
+      if (error.code === 'NETWORK_ERROR' || error.code === 'TIMEOUT') this.metrics.networkErrors++;
       /* HLS has one controlled native-to-hls.js handover. It is an engine change,
          not a retry and cannot cycle back to native for the same session. */
       if (this.stream && this.stream.type === 'hls' && this.engine === 'native' && !this.hlsFallbackTried && this.adapter && this.adapter.canUseHls && this.adapter.canUseHls()) {
@@ -226,22 +280,36 @@ var PlaybackManager = (function () {
     },
     mediaEvent: function (name, detail) {
       if (!this.current || this.state === STATES.STOPPING) return;
-      detail = detail || {};
-      if (name === 'loadstart') { this._setState(STATES.LOADING, {}); this._log('Load started'); return; }
-      if (name === 'loadedmetadata') { this.hasMetadata = true; this.lastProgress = Date.now(); this._setState(STATES.READY, {}); this._log('Metadata loaded'); return; }
-      if (name === 'canplay') { this.lastProgress = Date.now(); if (this.state !== STATES.PLAYING) this._setState(STATES.READY, {}); this._log('Can play'); return; }
-      if (name === 'playing') { this.lastProgress = Date.now(); this._setState(STATES.PLAYING, { startupMs: Date.now() - this.startedAt }); this._log('Playing', { startupMs: Date.now() - this.startedAt, retry: this.recovery.attempt }); return; }
-      if (name === 'waiting' || name === 'stalled') { if (!this.userPaused && this.state !== STATES.RECOVERING) this._setState(STATES.BUFFERING, {}); return; }
-      if (name === 'timeupdate' || name === 'progress') { if (detail.progressed !== false) { this.lastProgress = Date.now(); if (this.state === STATES.BUFFERING) this._setState(STATES.PLAYING, {}); } return; }
+      detail = detail || {}; var now = Date.now(), recovered;
+      if (detail.networkState != null) this.metrics.networkState = Number(detail.networkState) || 0;
+      if (name === 'loadstart') { this.metrics.loadStartedAt = this.metrics.loadStartedAt || now; this._setState(STATES.LOADING, {}); this._log('Load started'); return; }
+      if (name === 'waiting' || name === 'stalled') { if (!this.userPaused && this.state !== STATES.RECOVERING) this.buffer.wait(); return; }
+      if (name === 'loadedmetadata') {
+        recovered = this.buffer.progressed(); this.hasMetadata = true; this.lastProgress = now; this.metrics.metadataLoadedAt = this.metrics.metadataLoadedAt || now;
+        this._setState(STATES.READY, { recovered: recovered }); this._log('Metadata loaded'); return;
+      }
+      if (name === 'canplay') {
+        recovered = this.buffer.progressed(); this.lastProgress = now; this.metrics.canPlayAt = this.metrics.canPlayAt || now;
+        if (this.state !== STATES.PLAYING) this._setState(STATES.READY, { recovered: recovered }); this._log('Can play'); return;
+      }
+      if (name === 'playing') {
+        this.buffer.progressed(); this.lastProgress = now; this.metrics.playingAt = this.metrics.playingAt || now;
+        this.metrics.startupDuration = Math.max(0, this.metrics.playingAt - this.metrics.startupStartedAt);
+        this._setState(STATES.PLAYING, { startupMs: this.metrics.startupDuration }); this._log('Playing', { startupMs: this.metrics.startupDuration, retry: this.recovery.attempt }); return;
+      }
+      if (name === 'timeupdate' || name === 'progress') {
+        if (detail.progressed !== false) { recovered = this.buffer.progressed(); this.lastProgress = now; if (this.state === STATES.BUFFERING) this._setState(STATES.PLAYING, { recovered: recovered }); }
+        return;
+      }
       if (name === 'pause') { return; }
     },
     mediaError: function (detail) { return this.fail(detail || {}, this.sessionId); },
-    setUserPaused: function (paused) { this.userPaused = !!paused; },
+    setUserPaused: function (paused) { this.userPaused = !!paused; if (this.userPaused) this.buffer.progressed(); },
     _retry: function (session) {
       if (!this.isCurrent(session)) return;
       var snapshot = this.adapter && this.adapter.snapshot ? this.adapter.snapshot() : {}, item = this.current;
       var resumeAt = item && item.type !== 'live' && item.type !== 'catchup' && snapshot && Number(snapshot.currentTime) > 5 ? Number(snapshot.currentTime) : 0;
-      this._abort(); this._clear(); this.abortController = makeAbortController(); this.startedAt = Date.now(); this.lastProgress = this.startedAt; this.hasMetadata = false;
+      this._abort(); this._clear(); this.abortController = makeAbortController(); this.startedAt = Date.now(); this.lastProgress = this.startedAt; this.hasMetadata = false; this.buffer.reset(this.startedAt);
       this._open(session, false, resumeAt);
     },
     retryNow: function () {
@@ -250,7 +318,11 @@ var PlaybackManager = (function () {
       /* Manual retry is a new session, invalidating any failed resolver promise. */
       this.play(this.current, this.options || {}); return true;
     },
-    online: function () { this.recovery.retryNow(this.sessionId); },
+    networkLost: function () {
+      if (!this.current || this.state === STATES.ERROR || this.state === STATES.STOPPING) return;
+      this.networkOffline = true; this.buffer.progressed(); this._setState(STATES.BUFFERING, { networkLost: true }); this._log('Network connection lost');
+    },
+    online: function () { this.networkOffline = false; this.recovery.retryNow(this.sessionId); },
     _watchdog: function () {
       if (!this.current || this.userPaused || this.state === STATES.RECOVERING || this.state === STATES.ERROR || this.recovery.pending()) return;
       var snap = this.adapter && this.adapter.snapshot ? this.adapter.snapshot() : {}, now = Date.now();
@@ -260,7 +332,7 @@ var PlaybackManager = (function () {
       else if (!this.hasMetadata && this.current.type !== 'live' && now - this.startedAt >= 6000 && this.state === STATES.LOADING) this._setState(STATES.LOADING, { elapsed: Math.round((now - this.startedAt) / 1000) });
     },
     stop: function (clearCurrent) {
-      this.sessionId++; this._setState(STATES.STOPPING, {}); this._abort(); this.recovery.cancel(); this._clear();
+      this.sessionId++; this._setState(STATES.STOPPING, {}); this._abort(); this.recovery.cancel(); this.buffer.reset(0); this._clear();
       if (clearCurrent !== false) { this.current = null; this.stream = null; this.options = null; }
       this._setState(STATES.IDLE, {});
     },

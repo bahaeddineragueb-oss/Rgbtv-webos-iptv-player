@@ -279,7 +279,7 @@ img{display:block}
 .preview-panel{flex:1;display:flex;flex-direction:column;min-width:0}
 .preview-video{height:380px;background:#000;border-radius:20px;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center;color:var(--muted)}
 .preview-video video{width:100%;height:100%;object-fit:contain}
-.preview-placeholder{font-size:24px}
+.preview-placeholder{font-size:24px}.preview-channel{display:flex;min-height:100%;padding:34px;box-sizing:border-box;flex-direction:column;justify-content:center;gap:9px;background:radial-gradient(circle at 20% 15%,rgba(var(--accent-rgb),.23),transparent 46%)}.preview-channel b{font-size:30px}.preview-channel span{font-size:18px;color:var(--muted)}.preview-channel small{margin-top:8px;font-size:16px;color:var(--muted)}
 .epg-box{background:var(--panel);border-radius:20px;padding:20px 24px}
 .epg-box .lbl{display:inline-block;width:80px;color:var(--accent);font-weight:800;font-size:18px}
 .epg-now,.epg-next{font-size:24px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -417,7 +417,7 @@ video::-webkit-media-controls{display:none!important}
 .player-loading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;display:none}
 .player-loading.show{display:block}
 .player-error{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(239,68,68,.92);padding:24px 40px;border-radius:14px;font-size:28px;display:none;max-width:1200px;text-align:center}
-.player-error.show{display:block}.player-error #player-error-text{display:block}.player-error #player-retry{margin:18px auto 0;font-size:20px;display:block;background:#fff;color:#991b1b}.player-error #player-retry.focus{box-shadow:0 0 0 4px rgba(255,255,255,.55)}
+.player-error.show{display:block}.player-error #player-error-text{display:block}.player-error-actions{display:flex;justify-content:center;gap:14px;margin-top:18px}.player-error #player-retry,.player-error #player-error-back{margin:0;font-size:20px;display:block}.player-error #player-retry{background:#fff;color:#991b1b}.player-error #player-retry.focus,.player-error #player-error-back.focus{box-shadow:0 0 0 4px rgba(255,255,255,.55)}
 .osd{position:absolute;top:0;left:0;right:0;bottom:0;opacity:0;transition:opacity .3s;pointer-events:none}
 .osd.show{opacity:1}
 .osd-top{position:absolute;top:0;left:0;right:0;padding:40px 60px;display:flex;align-items:center;background:linear-gradient(180deg,rgba(0,0,0,.85),transparent)}

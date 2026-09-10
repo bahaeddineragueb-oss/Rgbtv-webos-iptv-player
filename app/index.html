@@ -307,7 +307,7 @@
         <div class="setting-row"><div><b data-i18n="set.liveFormat">Live stream format</b><p class="muted" data-i18n="set.liveFormat.d">Xtream only. HLS works on more TVs; TS is lower latency.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="liveFormat">HLS (m3u8)</button></div>
         <div class="setting-row"><div><b data-i18n="set.engine">Player engine</b><p class="muted" data-i18n="set.engine.d">Auto tries native first then hls.js.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="engine">Auto</button></div>
         <div class="setting-row"><div><b data-i18n="set.parental">Parental control</b><p class="muted" id="parental-desc" data-i18n="set.parental.d">Hide adult categories.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="parental">On</button></div>
-        <div class="setting-row"><div><b data-i18n="set.preview">Live preview window</b><p class="muted" data-i18n="set.preview.d">Play the highlighted channel in the small preview. Turn off on slow TVs.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="preview">On</button></div>
+        <div class="setting-row"><div><b data-i18n="set.preview">Channel preview card</b><p class="muted" data-i18n="set.preview.d">Show lightweight channel details while browsing; it never opens a second live stream.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="preview">On</button></div>
         <div class="setting-row"><div><b data-i18n="set.autostart">Auto-start last profile</b><p class="muted" data-i18n="set.autostart.d">Skip the profile screen on launch (PIN still required).</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="autostart">Off</button></div>
         <div class="setting-row"><div><b data-i18n="set.tmdb">TMDB artwork &amp; ratings</b><p class="muted" data-i18n="set.tmdb.d">Optional. Paste a TMDB API key (v3) to enrich movies &amp; series with backdrops, plots and ratings.</p></div><input class="focusable setting-input" data-nav="settings" id="tmdb-key" placeholder="TMDB API key"></div>
         <div class="setting-row"><div><b data-i18n="set.cache">Clear cache</b><p class="muted" data-i18n="set.cache.d">Remove cached categories, lists, EPG and artwork.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="clear-cache" data-i18n="clear">Clear</button></div>
@@ -315,7 +315,7 @@
         <div class="setting-row"><div><b data-i18n="pair.btn">Add from phone</b><p class="muted" data-i18n="pair.set.d">Show a QR code; type the server details on your phone instead of the remote.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="pair-phone">📱 QR</button></div>
         <div class="setting-row"><div><b data-i18n="backup.title">Backup &amp; restore</b><p class="muted" data-i18n="backup.settings.d">Create a portable backup code for profiles, favorites and settings.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="backup-open" data-i18n="backup.open">Open</button></div>
         <div class="setting-row"><div><b data-i18n="set.profile">Profile</b><p class="muted" id="settings-account-info"></p></div><div class="setting-actions"><button class="btn ghost focusable" data-nav="settings" data-action="edit-account" data-i18n="edit">Edit</button><button class="btn ghost focusable" data-nav="settings" data-action="switch-account" data-i18n="switch">Switch</button></div></div>
-        <div class="setting-row"><div><b data-i18n="set.about">About</b><p class="muted">RGBTv v2.5.6 for LG webOS · Xtream Codes · Stalker Portal · M3U · Native player + hls.js</p></div><button class="btn ghost focusable" data-nav="settings" data-action="exit-app" data-i18n="set.exit">Exit App</button></div>
+        <div class="setting-row"><div><b data-i18n="set.about">About</b><p class="muted">RGBTv v2.6.0 · Player V2 for LG webOS · Xtream Codes · Stalker Portal · M3U · Native player + hls.js</p></div><button class="btn ghost focusable" data-nav="settings" data-action="exit-app" data-i18n="set.exit">Exit App</button></div>
       </div>
     </section>
   </main>
@@ -359,7 +359,7 @@
   <!-- Fallback grading layer: native webOS video planes may ignore CSS filters. -->
   <div class="picture-fx" id="picture-fx" aria-hidden="true"></div>
   <div class="player-loading" id="player-loading"><div class="loader"></div><span id="player-loading-text">Loading…</span></div>
-  <div class="player-error" id="player-error"><span id="player-error-text"></span><button class="btn focusable" data-nav="osd" data-action="p-retry" id="player-retry" data-i18n="retry" style="display:none">Retry</button></div>
+  <div class="player-error" id="player-error"><span id="player-error-text"></span><div class="player-error-actions"><button class="btn focusable" data-nav="osd" data-action="p-retry" id="player-retry" data-i18n="retry" style="display:none">Retry</button><button class="btn ghost focusable" data-nav="osd" data-action="p-back" id="player-error-back" data-i18n="p.backChannels" style="display:none">Back to channels</button></div></div>
   <div class="osd" id="osd">
     <div class="osd-top">
       <div class="osd-logo" id="osd-logo"></div>
@@ -372,6 +372,7 @@
       <div class="osd-times"><span id="osd-cur">00:00</span><span id="osd-dur">00:00</span></div>
       <div class="osd-controls">
         <button class="osd-btn focusable" data-nav="osd" data-action="p-prev"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg></button>
+        <button class="osd-btn focusable" data-nav="osd" data-action="p-recall" data-i18n="p.recall">Recall</button>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-rew"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M11 18V6l-8.5 6zm.5-6 8.5 6V6z"/></svg></button>
         <button class="osd-btn focusable big" data-nav="osd" data-action="p-play" id="osd-play"><svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg></button>
         <button class="osd-btn focusable" data-nav="osd" data-action="p-ffw"><svg viewBox="0 0 24 24" width="30" height="30" fill="currentColor"><path d="M4 18l8.5-6L4 6zm9 0 8.5-6L13 6z"/></svg></button>

@@ -108,6 +108,30 @@ async function testFallbackAndBoundedRecovery() {
   assert.strictEqual(exhausted.errors.length, 1);
 }
 
+async function testSmartBufferAndMetrics() {
+  var h = harness(function () { return Promise.resolve(stream('metrics', 'mpegts')); });
+  await h.manager.play({ id: 'metrics', type: 'live' }, {});
+  h.manager.mediaEvent('loadstart', { networkState: 2 });
+  h.manager.mediaEvent('loadedmetadata');
+  h.manager.mediaEvent('canplay');
+  h.manager.mediaEvent('playing');
+  var metric = h.manager.diagnostics();
+  assert.ok(metric.startupStartedAt > 0 && metric.sourceAssignedAt > 0 && metric.loadStartedAt > 0, 'V2 records startup/source/load timestamps');
+  assert.ok(metric.metadataLoadedAt > 0 && metric.canPlayAt > 0 && metric.playingAt > 0, 'V2 records metadata/canplay/playing timestamps');
+  assert.ok(metric.startupDuration >= 0 && metric.networkState === 2, 'startup duration and available network state are local diagnostics');
+  h.manager.mediaEvent('waiting');
+  assert.strictEqual(h.manager.state, context.PlaybackManager.STATES.PLAYING, 'transient waiting does not immediately flash a buffering state');
+  await wait(750);
+  assert.strictEqual(h.manager.state, context.PlaybackManager.STATES.BUFFERING, 'short live waiting becomes buffering only after the SmartBuffer grace period');
+  assert.strictEqual(h.manager.diagnostics().bufferingCount, 1);
+  h.manager.mediaEvent('progress', { progressed: true });
+  assert.strictEqual(h.manager.state, context.PlaybackManager.STATES.PLAYING, 'real progress clears buffering without a reconnect');
+  h.manager.networkLost();
+  assert.strictEqual(h.manager.state, context.PlaybackManager.STATES.BUFFERING, 'offline signal presents a network-lost buffering state without opening another source');
+  h.manager.mediaEvent('progress', { progressed: true });
+  assert.strictEqual(h.manager.state, context.PlaybackManager.STATES.PLAYING);
+}
+
 async function testCancellationAndErrorPolicy() {
   var calls = 0, h = harness(function (item) {
     calls++;
@@ -138,6 +162,7 @@ async function testCancellationAndErrorPolicy() {
   await testDetectionAndNormalization();
   await testSessionRaceAndRapidSwitching();
   await testFallbackAndBoundedRecovery();
+  await testSmartBufferAndMetrics();
   await testCancellationAndErrorPolicy();
   console.log('Playback manager regression checks passed');
 })().catch(function (error) { console.error(error.stack || error); process.exitCode = 1; });

@@ -80,7 +80,8 @@ function playerHarness(canPlayType) {
   video.removeEventListener = function (name, fn) { handlers[name] = (handlers[name] || []).filter(function (saved) { return saved !== fn; }); };
   function emit(name) { (handlers[name] || []).slice().forEach(function (fn) { fn(); }); }
   function getNode(id) { return nodes[id] || (nodes[id] = element()); }
-  function Hls(config) { this.config = config; this.events = {}; hlsInstances.push(this); }
+  var trackPrefs = {};
+  function Hls(config) { this.config = config; this.events = {}; this.audioTracks = []; this.subtitleTracks = []; this.audioTrack = -1; this.subtitleTrack = -1; hlsInstances.push(this); }
   Hls.isSupported = function () { return true; };
   Hls.Events = { MANIFEST_PARSED: 'manifest', ERROR: 'error' };
   Hls.ErrorTypes = { NETWORK_ERROR: 'network', MEDIA_ERROR: 'media' };
@@ -108,6 +109,7 @@ function playerHarness(canPlayType) {
     Store: {
       settings: function () { return settingValues; }, setSetting: function (key, value) { settingValues[key] = value; },
       isFav: function () { return false; }, pushHistory: function () {}, getPos: function () {}, setPos: function () {},
+      trackPref: function (account, item) { return trackPrefs[item.type + ':' + item.id] || null; }, setTrackPref: function (account, item, kind, value) { var key = item.type + ':' + item.id; trackPrefs[key] = trackPrefs[key] || {}; trackPrefs[key][kind] = value; },
       toggleFav: function () { return false; }
     },
     App: { account: { id: 'test' }, isScreen: function () { return true; }, provider: { streamUrl: function (item) { return Promise.resolve(item.url); } } },
@@ -117,7 +119,7 @@ function playerHarness(canPlayType) {
   vm.runInNewContext(fs.readFileSync(ROOT + '/app/js/playback-manager.js', 'utf8'), context, { filename: 'playback-manager.js' });
   vm.runInNewContext(fs.readFileSync(ROOT + '/app/js/player.js', 'utf8'), context, { filename: 'player.js' });
   context.Player.init();
-  return { player: context.Player, video: video, emit: emit, hls: hlsInstances };
+  return { player: context.Player, video: video, emit: emit, hls: hlsInstances, nodes: nodes, trackPrefs: trackPrefs, settings: settingValues };
 }
 
 async function testM3UStreamContract(parsed) {
@@ -141,6 +143,10 @@ async function testPlayerFallback(parsed) {
   var sent = [];
   native.hls[0].config.xhrSetup({ setRequestHeader: function (key, value) { sent.push([key, value]); } });
   assert.deepStrictEqual(sent, [['User-Agent', 'RGBTv Player'], ['Referer', 'https://provider.example/']], 'per-stream annotations must be available to direct hls.js requests');
+  native.hls[0].audioTracks = [{ lang: 'ar', name: 'Arabic' }, { lang: 'en', name: 'English' }]; native.hls[0].audioTrack = 1;
+  native.player.action('p-audio'); native.nodes['track-menu'].children[0].onclick();
+  assert.strictEqual(native.hls[0].audioTrack, 0, 'Audio manager switches only an exposed HLS audio track');
+  assert.strictEqual(native.trackPrefs['live:' + stream.id].audio.key, 'ar', 'chosen exposed audio track is remembered per channel');
 
   var route = 'https://edge.example/get.php?username=user&password=pass&output=m3u8';
   var extensionless = playerHarness('probably');
@@ -150,6 +156,10 @@ async function testPlayerFallback(parsed) {
   extensionless.emit('error');
   assert.strictEqual(extensionless.hls.length, 1, 'output=m3u8 HLS token routes must receive the fallback');
   assert.strictEqual(extensionless.hls[0].url, route);
+  extensionless.hls[0].subtitleTracks = [{ lang: 'fr', name: 'French' }];
+  extensionless.player.action('p-subs'); extensionless.nodes['track-menu'].children[1].onclick();
+  assert.strictEqual(extensionless.hls[0].subtitleTrack, 0, 'Subtitle manager switches only an exposed HLS subtitle track');
+  assert.strictEqual(extensionless.trackPrefs['live:route'].subs.key, 'fr', 'chosen subtitle track is remembered per channel');
 
   var noNativeHls = playerHarness('');
   await noNativeHls.player.play({ type: 'live', id: 'forced', name: 'No native HLS', url: route });
@@ -160,6 +170,15 @@ async function testPlayerFallback(parsed) {
   await transport.player.play({ type: 'live', id: 'ts', name: 'MPEG TS', url: tsUrl });
   assert.strictEqual(transport.video.src, tsUrl, 'MPEG-TS stays on the webOS native media path when selected');
   assert.strictEqual(transport.hls.length, 0, 'MPEG-TS is never forced through an HLS adapter');
+  transport.player.action('p-ratio');
+  assert.strictEqual(transport.video.className, 'fill', 'the active aspect mode applies without replacing the player');
+  assert.strictEqual(transport.settings.aspectRatio, 'fill', 'the supported aspect preference is persisted');
+
+  var recall = playerHarness('probably'), first = { type: 'live', id: 'a', name: 'Alpha', url: 'https://edge.example/a.ts' }, second = { type: 'live', id: 'b', name: 'Bravo', url: 'https://edge.example/b.ts' }, channels = [first, second];
+  await recall.player.play(first, { list: channels, index: 0 });
+  await recall.player.play(second, { list: channels, index: 1 });
+  recall.player.action('p-recall'); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  assert.strictEqual(recall.video.src, first.url, 'Recall returns to the previous live channel through the same manager/video instance');
 }
 
 (async function () {

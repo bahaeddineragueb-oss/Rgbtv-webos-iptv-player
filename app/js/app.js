@@ -3,7 +3,7 @@ var App = (function () {
   var screen = 'splash', section = 'home', account = null, provider = null;
   /* Stalker pages are appended on demand. The VList below remains bounded to its
      visible window, while this state holds only metadata already requested. */
-  var live = { cats: [], catId: null, list: [], selected: null, previewTimer: null, epgTimer: null, previewVideo: null, previewHls: null, previewGeneration: 0, request: 0, pager: null };
+  var live = { cats: [], catId: null, list: [], selected: null, previewTimer: null, epgTimer: null, previewGeneration: 0, request: 0, pager: null };
   var movies = { cats: [], catId: null, list: [], request: 0 }, series = { cats: [], catId: null, list: [], request: 0 };
   var favoriteListId = 'all';
   var details = { base: null, info: null, season: null, list: null };
@@ -685,28 +685,19 @@ var App = (function () {
     live.selected = ch; clearTimeout(live.previewTimer); clearTimeout(live.epgTimer);
     if (live.vl) live.vl.setSelected(ch.id);
     live.epgTimer = setTimeout(function () { epgFor(ch, 12).then(function (l) { if (live.selected === ch) UI.renderEpg(l); }); }, 600);
-    /* Browsing M3U stays decoder-free. Stalker also resolves create_link only on
-       an explicit play: resolving every focused row consumes portal sessions and
-       can trigger a rate limit before the viewer chooses a channel. */
-    if (Store.settings().preview && App.provider && App.provider.type !== 'm3u' && App.provider.type !== 'stalker' && !needsUnlock(ch) && !Nav.byPointer()) live.previewTimer = setTimeout(function () { startPreview(ch); }, 1200);
+    /* V2 preview is deliberately metadata-only. The old implementation opened a
+       second video decoder and ran its own retry path while the user browsed,
+       competing with the one authoritative player and creating extra live
+       connections. EPG below stays asynchronous and cached. */
+    if (Store.settings().preview && !Nav.byPointer()) live.previewTimer = setTimeout(function () { startPreview(ch); }, 180);
   }
   function startPreview(ch) {
-    stopPreview(); var generation = ++live.previewGeneration, box = U.$('#live-preview'); box.innerHTML = '';
-    var v = document.createElement('video'); v.autoplay = true; v.setAttribute('disableRemotePlayback', ''); box.appendChild(v); live.previewVideo = v;
-    provider.streamUrl(ch).then(function (url) {
-      if (live.selected !== ch || generation !== live.previewGeneration || live.previewVideo !== v) return;
-      var eng = Store.settings().engine;
-      if (/\.m3u8(\?|$)/i.test(url) && window.Hls && Hls.isSupported() && (eng === 'hlsjs' || (eng === 'auto' && !v.canPlayType('application/vnd.apple.mpegurl')))) { live.previewHls = new Hls({ enableWorker: false, maxBufferLength: 15 }); live.previewHls.loadSource(url); live.previewHls.attachMedia(v); }
-      else { v.src = url; v.play().catch(function () { }); }
-      v.onerror = function () { if (live.selected === ch && generation === live.previewGeneration && live.previewVideo === v && !v._retried) { v._retried = true; setTimeout(function () { if (live.selected === ch && generation === live.previewGeneration && live.previewVideo === v) { v.src = url; v.play().catch(function () { }); } }, 3000); } };
-    }).catch(function () { });
+    var generation = ++live.previewGeneration, box = U.$('#live-preview');
+    if (!box || live.selected !== ch || generation !== live.previewGeneration) return;
+    box.innerHTML = '<div class="preview-placeholder preview-channel"><b>' + U.esc(ch.name || '') + '</b><span>' + U.esc(ch.catName || '') + '</span><small>' + U.esc(T('preview.watch')) + '</small></div>';
   }
   function stopPreview() {
-    /* Invalidate an outstanding streamUrl promise before tearing down this decoder. */
-    live.previewGeneration++;
-    clearTimeout(live.previewTimer);
-    if (live.previewHls) { try { live.previewHls.destroy(); } catch (e) { } live.previewHls = null; }
-    if (live.previewVideo) { try { live.previewVideo.pause(); live.previewVideo.removeAttribute('src'); live.previewVideo.load(); } catch (e) { } live.previewVideo = null; }
+    live.previewGeneration++; clearTimeout(live.previewTimer);
     var box = U.$('#live-preview'); if (box) box.innerHTML = '<div class="preview-placeholder">' + U.esc(T('selectChannel')) + '</div>';
   }
   function toggleLockChannel(ch) {
@@ -1302,7 +1293,7 @@ var App = (function () {
   function initAmbient() {
     document.addEventListener('keydown', noteActivity, true); document.addEventListener('mousemove', noteActivity, true); document.addEventListener('click', noteActivity, true);
     document.addEventListener('touchstart', noteActivity, true);
-    setInterval(function () { if (amb.on || !Store.settings().ambient || !account || document.body.classList.contains('mobile')) return; if (screen === 'player' || screen === 'splash' || screen === 'pin' || UI.modalOpen()) { amb.last = Date.now(); return; } if (live.previewVideo) { amb.last = Date.now(); return; } if (Date.now() - amb.last > 5 * 60000) showAmbient(); }, 10000);
+    setInterval(function () { if (amb.on || !Store.settings().ambient || !account || document.body.classList.contains('mobile')) return; if (screen === 'player' || screen === 'splash' || screen === 'pin' || UI.modalOpen()) { amb.last = Date.now(); return; } if (Date.now() - amb.last > 5 * 60000) showAmbient(); }, 10000);
   }
   function showAmbient() {
     var pool = []; var favs = Store.favorites(account.id), hist = Store.history(account.id);
