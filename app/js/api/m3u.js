@@ -29,6 +29,15 @@ var M3U_CLIENT_PROFILES = {
 };
 function m3uCopy(obj) { var out = {}, k; for (k in obj || {}) if (Object.prototype.hasOwnProperty.call(obj, k)) out[k] = obj[k]; return out; }
 function m3uDecode(s) { try { return decodeURIComponent(String(s || '').replace(/\+/g, '%20')); } catch (e) { return String(s || ''); } }
+/* Keep stream annotations bounded and free of control characters before they are
+   saved in the playlist cache. These headers are useful to hls.js when a browser
+   permits them; the channel URL itself always stays a direct player URL. */
+function m3uAddHeader(headers, rawKey, rawValue) {
+  var key = String(rawKey || '').toLowerCase().replace(/[_\s]/g, '-'), val = m3uDecode(rawValue).trim();
+  if (!headers || /[\r\n]/.test(val)) return;
+  if ((key === 'user-agent' || key === 'http-user-agent') && val.length && val.length <= 512) headers['User-Agent'] = val;
+  else if ((key === 'referer' || key === 'referrer' || key === 'http-referrer' || key === 'http-referer') && /^https?:\/\//i.test(val) && val.length <= 2048) headers.Referer = val;
+}
 /* Supports the familiar URL|User-Agent=...&Referer=... form. The suffix is removed
    before playlist parsing, so relative channel URLs remain correct. */
 function m3uSource(raw) {
@@ -38,9 +47,8 @@ function m3uSource(raw) {
   out.url = raw.slice(0, pos).trim(); parts = raw.slice(pos + 1).split('&');
   for (i = 0; i < parts.length; i++) {
     pair = parts[i]; eq = pair.indexOf('='); if (eq < 1) continue;
-    key = m3uDecode(pair.slice(0, eq)).toLowerCase().replace(/[_\s]/g, '-'); val = m3uDecode(pair.slice(eq + 1)).trim();
-    if (key === 'user-agent' && val.length <= 512) out.headers['User-Agent'] = val;
-    else if ((key === 'referer' || key === 'referrer') && /^https?:\/\//i.test(val) && val.length <= 2048) out.headers.Referer = val;
+    key = m3uDecode(pair.slice(0, eq)); val = pair.slice(eq + 1);
+    m3uAddHeader(out.headers, key, val);
   }
   return out;
 }
@@ -177,19 +185,28 @@ M3UProvider.prototype = {
       if (l.indexOf('#EXTINF') === 0) {
         var attrs = this._parseAttrs(l);
         var comma = l.indexOf(','), name = comma >= 0 ? l.slice(comma + 1).trim() : '';
-        cur = { name: name || attrs['tvg-name'] || 'Unknown', logo: attrs['tvg-logo'] || '', group: attrs['group-title'] || 'Uncategorized', epgId: attrs['tvg-id'] || '' };
+        cur = { name: name || attrs['tvg-name'] || 'Unknown', logo: attrs['tvg-logo'] || '', group: attrs['group-title'] || 'Uncategorized', epgId: attrs['tvg-id'] || '', streamHeaders: {} };
+        m3uAddHeader(cur.streamHeaders, 'user-agent', attrs['user-agent'] || attrs['http-user-agent']);
+        m3uAddHeader(cur.streamHeaders, 'referer', attrs.referer || attrs.referrer || attrs['http-referrer'] || attrs['http-referer']);
+      } else if (cur && /^#EXTVLCOPT:/i.test(l)) {
+        /* VLC-style sidecar lines belong to the preceding EXTINF entry. */
+        var option = /^#EXTVLCOPT:\s*([^=]+)=(.*)$/i.exec(l);
+        if (option) m3uAddHeader(cur.streamHeaders, option[1], option[2]);
       } else if (l[0] === '#') continue;
       else if (cur) {
-        cur.url = this._absoluteUrl(l);
+        var source = m3uSource(this._absoluteUrl(l));
+        cur.url = source.url;
+        for (var headerName in source.headers) if (Object.prototype.hasOwnProperty.call(source.headers, headerName)) cur.streamHeaders[headerName] = source.headers[headerName];
         var type = this._guessType(cur), stable = U.sha1(cur.url).substr(0, 16);
         var item = { id: 'm' + stable, name: cur.name, logo: cur.logo, poster: cur.logo, catId: cur.group, catName: cur.group, epgId: cur.epgId, url: cur.url, num: out.length + 1 };
+        if (Object.keys(cur.streamHeaders).length) item.streamHeaders = cur.streamHeaders;
         if (type === 'series') {
           var sm = cur.name.match(/^(.*?)[\s\-]*S(\d{1,2})\s*E(\d{1,3})/i);
           var sName = sm ? sm[1].trim() : cur.name, key = cur.group + '|' + sName.toLowerCase();
           if (!seriesMap[key]) { seriesMap[key] = { type: 'series', id: 's' + U.sha1(key).substr(0, 16), name: sName, poster: cur.logo, catId: cur.group, catName: cur.group, seasons: {} }; out.push(seriesMap[key]); }
           var s = sm ? Number(sm[2]) : 1, e = sm ? Number(sm[3]) : Object.keys(seriesMap[key].seasons).length + 1;
           if (!seriesMap[key].seasons[s]) seriesMap[key].seasons[s] = [];
-          seriesMap[key].seasons[s].push({ type: 'episode', id: item.id, seriesId: seriesMap[key].id, season: s, episode: e, name: cur.name, url: cur.url, thumb: cur.logo, catId: cur.group });
+          seriesMap[key].seasons[s].push({ type: 'episode', id: item.id, seriesId: seriesMap[key].id, season: s, episode: e, name: cur.name, url: cur.url, streamHeaders: item.streamHeaders, thumb: cur.logo, catId: cur.group });
         } else { item.type = type; out.push(item); }
         cur = null;
       }

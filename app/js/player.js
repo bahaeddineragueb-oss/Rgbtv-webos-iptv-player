@@ -8,6 +8,14 @@ var Player = (function () {
   function T(k, v) { return I18n.t(k, v); }
   var RC_MAX = 8, RC_DELAYS = [1000, 2000, 3000, 5000, 8000, 10000, 15000, 20000], STALL_LIVE = 12000, STALL_VOD = 30000, START_VOD = 60000;
   var ICON_PLAY = '<svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M7 4v16l14-8z"/></svg>', ICON_PAUSE = '<svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';
+  /* A large number of panels serve HLS from get.php, a token route, or an
+     extensionless /playlist endpoint. The native webOS player remains first, but
+     these routes must still be eligible for the one hls.js fallback on a native
+     failure. URL|header annotations are intentionally ignored for detection. */
+  function isHlsStream(url) {
+    url = String(url || '').replace(/\|.*$/, '');
+    return /\.m3u8(?:[?#]|$)|[?&](?:type|output|format|extension)=m3u8(?:[&#]|$)|\/(?:hls|playlist)(?:[/?#]|$)/i.test(url);
+  }
 
   function init() {
     video = U.$('#video'); try { video.preload = 'auto'; } catch (e) { }
@@ -32,8 +40,9 @@ var Player = (function () {
     video.addEventListener('error', function () {
       var code = video.error && video.error.code;
       if (hls) return; // hls.js reports its own errors
-      // Try hls.js fallback if native failed with an m3u8
-      if (current && /\.m3u8(\?|$)/i.test(current.url) && window.Hls && Hls.isSupported() && !current._triedHls) { current._triedHls = true; current._engine = 'hls'; startHls(current.url); return; }
+      /* Do not reconnect to the same native decoder when it has already rejected
+         an HLS route. tryHlsFallback keeps the original, direct stream URL. */
+      if (tryHlsFallback()) return;
       // code 4 = SRC_NOT_SUPPORTED (often a dead link / 404) ; 2 = NETWORK ; 3 = DECODE
       scheduleReconnect(T('p.error') + (code ? ' (code ' + code + ')' : ''));
     });
@@ -72,9 +81,26 @@ var Player = (function () {
   function error(msg) { els['player-error'].classList.toggle('show', !!msg); if (msg) els['player-error'].textContent = msg; }
 
   function destroyHls() { if (hls) { try { hls.destroy(); } catch (e) { } hls = null; } }
+  function hlsHeaderSetup(headers) {
+    var safe = {}, key, value, has = false;
+    for (key in headers || {}) if (Object.prototype.hasOwnProperty.call(headers, key)) {
+      value = String(headers[key] || '');
+      if (value && value.length <= 2048 && !/[\r\n]/.test(value)) { safe[key] = value; has = true; }
+    }
+    if (!has) return null;
+    return function (xhr) {
+      for (key in safe) if (Object.prototype.hasOwnProperty.call(safe, key)) {
+        /* Browsers can forbid User-Agent/Referer. Never let that prevent a direct
+           HLS request from opening; permitted IPTV headers are still forwarded. */
+        try { xhr.setRequestHeader(key, safe[key]); } catch (e) { }
+      }
+    };
+  }
   function startHls(url) {
     destroyHls();
-    hls = new Hls({ maxBufferLength: 30, maxMaxBufferLength: 60, liveSyncDurationCount: 3, enableWorker: false, fragLoadingTimeOut: 20000, manifestLoadingTimeOut: 10000, manifestLoadingMaxRetry: 1, levelLoadingMaxRetry: 2, fragLoadingMaxRetry: 3 });
+    var cfg = { maxBufferLength: 30, maxMaxBufferLength: 60, liveSyncDurationCount: 3, enableWorker: false, fragLoadingTimeOut: 20000, manifestLoadingTimeOut: 10000, manifestLoadingMaxRetry: 1, levelLoadingMaxRetry: 2, fragLoadingMaxRetry: 3 }, setup = hlsHeaderSetup(current && current.streamHeaders);
+    if (setup) cfg.xhrSetup = setup;
+    hls = new Hls(cfg);
     hls.loadSource(url); hls.attachMedia(video);
     hls.on(Hls.Events.MANIFEST_PARSED, function () { video.play().catch(function () { }); setTimeout(updateQualityBadge, 1500); });
     hls.on(Hls.Events.ERROR, function (ev, data) {
@@ -86,8 +112,21 @@ var Player = (function () {
   }
 
   /* ---- auto-reconnect ---- */
+  function tryHlsFallback() {
+    /* Native playback remains the default. This is a single, direct-URL fallback
+       only after it has failed or stalled; it does not create a proxy, second
+       stream, or a retry loop. */
+    if (!current || current.type !== 'live' || current._engine !== 'native' || current._triedHls || !isHlsStream(current.url) || !window.Hls || !Hls.isSupported()) return false;
+    current._triedHls = true; current._engine = 'hls'; rc.lastProgress = Date.now(); rc.started = false;
+    try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) { }
+    loading(true, T('p.engineFallback')); startHls(current.url);
+    return true;
+  }
   function scheduleReconnect(reason) {
     if (!current || !rc.active || rc.timer) return;
+    /* A webOS native player can accept an HLS URL yet never produce a frame. Do
+       the direct hls.js handover once instead of endlessly reconnecting native. */
+    if (tryHlsFallback()) return;
     if (rc.attempts >= RC_MAX) { rc.active = false; loading(false); error(reason + ' ' + T('p.retryHint', { max: RC_MAX })); return; }
     var delay = RC_DELAYS[Math.min(rc.attempts, RC_DELAYS.length - 1)]; rc.attempts++;
     error(null); loading(true, T('reconnecting', { n: rc.attempts, max: RC_MAX }));
@@ -109,7 +148,7 @@ var Player = (function () {
     }).catch(function () { rc.attempts = keepAttempts; scheduleReconnect('Cannot resolve stream'); });
   }
   function startSource(url, item) {
-    var eng = Store.settings().engine, isHlsUrl = /\.m3u8(\?|$)/i.test(url), hlsOk = isHlsUrl && window.Hls && Hls.isSupported();
+    var eng = Store.settings().engine, isHlsUrl = isHlsStream(url), hlsOk = isHlsUrl && window.Hls && Hls.isSupported();
     var useHls = hlsOk && (eng === 'hlsjs' || (eng === 'auto' && !video.canPlayType('application/vnd.apple.mpegurl')) || item._engine === 'hls');
     if (useHls) { item._triedHls = true; item._engine = 'hls'; startHls(url); }
     else { item._engine = 'native'; video.src = url; video.load(); video.play().catch(function () { }); }
