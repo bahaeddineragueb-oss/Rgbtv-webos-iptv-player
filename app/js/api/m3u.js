@@ -276,17 +276,39 @@ M3UGetPhpProvider.prototype = {
     return this.xtream.login().then(function (info) {
       self.active = self.xtream; info.status = info.status || 'Xtream API'; info.source = 'xtream'; return info;
     }).catch(function () {
-      return self.playlist.login().then(function (info) {
-        self.active = self.playlist; info.source = 'm3u'; return info;
+      return self._usePlaylist();
+    });
+  },
+  _usePlaylist: function () {
+    var self = this;
+    if (this.active === this.playlist) return Promise.resolve({ status: 'Loaded', source: 'm3u' });
+    if (this._playlistPending) return this._playlistPending;
+    var p = this.playlist.login().then(function (info) { self.active = self.playlist; info.source = 'm3u'; self._playlistPending = null; return info; }, function (e) { self._playlistPending = null; throw e; });
+    this._playlistPending = p; return p;
+  },
+  /* A get.php URL remains a valid M3U subscription even when player_api.php
+     logs in but its very large VOD/series actions time out. Switch only this
+     wrapper to the already-supported text playlist in that situation. */
+  _catalog: function (method, args) {
+    var self = this, current = this._provider();
+    return current[method].apply(current, args).catch(function (err) {
+      if (current !== self.xtream) throw err;
+      if (method === 'liveStreams' || method === 'vodStreams' || method === 'seriesList') self.catalogFallback = true;
+      return self._usePlaylist().then(function () {
+        /* Xtream category IDs do not necessarily match M3U group names. On a
+           fallback, return the compatible complete type list rather than an
+           empty pane; subsequent category loads use the M3U categories. */
+        if (method === 'liveStreams' || method === 'vodStreams' || method === 'seriesList') return self.playlist[method](null);
+        return self.playlist[method].apply(self.playlist, args);
       });
     });
   },
-  liveCategories: function () { return this._provider().liveCategories(); },
-  vodCategories: function () { return this._provider().vodCategories(); },
-  seriesCategories: function () { return this._provider().seriesCategories(); },
-  liveStreams: function (catId) { return this._provider().liveStreams(catId); },
-  vodStreams: function (catId) { return this._provider().vodStreams(catId); },
-  seriesList: function (catId) { return this._provider().seriesList(catId); },
+  liveCategories: function () { return this._catalog('liveCategories', arguments); },
+  vodCategories: function () { return this._catalog('vodCategories', arguments); },
+  seriesCategories: function () { return this._catalog('seriesCategories', arguments); },
+  liveStreams: function (catId) { return this._catalog('liveStreams', arguments); },
+  vodStreams: function (catId) { return this._catalog('vodStreams', arguments); },
+  seriesList: function (catId) { return this._catalog('seriesList', arguments); },
   vodInfo: function (id, item) { return this._provider().vodInfo(id, item); },
   seriesInfo: function (id, item) { return this._provider().seriesInfo(id, item); },
   shortEPG: function (streamId, limit) { return this._provider().shortEPG(streamId, limit); },

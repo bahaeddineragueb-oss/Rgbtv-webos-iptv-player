@@ -45,8 +45,12 @@ StalkerProvider.prototype = {
   },
   _call: function (params, noRetry) {
     var self = this;
-    /* Self-signed TLS remains opt-in per trusted portal; secure verification is the default. */
-    return U.getJSON(this._url(params), this._headers(), { insecureTls: this.acc.insecureTls === true }).then(function (r) {
+    /* Self-signed TLS remains opt-in per trusted portal; secure verification is the default.
+       A VOD/series page can be slow on a busy portal, so do not apply the tiny
+       handshake timeout to catalogue data that is still arriving normally. */
+    var opt = { insecureTls: this.acc.insecureTls === true };
+    if (params && (params.action === 'get_ordered_list' || params.action === 'get_all_channels' || (params.action === 'get_categories' && params.type !== 'itv'))) opt.timeout = 120000;
+    return U.getJSON(this._url(params), this._headers(), opt).then(function (r) {
       var result = r && typeof r === 'object' && 'js' in r ? r.js : r;
       /* Some Ministra versions put a JSON object inside the `js` string. */
       if (typeof result === 'string' && /^[\[{]/.test(result.trim())) { try { result = JSON.parse(result); } catch (x) { } }

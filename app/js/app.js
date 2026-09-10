@@ -727,8 +727,11 @@ var App = (function () {
     U.$('#movies-cats')._vlist = null; UI.skeletonList(U.$('#movies-cats'), 8); U.$('#movies-grid')._vlist = null; UI.skeletonGrid(U.$('#movies-grid'));
     provider.vodCategories().then(function (cats) {
       movies.cats = cats; U.$('#movies-cats').classList.remove('sk-list');
-      UI.renderCats(U.$('#movies-cats'), withAll(cats, T('allMovies')), null, 'mcat', function (c) { selectGridCat('movies', c); });
-      selectGridCat('movies', { id: null, name: T('allMovies') }); Nav.focus(U.$('#movies-cats .cat-item'));
+      /* Start with a real category when available. The explicit All item remains
+         available, but loading every VOD title first is what overwhelms many TVs. */
+      var first = cats.length ? cats[0] : { id: null, name: T('allMovies') };
+      UI.renderCats(U.$('#movies-cats'), withAll(cats, T('allMovies')), first.id, 'mcat', function (c) { selectGridCat('movies', c); });
+      selectGridCat('movies', first); Nav.focus(U.$('#movies-cats .cat-item.selected') || U.$('#movies-cats .cat-item'));
     }).catch(function (e) { UI.toast('Failed to load: ' + e.message, 3000, '⚠'); });
   }
   function loadSeries() {
@@ -736,8 +739,9 @@ var App = (function () {
     U.$('#series-cats')._vlist = null; UI.skeletonList(U.$('#series-cats'), 8); U.$('#series-grid')._vlist = null; UI.skeletonGrid(U.$('#series-grid'));
     provider.seriesCategories().then(function (cats) {
       series.cats = cats; U.$('#series-cats').classList.remove('sk-list');
-      UI.renderCats(U.$('#series-cats'), withAll(cats, T('allSeries')), null, 'scat', function (c) { selectGridCat('series', c); });
-      selectGridCat('series', { id: null, name: T('allSeries') }); Nav.focus(U.$('#series-cats .cat-item'));
+      var first = cats.length ? cats[0] : { id: null, name: T('allSeries') };
+      UI.renderCats(U.$('#series-cats'), withAll(cats, T('allSeries')), first.id, 'scat', function (c) { selectGridCat('series', c); });
+      selectGridCat('series', first); Nav.focus(U.$('#series-cats .cat-item.selected') || U.$('#series-cats .cat-item'));
     }).catch(function (e) { UI.toast('Failed to load: ' + e.message, 3000, '⚠'); });
   }
   function selectGridCat(kind, c) {
@@ -745,6 +749,14 @@ var App = (function () {
     U.$('#' + kind + '-cat-title').textContent = c.name; grid._vlist = null; UI.skeletonGrid(grid);
     var p = kind === 'movies' ? provider.vodStreams(c.id) : provider.seriesList(c.id);
     p.then(function (list) {
+      /* A credential-bearing get.php source may start on Xtream metadata and
+         fall back to its text playlist. Rebuild the category rail once so its
+         category IDs match the new source instead of leaving an empty grid. */
+      if (provider && provider.catalogFallback) {
+        provider.catalogFallback = false; st.cats = [];
+        if (kind === 'movies') loadMovies(); else loadSeries();
+        return;
+      }
       var bad = adultCatIds(); list = list.filter(function (x) { return !bad[x.catId]; });
       st.list = list; U.$('#' + kind + '-count').textContent = list.length + ' items';
       if (!list.length) { grid._vlist = null; grid.innerHTML = '<div class="empty">No items in this category.</div>'; return; }

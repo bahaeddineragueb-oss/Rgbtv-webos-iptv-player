@@ -1,4 +1,4 @@
-# RGBTv — webOS TV source (v2.2.7)
+# RGBTv — webOS TV source (v2.2.8)
 
 Pure HTML5 web app for LG webOS (3.0+): ES5 JavaScript, legacy-safe CSS, native <video> + hls.js.
 
@@ -40,14 +40,14 @@ RGBTv-webOS/
 ```bash
 npm install -g @webos-tools/cli          # once
 ares-package app services/com.rgbtv.app.service -o dist
-# → dist/com.rgbtv.app_2.2.7_all.ipk
+# → dist/com.rgbtv.app_2.2.8_all.ipk
 ```
 
 Install on a TV in Developer Mode:
 
 ```bash
 ares-setup-device            # add the TV (IP + passphrase from the Developer Mode app)
-ares-install -d tv dist/com.rgbtv.app_2.2.7_all.ipk
+ares-install -d tv dist/com.rgbtv.app_2.2.8_all.ipk
 ares-launch  -d tv com.rgbtv.app
 ```
 
@@ -56,7 +56,7 @@ or simply `./build.sh tv`.
 ## Notes
 - Do not add ES6 syntax (arrow functions, let/const, template strings) in `app/js` — older webOS browsers will fail to parse.
 - Avoid CSS `inset`, flex `gap`, `backdrop-filter`, `@supports`, and `Element.closest()` for the same reason.
-- M3U supports quoted/unquoted attributes, relative stream URLs, stable item IDs, and an optional XMLTV EPG URL (or `url-tvg` declared in the playlist). It downloads the text playlist once with a 120-second timeout, caches parsed items for six hours, and sends the parsed direct stream URL to the player without a per-channel control request. The packaged Luna service is preferred for CORS-safe playlist/guide fetches; it retains same-origin redirect cookies, requests identity encoding, handles gzip/deflate responses, accepts downloads up to 64 MiB, and allows the full 120-second timeout. The app reports login-page, HTTP-status, network, and timeout failures separately. A credential-bearing `get.php` M3U URL first tries the compatible Xtream API through the same Luna/native-safe path for fast metadata, then falls back automatically to the valid text playlist if that API is unavailable.
+- M3U supports quoted/unquoted attributes, relative stream URLs, stable item IDs, and an optional XMLTV EPG URL (or `url-tvg` declared in the playlist). It downloads the text playlist once with a 120-second timeout, caches parsed items for six hours, and sends the parsed direct stream URL to the player without a per-channel control request. The packaged Luna service is preferred for CORS-safe playlist/guide fetches; it retains same-origin redirect cookies, requests identity encoding, handles gzip/deflate responses, accepts downloads up to 64 MiB, and allows the full 120-second timeout. The app reports login-page, HTTP-status, network, and timeout failures separately. A credential-bearing `get.php` M3U URL first tries the compatible Xtream API through the same Luna/native-safe path for fast metadata, then falls back automatically to the valid text playlist if the API or a large catalogue request is unavailable. Xtream and Stalker catalogue pages receive a 120-second budget; the Movies and Series screens first load a concrete category so the TV can render titles without waiting for an entire provider catalogue.
 - Stalker/Ministra needs the Luna service for its MAG cookie and bearer-token handshake. It tries common portal roots (`/server/load.php`, `/c/server/load.php`, and `/stalker_portal/...`) before reporting a connection failure. HTTPS certificates are verified by default; a clearly labelled per-profile switch is available only for a self-signed portal you trust.
 - The **Ramadan** theme is a dedicated emerald-and-gold layout: an Islamic geometric gradient background, crescent brand mark, arched navigation, gold-framed mihrab feature panel, and a persistent five-prayer/Hijri-date strip in classic Home. It reuses the cached AlAdhan calendar, clearly reports disabled or unavailable times, stays hidden in Hub layouts, and does **not** turn notifications on when they were disabled.
 - Live Player offers **Dual View** for two live channels: pressing Dual opens the next available live channel immediately, while **Choose 2nd** lets you replace it. The secondary channel begins muted and Yellow changes the audio source. It confirms that the second decoder has actually produced a picture, retries through hls.js when native video is black, and restores the main picture with a clear explanation after 20 seconds. Actual availability still depends on the TV and subscription permitting two simultaneous live streams.
