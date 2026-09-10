@@ -1376,5 +1376,5 @@ var App = (function () {
   }
 
   window.addEventListener('load', init);
-  return { openAccount: openAccount, openItem: openItem, resumeItem: resumeItem, closePlayer: closePlayer, isScreen: isScreen, activeScreen: activeScreen, account: null, provider: null, accountMenu: accountMenu, showAddForm: showAddForm, playLiveFrom: playLiveFrom, playCatchup: playCatchup };
+  return { openAccount: openAccount, openItem: openItem, resumeItem: resumeItem, closePlayer: closePlayer, isScreen: isScreen, activeScreen: activeScreen, account: null, provider: null, accountMenu: accountMenu, showAddForm: showAddForm, playLiveFrom: playLiveFrom, playCatchup: playCatchup, playerEpg: epgFor };
 })();

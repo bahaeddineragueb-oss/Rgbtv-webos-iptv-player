@@ -5,7 +5,7 @@ var Nav = (function () {
   var KEYS = {
     LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, ENTER: 13, BACK: 461, BACK2: 27, BACK3: 8,
     PLAY: 415, PAUSE: 19, PLAYPAUSE: 10252, STOP: 413, REW: 412, FF: 417, NEXT: 418, PREV: 419,
-    RED: 403, GREEN: 404, YELLOW: 405, BLUE: 406, INFO: 457, CH_UP: 33, CH_DOWN: 34, EXIT: 1001
+    RED: 403, GREEN: 404, YELLOW: 405, BLUE: 406, INFO: 457, CH_UP: 33, CH_DOWN: 34, VOL_UP: 447, VOL_DOWN: 448, MUTE: 449, EXIT: 1001
   };
   var current = null, container = document, handlers = [], keyHandlers = [], lastFocusByScope = {}, locked = false;
 

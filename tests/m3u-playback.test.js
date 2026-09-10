@@ -112,7 +112,7 @@ function playerHarness(canPlayType) {
       trackPref: function (account, item) { return trackPrefs[item.type + ':' + item.id] || null; }, setTrackPref: function (account, item, kind, value) { var key = item.type + ':' + item.id; trackPrefs[key] = trackPrefs[key] || {}; trackPrefs[key][kind] = value; },
       toggleFav: function () { return false; }
     },
-    App: { account: { id: 'test' }, isScreen: function () { return true; }, provider: { streamUrl: function (item) { return Promise.resolve(item.url); } } },
+    App: { account: { id: 'test' }, isScreen: function () { return true; }, provider: { streamUrl: function (item) { return Promise.resolve(item.url); }, shortEPG: function () { var now = Math.floor(Date.now() / 1000); return Promise.resolve([{ start: now - 300, end: now + 3300, title: 'Live fixture' }, { start: now + 3300, end: now + 6900, title: 'Next fixture' }]); } } },
     UI: { toast: function () {}, toPlayable: function (item) { return item; } },
     Nav: { current: function () { return null; }, focus: function () {}, blur: function () {}, focusScope: function () {}, move: function () {}, KEYS: {} }
   };
@@ -130,6 +130,23 @@ async function testM3UStreamContract(parsed) {
   assert.deepStrictEqual(Object.assign({}, stream.headers), Object.assign({}, parsed.list[0].streamHeaders));
 }
 
+async function testRemoteUiPath() {
+  var h = playerHarness('probably'), list = [];
+  for (var i = 1; i <= 105; i++) list.push({ type: 'live', id: 'remote-' + i, num: i, name: 'Channel ' + i, catName: 'News', url: 'https://stream.example/remote-' + i + '.m3u8' });
+  await h.player.play(list[0], { list: list, index: 0 }); h.emit('playing');
+  h.player.handleKey('CH_UP', 33); await Promise.resolve(); await Promise.resolve();
+  assert.strictEqual(h.video.src, list[1].url, 'CH+ switches only to the adjacent cached channel through the central player path');
+  assert.strictEqual(h.nodes['zap-preview'].classList.contains('show'), true, 'CH+ displays a compact channel zapper without waiting for EPG');
+  h.player.handleKey(null, 49); h.player.handleKey(null, 48); h.player.handleKey(null, 53);
+  assert.ok(/105/.test(h.nodes['zap-preview'].innerHTML), 'numeric remote input provides immediate visual feedback for channel 105');
+  h.player.handleKey('LEFT', 37);
+  assert.strictEqual(h.nodes.osd.classList.contains('show'), true, 'a direction key only opens controls when the overlay is hidden');
+  h.player.handleKey('BACK', 461);
+  assert.strictEqual(h.nodes.osd.classList.contains('show'), true, 'BACK first cancels pending numeric entry without interrupting playback');
+  h.player.handleKey('BACK', 461);
+  assert.strictEqual(h.nodes.osd.classList.contains('show'), false, 'BACK then hides the player overlay before leaving playback');
+}
+
 async function testPlayerFallback(parsed) {
   var stream = parsed.list[0];
   var native = playerHarness('probably');
@@ -139,6 +156,20 @@ async function testPlayerFallback(parsed) {
   assert.strictEqual(native.hls.length, 0, 'native-capable webOS must not eagerly create an hls.js pipeline');
   native.emit('playing');
   assert.strictEqual(native.nodes['player-transition'].classList.contains('show'), false, 'transition layer clears exactly when playback starts');
+  native.player.handleKey('UP', 38);
+  assert.strictEqual(native.nodes.osd.classList.contains('show'), true, 'a direction key first reveals the remote overlay without zapping the channel');
+  native.player.action('p-mute');
+  assert.strictEqual(native.video.muted, true, 'mute is routed through the player controller and never replaces the active source');
+  native.player.action('p-volume');
+  assert.strictEqual(native.video.muted, false, 'volume feedback unmutes through the controller without a playback reload');
+  assert.ok(native.video.volume > 0, 'the persisted stream volume is applied to the stable media element');
+  native.player.action('p-settings');
+  assert.strictEqual(native.nodes['player-panel'].classList.contains('show'), true, 'settings opens as an in-player panel over the stable video');
+  native.player.handleKey('BACK', 461);
+  assert.strictEqual(native.nodes['player-panel'].classList.contains('show'), false, 'BACK closes the in-player settings panel before exiting playback');
+  native.player.action('p-epg'); await Promise.resolve();
+  assert.ok(/Live fixture/.test(native.nodes['player-panel-content'].innerHTML), 'in-player EPG is populated asynchronously without changing the video source');
+  native.player.handleKey('BACK', 461);
   native.video.error = { code: 4 };
   native.emit('error');
   assert.strictEqual(native.hls.length, 1, 'a rejected native HLS source must hand over once instead of beginning reconnects');
@@ -147,6 +178,11 @@ async function testPlayerFallback(parsed) {
   native.hls[0].config.xhrSetup({ setRequestHeader: function (key, value) { sent.push([key, value]); } });
   assert.deepStrictEqual(sent, [['User-Agent', 'RGBTv Player'], ['Referer', 'https://provider.example/']], 'per-stream annotations must be available to direct hls.js requests');
   native.hls[0].audioTracks = [{ lang: 'ar', name: 'Arabic' }, { lang: 'en', name: 'English' }]; native.hls[0].audioTrack = 1;
+  native.hls[0].levels = [{ height: 720, bitrate: 2000000 }, { height: 1080, bitrate: 4000000 }]; native.hls[0].currentLevel = -1;
+  native.player.action('p-settings');
+  assert.ok(/p\.quality/.test(native.nodes['player-panel-content'].innerHTML), 'Quality is exposed only after real adaptive HLS variants are reported');
+  assert.strictEqual(native.player.setQuality(1), true, 'the controller accepts only a real reported adaptive level');
+  assert.strictEqual(native.hls[0].currentLevel, 1);
   native.player.action('p-audio'); native.nodes['track-menu'].children[0].onclick();
   assert.strictEqual(native.hls[0].audioTrack, 0, 'Audio manager switches only an exposed HLS audio track');
   assert.strictEqual(native.trackPrefs['live:' + stream.id].audio.key, 'ar', 'chosen exposed audio track is remembered per channel');
@@ -187,6 +223,7 @@ async function testPlayerFallback(parsed) {
 (async function () {
   var parsed = parsePlaylist();
   await testM3UStreamContract(parsed);
+  await testRemoteUiPath();
   await testPlayerFallback(parsed);
   console.log('M3U playback regression checks passed');
 })().catch(function (error) { console.error(error.stack || error); process.exitCode = 1; });
