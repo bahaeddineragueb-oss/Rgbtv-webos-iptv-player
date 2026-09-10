@@ -5,7 +5,7 @@ var Player = (function () {
      available on OK, while the channel list stays a separate panel over the video. */
   var osdInteractive = false, zapVList = null, zapRequest = 0;
   var onEnded = null, canPlay = null, getLiveChannels = null, posKey = null, posTimer = null, seekAccum = 0, seekTimer = null, numBuf = '', numTimer = null, zapOpen = false, trackMenuOpen = false, playGeneration = 0;
-  var dual = { on: false, item: null, index: -1, list: null, audio: 'main', loading: false, generation: 0, readyTimer: null, pickerOpen: false, pickerRequest: 0, picker: null };
+  var dual = { on: false, item: null, index: -1, list: null, audio: 'main', loading: false, generation: 0, readyTimer: null, pictureTimer: null, url: '', pickerOpen: false, pickerRequest: 0, picker: null };
   var els = {};
   /* auto-reconnect state */
   var rc = { attempts: 0, timer: null, stallTimer: null, lastTime: -1, lastProgress: 0, lastOpt: null, active: false };
@@ -107,7 +107,15 @@ var Player = (function () {
     els['dual-status'].classList.toggle('show', !!on);
     if (text && els['dual-status-text']) els['dual-status-text'].textContent = text;
   }
-  function clearDualTimer() { clearTimeout(dual.readyTimer); dual.readyTimer = null; }
+  function clearDualTimer() { clearTimeout(dual.readyTimer); clearTimeout(dual.pictureTimer); dual.readyTimer = null; dual.pictureTimer = null; }
+  function secondaryHasPicture() {
+    if (!secondaryVideo) return false;
+    /* webOS exposes either decoded dimensions or its WebKit frame counter. Some
+       firmwares fire `playing` even when a second video plane stays black. */
+    if (secondaryVideo.videoWidth > 0 && secondaryVideo.videoHeight > 0) return true;
+    if (Number(secondaryVideo.webkitDecodedFrameCount || 0) > 0) return true;
+    return false;
+  }
   function updateDualControls() {
     var live = current && current.type === 'live', active = live && dual.on;
     if (els['osd-dual']) {
@@ -127,11 +135,27 @@ var Player = (function () {
     updateDualControls();
     UI.toast(dual.audio === 'main' ? T('p.dualAudio1') : T('p.dualAudio2'), 1800, '🔊');
   }
+  function recoverDualPicture(generation) {
+    if (generation !== dual.generation || !dual.item || !dual.url || dual.item._dualTriedHls || !(window.Hls && Hls.isSupported())) { dualFailed(generation); return; }
+    dual.item._dualTriedHls = true; dual.on = false; dual.loading = true;
+    var screen = U.$('#screen-player'); if (screen) { screen.classList.remove('dual'); screen.classList.add('dual-pending'); }
+    setDualStatus(true, T('p.dualLoadingStream')); startSecondarySource(dual.url, dual.item, generation, true);
+  }
   function dualReady(generation) {
     if (generation !== dual.generation || !dual.loading || !current || current.type !== 'live') return;
-    clearDualTimer(); dual.loading = false; dual.on = true;
+    clearTimeout(dual.readyTimer); dual.readyTimer = null; dual.loading = false; dual.on = true;
     var screen = U.$('#screen-player'); if (screen) { screen.classList.remove('dual-pending'); screen.classList.add('dual'); }
     setDualStatus(false); setDualAudio('main'); updateDualControls();
+    /* A few webOS builds report playing while the hardware surface remains black.
+       Confirm that the secondary decoder produced a picture, then use the hls.js
+       path once before restoring the main view with a useful message. */
+    clearTimeout(dual.pictureTimer); dual.pictureTimer = null;
+    if (secondaryHasPicture()) return;
+    dual.pictureTimer = setTimeout(function () {
+      dual.pictureTimer = null;
+      if (generation !== dual.generation || !dual.on) return;
+      if (!secondaryHasPicture()) recoverDualPicture(generation);
+    }, 4500);
   }
   function dualFailed(generation) {
     if (generation !== dual.generation) return;
@@ -140,10 +164,10 @@ var Player = (function () {
   function stopDual() {
     /* Invalidate pending streamUrl calls and stale hls/video error callbacks. */
     dual.generation++; clearDualTimer();
-    dual.on = false; dual.item = null; dual.index = -1; dual.list = null; dual.loading = false; dual.audio = 'main';
+    dual.on = false; dual.item = null; dual.index = -1; dual.list = null; dual.loading = false; dual.audio = 'main'; dual.url = '';
     if (dual.pickerOpen) closeDualPicker(false);
     destroySecondaryHls();
-    if (secondaryVideo) { secondaryVideo.onplaying = null; secondaryVideo.onerror = null; try { secondaryVideo.pause(); secondaryVideo.removeAttribute('src'); secondaryVideo.load(); secondaryVideo.muted = true; } catch (e) { } }
+    if (secondaryVideo) { secondaryVideo.onplaying = null; secondaryVideo.onloadeddata = null; secondaryVideo.onerror = null; try { secondaryVideo.pause(); secondaryVideo.removeAttribute('src'); secondaryVideo.load(); secondaryVideo.muted = true; } catch (e) { } }
     if (video) video.muted = false;
     var screen = U.$('#screen-player'); if (screen) { screen.classList.remove('dual'); screen.classList.remove('dual-pending'); }
     setDualStatus(false);
@@ -153,14 +177,18 @@ var Player = (function () {
   }
   function startSecondarySource(url, item, generation, forceHls) {
     destroySecondaryHls();
-    var eng = Store.settings().engine, isHlsUrl = isHlsStream(url), hlsOk = isHlsUrl && window.Hls && Hls.isSupported();
-    var useHls = hlsOk && (forceHls || eng === 'hlsjs' || (eng === 'auto' && !secondaryVideo.canPlayType('application/vnd.apple.mpegurl')));
+    var eng = Store.settings().engine, isHlsUrl = isHlsStream(url), hlsAvailable = window.Hls && Hls.isSupported();
+    /* In automatic mode prefer the MSE/hls.js path for a known HLS secondary
+       stream. Native webOS video planes are commonly limited to one visible
+       hardware surface even when a second element reports `playing`. */
+    var useHls = hlsAvailable && (forceHls || (isHlsUrl && eng !== 'native'));
     secondaryVideo.onplaying = function () { dualReady(generation); };
+    secondaryVideo.onloadeddata = function () { if (generation === dual.generation && secondaryHasPicture()) { clearTimeout(dual.pictureTimer); dual.pictureTimer = null; } };
     secondaryVideo.onerror = function () {
       if (generation !== dual.generation || dual.item !== item) return;
       /* Some webOS native decoders accept the HLS URL yet do not start a second
          session. Retry it once through hls.js before declaring dual unsupported. */
-      if (!useHls && hlsOk && !item._dualTriedHls) { item._dualTriedHls = true; startSecondarySource(url, item, generation, true); return; }
+      if (!useHls && hlsAvailable && !item._dualTriedHls) { item._dualTriedHls = true; startSecondarySource(url, item, generation, true); return; }
       dualFailed(generation);
     };
     if (useHls) {
@@ -181,7 +209,7 @@ var Player = (function () {
   function loadDualItem(item, itemIndex, source) {
     if (!item || !App.provider || !current || current.type !== 'live') return;
     var generation = ++dual.generation;
-    clearDualTimer(); dual.loading = true; dual.on = false; dual.item = item; dual.index = itemIndex; dual.list = source || playlist; dual.audio = 'main'; item._dualTriedHls = false;
+    clearDualTimer(); dual.loading = true; dual.on = false; dual.item = item; dual.index = itemIndex; dual.list = source || playlist; dual.audio = 'main'; dual.url = ''; item._dualTriedHls = false;
     var screen = U.$('#screen-player'); if (screen) { screen.classList.remove('dual'); screen.classList.add('dual-pending'); }
     els['dual-primary-label'].textContent = current.name || current.title || '';
     els['dual-secondary-label'].textContent = item.name || '';
@@ -193,7 +221,7 @@ var Player = (function () {
       /* The user may have zapped, disabled dual view, or selected a newer secondary item meanwhile. */
       if (generation !== dual.generation || !current || current.type !== 'live') return;
       if (!streamUrl) throw new Error('No stream URL');
-      startSecondarySource(streamUrl, item, generation, false);
+      dual.url = streamUrl; startSecondarySource(streamUrl, item, generation, false);
     }).catch(function () { dualFailed(generation); });
   }
   function permit(item, done) {

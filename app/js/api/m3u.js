@@ -85,7 +85,12 @@ M3UProvider.prototype = {
     /* Luna proxy avoids CORS failures on playlists hosted by IPTV panels. A short timeout
        fails a dead source quickly instead of leaving the profile on the connecting screen. */
     return this._fetch(this.url, 18000).then(function (txt) {
-      if (!/#EXTM3U/i.test(txt) && !/#EXTINF/i.test(txt)) throw new Error('Not a valid M3U playlist');
+      /* A 200 response can still be a captive/login page from a provider. Name
+         that case explicitly; calling it merely an invalid M3U hid the fix. */
+      if (!/#EXTM3U/i.test(txt) && !/#EXTINF/i.test(txt)) {
+        if (/^\s*<(?:!doctype\s+html|html|head|body|form)\b/i.test(String(txt || ''))) throw new Error(I18n.t('m3u.htmlResponse'));
+        throw new Error(I18n.t('m3u.invalidResponse'));
+      }
       self.epgUrl = self.epgUrl || self._findEpgUrl(txt);
       self.items = self._parse(txt);
       if (!self.items.length) throw new Error('Playlist is empty');

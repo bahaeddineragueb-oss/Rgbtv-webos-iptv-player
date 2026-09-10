@@ -1,13 +1,13 @@
 /* RGBTv webOS JS Service — authenticated helper for Stalker and phone pairing.
  * fetch is intentionally limited to HTTP(S), safe methods, safe headers and bounded bodies. */
 var Service = require('webos-service');
-var http = require('http'), https = require('https'), url = require('url'), os = require('os'), crypto = require('crypto');
+var http = require('http'), https = require('https'), url = require('url'), os = require('os'), crypto = require('crypto'), zlib = require('zlib');
 var service = new Service('com.rgbtv.app.service');
 /* A large M3U/XMLTV export can exceed 12 MiB; keep a firm but practical 32 MiB cap. */
 var MAX_REQUEST_BODY = 1024 * 1024, MAX_RESPONSE_BODY = 32 * 1024 * 1024, MAX_TIMEOUT = 60000;
 var DEFAULT_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3',
-  'Accept': '*/*', 'Connection': 'close'
+  'Accept': '*/*', 'Accept-Encoding': 'identity', 'Connection': 'close'
 };
 var ALLOWED_HEADERS = { 'accept': 1, 'accept-language': 1, 'authorization': 1, 'content-type': 1, 'cookie': 1, 'referer': 1, 'user-agent': 1, 'x-user-agent': 1 };
 
@@ -47,6 +47,27 @@ function withoutCredentials(input) {
 function sameOrigin(a, b) {
   return a.protocol === b.protocol && String(a.hostname).toLowerCase() === String(b.hostname).toLowerCase() && String(a.port || '') === String(b.port || '');
 }
+/* Some playlist portals set a short session cookie before redirecting to the
+   actual get.php URL. Retain only name=value pairs and only across same-origin
+   redirects; authorization/cookies are still stripped on cross-origin jumps. */
+function redirectCookies(current, incoming) {
+  var map = {}, order = [];
+  function put(raw) {
+    raw = String(raw || '').split(';')[0]; var p = raw.indexOf('='); if (p < 1) return;
+    var name = raw.slice(0, p).trim(); if (!name) return;
+    if (!Object.prototype.hasOwnProperty.call(map, name)) order.push(name);
+    map[name] = name + '=' + raw.slice(p + 1).trim();
+  }
+  String(current || '').split(';').forEach(put);
+  (Array.isArray(incoming) ? incoming : incoming ? [incoming] : []).forEach(put);
+  return order.map(function (k) { return map[k]; }).join('; ');
+}
+function decodeResponse(body, encoding, cb) {
+  encoding = String(encoding || '').toLowerCase().split(',')[0].trim();
+  if (encoding === 'gzip' || encoding === 'x-gzip') { zlib.gunzip(body, cb); return; }
+  if (encoding === 'deflate') { zlib.inflate(body, cb); return; }
+  cb(null, body);
+}
 
 function doFetch(opts, cb, redirects) {
   redirects = redirects || 0;
@@ -67,6 +88,11 @@ function doFetch(opts, cb, redirects) {
       if (!next) { finish(new Error('Redirect URL is not HTTP(S)')); return; }
       var nextOpts = copy(opts); nextOpts.url = nextUrl;
       if (!sameOrigin(u, next)) nextOpts.headers = withoutCredentials(opts.headers);
+      else {
+        nextOpts.headers = copy(opts.headers);
+        var cookies = redirectCookies(nextOpts.headers.Cookie || nextOpts.headers.cookie, res.headers['set-cookie']);
+        if (cookies) nextOpts.headers.Cookie = cookies;
+      }
       if (res.statusCode === 303) { nextOpts.method = 'GET'; nextOpts.body = null; }
       doFetch(nextOpts, finish, redirects + 1); return;
     }
@@ -77,7 +103,14 @@ function doFetch(opts, cb, redirects) {
       if (size > MAX_RESPONSE_BODY) { try { req.abort(); } catch (e) { } finish(new Error('Response body too large')); return; }
       chunks.push(c);
     });
-    res.on('end', function () { if (!finished) finish(null, { status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }); });
+    res.on('end', function () {
+      if (finished) return;
+      decodeResponse(Buffer.concat(chunks), res.headers['content-encoding'], function (err, bodyOut) {
+        if (err) { finish(new Error('Could not decode server response')); return; }
+        if (bodyOut.length > MAX_RESPONSE_BODY) { finish(new Error('Response body too large')); return; }
+        finish(null, { status: res.statusCode, headers: res.headers, body: bodyOut.toString('utf8') });
+      });
+    });
     res.on('error', function (e) { finish(e); });
   });
   req.on('timeout', function () { try { req.abort(); } catch (e) { } finish(new Error('Timeout')); });
