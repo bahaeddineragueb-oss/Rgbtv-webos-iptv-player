@@ -1,9 +1,8 @@
-/* RGBTv — final theme layout contract.
-   This file loads after every visual theme. It owns only the geometry of the
-   status strip, navigation dock and content area; palette/card styling remains
-   in style.css and theme-expansion.css. Keeping one final authority prevents a
-   theme-specific rule from hiding a menu, covering the clock, or shrinking the
-   Home hub below its designed 1920px width. */
+/* RGBTv — legacy theme geometry compatibility.
+   This historical layer keeps saved legacy theme/layout selections stable.
+   theme-interface-suite.css loads later and is the final authority whenever a
+   v2.8 data-interface value is selected: themes may paint a surface but no
+   longer choose the navigation dock or Home architecture. */
 
 /* A usable navigation item must never be painted behind content or disabled by
    the Hub layout. The Home tiles remain available; this is the always-visible

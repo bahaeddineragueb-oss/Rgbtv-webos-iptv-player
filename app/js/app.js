@@ -19,6 +19,9 @@ var App = (function () {
   function activeScreen() { return U.$('#screen-' + screen); }
   function isScreen(n) { return screen === n; }
   var NAV_ORDER = ['home', 'favorites', 'live', 'movies', 'series', 'search', 'weather', 'adhan', 'settings'];
+  /* Themes paint the product; interface styles arrange its navigation and Home. */
+  var THEME_IDS = ['astra', 'receiverpro', 'liquidglass', 'livepulse', 'noormajlis', 'aurora', 'midnight', 'oled', 'ocean', 'crimson', 'emerald', 'sunset', 'royal', 'ramadan', 'cinema', 'glass', 'arcade', 'mono', 'majlis', 'guidepro', 'receiver', 'sports', 'family', 'neocrt', 'cyberpunk'];
+  var INTERFACE_IDS = ['rail', 'command', 'guide', 'spotlight', 'mosaic', 'classic', 'trio', 'dashboard'];
   function showSection(name) {
     var fromLeft = NAV_ORDER.indexOf(name) < NAV_ORDER.indexOf(section); section = name;
     U.$$('.nav-item').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-section') === name); });
@@ -51,11 +54,12 @@ var App = (function () {
       if (Adhan.strip) setTimeout(function () { Adhan.strip(); }, 0);
     }
   }
-  function isHub(lay) { return lay === 'spotlight' || lay === 'trio' || lay === 'mosaic' || lay === 'dashboard'; }
+  function isHub(lay) { return INTERFACE_IDS.indexOf(lay) >= 0 && lay !== 'guide' && lay !== 'classic'; }
   function applyUi() {
     var s = Store.settings();
     document.body.setAttribute('data-focus', s.focusStyle || 'glow'); document.body.classList.toggle('large', !!s.largeUi); document.body.classList.toggle('high-contrast', !!s.highContrast);
     U.$('#sec-home').setAttribute('data-layout', s.layout || 'classic');
+    document.body.setAttribute('data-interface', s.layout || 'classic');
     document.body.classList.toggle('hubmode', isHub(s.layout)); // hub content layout; the final theme contract keeps the real menu visible and reachable
     Nav.setPointerMode(s.pointer || 'click');
     if (s.theme === 'ramadan' && window.Adhan && Adhan.strip) Adhan.strip();
@@ -333,9 +337,11 @@ var App = (function () {
   function parentalOn() { return account && (account.kids || Store.settings().parental); }
   var hero = { items: [], idx: 0, timer: null, clockTimer: null, onNowTimer: null };
   function renderHome() {
-    if (Store.settings().theme === 'guidepro') { renderGuideHome(); return; }
     var lay = Store.settings().layout || 'classic'; U.$('#sec-home').setAttribute('data-layout', lay);
+    document.body.setAttribute('data-interface', lay);
     document.body.classList.toggle('hubmode', isHub(lay)); document.body.classList.toggle('hub-root', isHub(lay));
+    /* Guide First is an interface choice. No theme gets to redirect Home. */
+    if (lay === 'guide') { renderGuideHome(); return; }
     if (isHub(lay)) { stopHero(); renderHub(lay); return; }
     var rows = U.$('#home-rows'); rows.style.transform = ''; rows.innerHTML = ''; U.$('#sec-home').classList.remove('rows-mode');
     var hist = Store.history(account.id), favs = Store.favorites(account.id);
@@ -441,13 +447,13 @@ var App = (function () {
     if (lay === 'spotlight') {            // one big Live tile + 2x2 grid, continue-watching strip
       tLive.classList.add('big'); main.appendChild(tLive); var g = U.el('div', 'tile-grid'); [tMov, tSer, tFav, tGuide].forEach(function (t) { g.appendChild(t); }); main.appendChild(g);
       hub.appendChild(main); hub.appendChild(utilBar()); st = strip(); if (st) hub.appendChild(st);
-    } else if (lay === 'trio') {          // three tall tiles + utility bar + info bar
+    } else if (lay === 'trio') {          // legacy three tall tiles + utility bar + info bar
       [tLive, tMov, tSer].forEach(function (t) { main.appendChild(t); }); hub.appendChild(main);
       hub.appendChild(utilBar(['favorites', 'adhan'])); hub.appendChild(infoBar());
     } else if (lay === 'mosaic') {        // 4x2 mosaic of equal tiles — every section one press away
       [tLive, tMov, tSer, tFav, tGuide, tWx, tSearch, tSet].forEach(function (t) { main.appendChild(t); }); hub.appendChild(main);
       var ib = infoBar(); ib.classList.add('slim'); hub.appendChild(ib);
-    } else {                              // dashboard: greeting + clock on the left, tiles on the right, strip below
+    } else {                              // Command Center / saved Dashboard: greeting + operational tiles
       var side = U.el('div', 'hub-side');
       side.innerHTML = '<div class="hs-hello">' + U.esc(T('hub.hello')) + '</div><div class="hs-name">' + U.esc(account.name) + '</div><div class="hs-time" id="hub-time"></div><div class="hs-date" id="hub-date"></div><div class="hs-exp ' + (ex ? ex.cls : 'ok') + '">' + U.esc(T('hub.expires')) + ': ' + U.esc(ex ? ex.text : T('exp.unlimited')) + '</div>';
       var sideBtns = U.el('div', 'hs-btns'); sideBtns.appendChild(hubUtil('search', T('hub.search'))); sideBtns.appendChild(hubUtil('weather', T('hub.weather'))); sideBtns.appendChild(hubUtil('settings', T('hub.settings'))); sideBtns.appendChild(hubUtil('profiles', T('hub.profiles'), 'switch-account')); sideBtns.appendChild(hubUtil('refresh', T('hub.refresh'), 'refresh-now')); side.classList.add('five'); side.appendChild(sideBtns);
@@ -1099,7 +1105,7 @@ var App = (function () {
     var s = Store.settings();
     if (k === 'lang') { Store.setSetting(k, I18n.next()); applyLang(); updateExpiry(null); live.cats = []; movies.cats = []; series.cats = []; if (section === 'home') renderHome(); }
     else if (k === 'refresh') { var steps = [0, 3, 6, 12, 24], i = steps.indexOf(s.refreshHours); Store.setSetting('refreshHours', steps[(i + 1) % steps.length]); scheduleRefresh(); }
-    else if (k === 'theme') { var th = ['aurora', 'midnight', 'oled', 'ocean', 'crimson', 'emerald', 'sunset', 'royal', 'ramadan', 'cinema', 'glass', 'arcade', 'mono', 'majlis', 'guidepro', 'receiver', 'sports', 'family', 'neocrt', 'cyberpunk']; Store.setSetting(k, th[(th.indexOf(s.theme) + 1) % th.length]); applyTheme(); if (section === 'home') renderHome(); }
+    else if (k === 'theme') { var i = THEME_IDS.indexOf(s.theme); Store.setSetting(k, THEME_IDS[(i + 1) % THEME_IDS.length]); applyTheme(); if (section === 'home') renderHome(); }
     else if (k === 'liveFormat') Store.setSetting(k, s.liveFormat === 'ts' ? 'm3u8' : 'ts');
     else if (k === 'engine') Store.setSetting(k, { auto: 'native', native: 'hlsjs', hlsjs: 'auto' }[s.engine]);
     else if (k === 'parental') { if (account.kids) { UI.toast(T('kids.locked'), 2500, '🔒'); return; } Store.setSetting(k, !s[k]); }
@@ -1360,7 +1366,7 @@ var App = (function () {
         case 'clear-cache': Store.clearCache(account.id); live.cats = []; movies.cats = []; series.cats = []; UI.toast(T('toast.cache'), 2000, '✓'); break;
         case 'refresh-now': refreshPlaylists(true); break;
         case 'hero-play': var h = U.$('#hero-title')._item; if (h) openItem(h); else showSection('live'); break;
-        case 'hero-info': var h2 = U.$('#hero-title')._item; if (h2) openItem(h2); else if (Store.settings().theme === 'guidepro') openGuide(); else showSection('movies'); break;
+        case 'hero-info': var h2 = U.$('#hero-title')._item; if (h2) openItem(h2); else if (Store.settings().layout === 'guide') openGuide(); else showSection('movies'); break;
         case 'details-play': playMovie(false); break;
         case 'details-resume': playMovie(true); break;
         case 'details-trailer': playTrailer(); break;

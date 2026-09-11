@@ -1,0 +1,201 @@
+/* RGBTv v2.8 — Theme + Interface Suite
+ *
+ * This is intentionally the last stylesheet. It makes the visual system two
+ * independent axes: data-theme owns visual tokens; data-interface owns shell
+ * geometry and Home information architecture. Do not add theme-owned layout
+ * rules here: every new theme must remain valid with every interface style.
+ * All rules use the ES5/webOS-era CSS already used by the app; translucent
+ * surfaces have solid colour fallbacks and do not require backdrop-filter.
+ */
+
+/* ===========================================================================
+   NEW THEMES — palette, surfaces, type treatment, focus and player chrome.
+   =========================================================================== */
+body[data-theme="astra"]{
+  --bg:#07121f;--bg2:#0b1d2f;--bg3:#102a42;--panel:rgba(10,27,45,.94);--card:#0c2034;
+  --accent:#40d6ff;--accent2:#76f0c1;--text:#edf8ff;--muted:#a9c5d8;--line:rgba(103,209,255,.22);--frame:rgba(103,209,255,.38);
+  --r:#40d6ff;--g:#76f0c1;--b:#8b9cff;--glow1:rgba(64,214,255,.18);--glow2:rgba(118,240,193,.12);--fring:#bff5ff;--fglow:rgba(64,214,255,.55);--glowc:rgba(64,214,255,.44);--radius:16px
+}
+body[data-theme="receiverpro"]{
+  --bg:#0b0d0f;--bg2:#171b20;--bg3:#252c33;--panel:rgba(19,23,27,.96);--card:#191f25;
+  --accent:#f79a32;--accent2:#ffcf68;--text:#f4f2ee;--muted:#b7b9ba;--line:rgba(255,181,90,.21);--frame:rgba(255,181,90,.38);
+  --r:#f79a32;--g:#ffc561;--b:#d3d8dc;--glow1:rgba(247,154,50,.16);--glow2:rgba(255,207,104,.08);--fring:#ffe0a8;--fglow:rgba(247,154,50,.52);--glowc:rgba(247,154,50,.40);--radius:9px
+}
+body[data-theme="liquidglass"]{
+  --bg:#11152e;--bg2:#1c2545;--bg3:#263261;--panel:rgba(29,39,73,.76);--card:rgba(41,54,101,.70);
+  --accent:#8ed8ff;--accent2:#d9adff;--text:#f8f5ff;--muted:#cad0ef;--line:rgba(205,225,255,.27);--frame:rgba(212,230,255,.42);
+  --r:#8ed8ff;--g:#95f3df;--b:#d9adff;--glow1:rgba(116,191,255,.28);--glow2:rgba(209,140,255,.22);--fring:#ffffff;--fglow:rgba(142,216,255,.62);--glowc:rgba(142,216,255,.45);--radius:22px
+}
+body[data-theme="livepulse"]{
+  --bg:#120b16;--bg2:#211226;--bg3:#321735;--panel:rgba(31,17,38,.95);--card:#26152d;
+  --accent:#ff4d68;--accent2:#5dc7ff;--text:#fff7f8;--muted:#d8b9c4;--line:rgba(255,104,130,.25);--frame:rgba(255,104,130,.40);
+  --r:#ff4d68;--g:#ffca58;--b:#5dc7ff;--glow1:rgba(255,77,104,.21);--glow2:rgba(93,199,255,.14);--fring:#ffd4dc;--fglow:rgba(255,77,104,.58);--glowc:rgba(255,77,104,.43);--radius:14px
+}
+body[data-theme="noormajlis"]{
+  --bg:#16110f;--bg2:#271b16;--bg3:#38271d;--panel:rgba(38,27,21,.96);--card:#2c2019;
+  --accent:#d9ad54;--accent2:#f4d993;--text:#fff8df;--muted:#dbcaa8;--line:rgba(217,173,84,.26);--frame:rgba(217,173,84,.42);
+  --r:#d9ad54;--g:#72a48b;--b:#f4d993;--glow1:rgba(217,173,84,.17);--glow2:rgba(61,119,94,.15);--fring:#ffe7aa;--fglow:rgba(217,173,84,.53);--glowc:rgba(217,173,84,.42);--radius:18px
+}
+
+/* Every theme starts with a complete offline-safe surface treatment. */
+body[data-theme="astra"] #app{background:radial-gradient(900px 620px at 82% -8%,rgba(64,214,255,.16),transparent 65%),radial-gradient(680px 520px at 8% 100%,rgba(118,240,193,.10),transparent 65%),#07121f}
+body[data-theme="receiverpro"] #app{background:linear-gradient(135deg,#080a0c,#14191e 52%,#0a0c0e)}
+body[data-theme="liquidglass"] #app{background:radial-gradient(900px 650px at 74% 5%,rgba(125,187,255,.36),transparent 58%),radial-gradient(730px 620px at 3% 100%,rgba(202,125,255,.29),transparent 66%),linear-gradient(135deg,#10152f,#20254c)}
+body[data-theme="livepulse"] #app{background:radial-gradient(840px 520px at 92% 0,rgba(255,70,103,.23),transparent 64%),radial-gradient(650px 560px at 5% 100%,rgba(74,159,255,.18),transparent 65%),#120b16}
+body[data-theme="noormajlis"] #app{background:radial-gradient(650px 460px at 76% 8%,rgba(217,173,84,.16),transparent 62%),radial-gradient(560px 450px at 8% 96%,rgba(63,113,87,.18),transparent 62%),#16110f}
+
+body[data-theme="astra"] .screen:not(#screen-player),body[data-theme="receiverpro"] .screen:not(#screen-player),body[data-theme="liquidglass"] .screen:not(#screen-player),body[data-theme="livepulse"] .screen:not(#screen-player),body[data-theme="noormajlis"] .screen:not(#screen-player){background:transparent}
+body[data-theme="astra"] .topbar{background:linear-gradient(180deg,rgba(4,16,30,.97),rgba(4,16,30,.58) 76%,transparent);border-bottom:1px solid rgba(64,214,255,.17)}
+body[data-theme="receiverpro"] .topbar{background:linear-gradient(180deg,#111419,#111419 72%,rgba(17,20,25,.55));border-bottom:2px solid rgba(247,154,50,.70)}
+body[data-theme="liquidglass"] .topbar{background:rgba(27,36,72,.73);border-bottom:1px solid rgba(225,239,255,.32);box-shadow:0 10px 36px rgba(5,10,35,.18)}
+body[data-theme="livepulse"] .topbar{background:linear-gradient(90deg,rgba(46,13,31,.97),rgba(30,18,49,.92) 55%,rgba(21,13,27,.68));border-bottom:2px solid rgba(255,77,104,.70)}
+body[data-theme="noormajlis"] .topbar{background:linear-gradient(180deg,rgba(28,20,15,.98),rgba(28,20,15,.58) 76%,transparent);border-bottom:1px solid rgba(217,173,84,.42)}
+
+/* Navigation keeps the selected destination legible even when an item has no
+   focus; focus itself still uses the user-selected focus contract. */
+body[data-theme="astra"] .nav-item.active{background:rgba(64,214,255,.14);color:#effcff}body[data-theme="astra"] .nav-item.active:after{background:linear-gradient(90deg,#40d6ff,#76f0c1)}
+body[data-theme="receiverpro"] .nav-item{letter-spacing:.6px;text-transform:uppercase}body[data-theme="receiverpro"] .nav-item.active{background:#f79a32;color:#16100a}body[data-theme="receiverpro"] .nav-item.active:after{background:#ffdc8b}
+body[data-theme="liquidglass"] .nav-item{border:1px solid transparent}body[data-theme="liquidglass"] .nav-item.active{background:rgba(218,234,255,.17);border-color:rgba(237,247,255,.35);color:#fff}body[data-theme="liquidglass"] .nav-item.active:after{background:linear-gradient(90deg,#8ed8ff,#d9adff)}
+body[data-theme="livepulse"] .nav-item{letter-spacing:.7px}body[data-theme="livepulse"] .nav-item.active{background:rgba(255,77,104,.24);color:#fff}body[data-theme="livepulse"] .nav-item.active:after{background:#ff4d68}
+body[data-theme="noormajlis"] .nav-item.active{background:rgba(217,173,84,.17);border:1px solid rgba(255,228,166,.28);color:#fff8df}body[data-theme="noormajlis"] .nav-item.active:after{background:#d9ad54}
+
+/* Theme signatures reach content, browse surfaces, modals and player panels.
+   The selectors deliberately have no layout qualifier. */
+body[data-theme="astra"] .card,body[data-theme="astra"] .cat-panel,body[data-theme="astra"] .channel-panel,body[data-theme="astra"] .epg-box,body[data-theme="astra"] .epg-list,body[data-theme="astra"] .setting-row,body[data-theme="astra"] .modal-box{box-shadow:0 12px 30px rgba(0,0,0,.20);border-color:rgba(87,202,255,.20)}
+body[data-theme="astra"] .row-title,body[data-theme="astra"] .panel-title{letter-spacing:.8px}body[data-theme="astra"] .btn{box-shadow:0 7px 18px rgba(64,214,255,.18)}
+body[data-theme="receiverpro"] .card,body[data-theme="receiverpro"] .cat-panel,body[data-theme="receiverpro"] .channel-panel,body[data-theme="receiverpro"] .epg-box,body[data-theme="receiverpro"] .epg-list,body[data-theme="receiverpro"] .setting-row,body[data-theme="receiverpro"] .modal-box{background-color:#171b20;border-color:rgba(255,190,102,.27);box-shadow:inset 0 1px rgba(255,255,255,.08),0 9px 22px rgba(0,0,0,.31)}
+body[data-theme="receiverpro"] .row-title,body[data-theme="receiverpro"] .panel-title{text-transform:uppercase;letter-spacing:1.2px}body[data-theme="receiverpro"] .btn{box-shadow:inset 0 1px rgba(255,255,255,.28),0 6px 14px rgba(0,0,0,.28)}
+body[data-theme="liquidglass"] .card,body[data-theme="liquidglass"] .cat-panel,body[data-theme="liquidglass"] .channel-panel,body[data-theme="liquidglass"] .epg-box,body[data-theme="liquidglass"] .epg-list,body[data-theme="liquidglass"] .setting-row,body[data-theme="liquidglass"] .modal-box{background-color:rgba(37,49,93,.76);border-color:rgba(226,241,255,.30);box-shadow:inset 0 1px rgba(255,255,255,.18),0 15px 38px rgba(6,9,34,.27)}
+body[data-theme="liquidglass"] .card .thumb{box-shadow:inset 0 0 0 1px rgba(255,255,255,.10)}body[data-theme="liquidglass"] .btn.ghost{background:rgba(228,240,255,.14)}
+body[data-theme="livepulse"] .card,body[data-theme="livepulse"] .cat-panel,body[data-theme="livepulse"] .channel-panel,body[data-theme="livepulse"] .epg-box,body[data-theme="livepulse"] .epg-list,body[data-theme="livepulse"] .setting-row,body[data-theme="livepulse"] .modal-box{border-color:rgba(255,105,131,.25);box-shadow:0 12px 30px rgba(0,0,0,.28)}
+body[data-theme="livepulse"] .live-dot{box-shadow:0 0 0 5px rgba(255,77,104,.14),0 0 15px #ff4d68}body[data-theme="livepulse"] .row-title{letter-spacing:.7px}
+body[data-theme="noormajlis"] .card,body[data-theme="noormajlis"] .cat-panel,body[data-theme="noormajlis"] .channel-panel,body[data-theme="noormajlis"] .epg-box,body[data-theme="noormajlis"] .epg-list,body[data-theme="noormajlis"] .setting-row,body[data-theme="noormajlis"] .modal-box{border-color:rgba(217,173,84,.30);box-shadow:0 12px 28px rgba(0,0,0,.30)}
+body[data-theme="noormajlis"] .row-title,body[data-theme="noormajlis"] .panel-title{letter-spacing:.5px}body[data-theme="noormajlis"] .btn{color:#21160e}body[data-theme="noormajlis"] .btn.ghost{color:var(--text)}
+
+body[data-theme="astra"] #screen-player .osd,body[data-theme="astra"] #screen-player .zap-list,body[data-theme="astra"] #screen-player .stats-box,body[data-theme="astra"] #screen-player .track-menu{border-color:rgba(64,214,255,.35)}
+body[data-theme="receiverpro"] #screen-player .osd,body[data-theme="receiverpro"] #screen-player .zap-list,body[data-theme="receiverpro"] #screen-player .stats-box,body[data-theme="receiverpro"] #screen-player .track-menu{border-color:#f79a32;border-radius:8px}
+body[data-theme="liquidglass"] #screen-player .osd,body[data-theme="liquidglass"] #screen-player .zap-list,body[data-theme="liquidglass"] #screen-player .stats-box,body[data-theme="liquidglass"] #screen-player .track-menu{background-color:rgba(31,40,78,.84);border:1px solid rgba(231,244,255,.35);box-shadow:inset 0 1px rgba(255,255,255,.18)}
+body[data-theme="livepulse"] #screen-player .osd,body[data-theme="livepulse"] #screen-player .zap-list,body[data-theme="livepulse"] #screen-player .stats-box,body[data-theme="livepulse"] #screen-player .track-menu{border-color:rgba(255,77,104,.65)}
+body[data-theme="noormajlis"] #screen-player .osd,body[data-theme="noormajlis"] #screen-player .zap-list,body[data-theme="noormajlis"] #screen-player .stats-box,body[data-theme="noormajlis"] #screen-player .track-menu{border-color:rgba(217,173,84,.55)}
+
+/* Theme selector previews. These contain no remote image and stay meaningful
+   in a fresh/offline installation. */
+.swatch[data-theme="astra"] i{background:radial-gradient(circle at 74% 24%,#76f0c1 0 9%,transparent 10%),linear-gradient(135deg,#07121f,#164b68 58%,#40d6ff)}
+.swatch[data-theme="receiverpro"] i{background:linear-gradient(135deg,#0a0c0e,#262d34 58%,#f79a32)}
+.swatch[data-theme="liquidglass"] i{background:radial-gradient(circle at 72% 28%,rgba(255,255,255,.7) 0 10%,transparent 11%),linear-gradient(135deg,#1a2350,#6eb8eb 58%,#c38cff)}
+.swatch[data-theme="livepulse"] i{background:linear-gradient(135deg,#170c18,#ef3f61 55%,#5dc7ff)}
+.swatch[data-theme="noormajlis"] i{background:radial-gradient(circle at 73% 28%,#f4d993 0 8%,transparent 9%),linear-gradient(135deg,#18100e,#4d3722 58%,#d9ad54)}
+
+/* ===========================================================================
+   INTERFACE STYLES — position, navigation dock, Home hierarchy only.
+   No selector below checks a theme, preserving the complete 5 x 5 matrix.
+   =========================================================================== */
+
+/* All new interface styles make their Home state explicit. The old styles are
+   retained by their existing rules for saved settings and imported backups. */
+#sec-home[data-layout="rail"] .hero,#sec-home[data-layout="rail"] .rows,#sec-home[data-layout="command"] .hero,#sec-home[data-layout="command"] .rows,#sec-home[data-layout="spotlight"] .hero,#sec-home[data-layout="spotlight"] .rows,#sec-home[data-layout="mosaic"] .hero,#sec-home[data-layout="mosaic"] .rows{display:none}
+#sec-home[data-layout="rail"] .hub,#sec-home[data-layout="command"] .hub,#sec-home[data-layout="spotlight"] .hub,#sec-home[data-layout="mosaic"] .hub{display:block}
+
+/* --- Side Rail: an always-visible, easy-to-read route list. --- */
+body[data-interface="rail"] .topbar{height:82px;width:1920px;overflow:visible}
+body[data-interface="rail"] #screen-home>.topbar{position:relative;left:auto;top:auto;width:1920px;height:82px;padding:0 50px;border-right:0}
+body[data-interface="rail"] #content{top:82px;left:252px;right:0;bottom:0}
+body[data-interface="rail"] #content .section{width:auto}
+body[data-interface="rail"] .mainnav{top:94px;left:14px;right:auto;width:222px;height:898px;padding:15px 10px;display:block!important;background:var(--panel);border:1px solid var(--line);border-left:0;box-shadow:10px 0 28px rgba(0,0,0,.16)}
+body[data-interface="rail"] .nav-item{display:flex;width:100%;height:58px;line-height:58px;margin:5px 0;padding:0 14px;font-size:20px}
+body[data-interface="rail"] .nav-item .nv-ico,body[data-interface="rail"] .nav-item .nv-ico svg{width:24px;height:24px}body[data-interface="rail"] .nav-item .nv-ico{margin-right:10px}
+body[data-interface="rail"] .nav-item.active:after{left:12px;right:12px;bottom:4px;height:3px}
+body[data-interface="rail"] .hub{left:28px;right:28px;padding-top:26px}
+body[data-interface="rail"] .hub-main{height:608px}
+body[data-interface="rail"] .hub-side{flex:0 0 314px;height:570px;border-radius:var(--radius);padding:28px 24px;background:var(--panel)}
+body[data-interface="rail"] .hub-side .hs-name{font-size:38px;margin-bottom:20px}body[data-interface="rail"] .hub-side .hs-time{font-size:68px}body[data-interface="rail"] .hub-side .hs-date{font-size:18px}
+body[data-interface="rail"] .hub-side .hs-btns{left:24px;right:24px;bottom:18px}body[data-interface="rail"] .hub-side .hs-btns .util{width:128px;height:58px;margin:0 10px 10px 0;font-size:0}body[data-interface="rail"] .hub-side .hs-btns .util svg{margin:0}
+body[data-interface="rail"] .hub-side .hs-btns .util:nth-child(2n){margin-right:0}body[data-interface="rail"] .hub-side .hs-btns .util:nth-child(5){width:266px}
+body[data-interface="rail"] .hub-rail .tile-grid{flex:1;position:relative;height:570px}
+body[data-interface="rail"] .hub-rail .tile-grid .tile{position:absolute;width:258px;height:270px;margin:0}body[data-interface="rail"] .hub-rail .tile-grid .tile.wide2{left:0;top:0;width:534px;height:570px}
+body[data-interface="rail"] .hub-rail .tile-grid .tile:nth-child(2){left:558px;top:0}body[data-interface="rail"] .hub-rail .tile-grid .tile:nth-child(3){left:834px;top:0}body[data-interface="rail"] .hub-rail .tile-grid .tile:nth-child(4){left:558px;top:300px}body[data-interface="rail"] .hub-rail .tile-grid .tile:nth-child(5){left:834px;top:300px}
+body[data-interface="rail"] .hub-rail .tile .t-lbl{left:19px;bottom:39px;font-size:28px}body[data-interface="rail"] .hub-rail .tile .t-sub{left:19px;bottom:16px;font-size:16px}body[data-interface="rail"] .hub-rail .tile .t-ico{left:16px;top:14px;width:48px;height:48px}body[data-interface="rail"] .hub-rail .tile .t-ico svg{width:27px;height:27px}
+body[data-interface="rail"] .hub-rail .tile.wide2 .t-lbl{font-size:46px;bottom:60px;left:28px}body[data-interface="rail"] .hub-rail .tile.wide2 .t-sub{font-size:21px;bottom:28px;left:28px}body[data-interface="rail"] .hub-rail .tile.wide2 .t-ico{width:66px;height:66px;left:24px;top:22px}
+body[data-interface="rail"] .hub-rail .hub-strip{margin-top:-10px}
+
+/* --- Command Center: status-forward desktop-like control surface. --- */
+body[data-interface="command"] .topbar{height:154px;width:1920px;overflow:visible}
+body[data-interface="command"] #screen-home>.topbar{position:relative;left:auto;top:auto;width:1920px;height:154px;padding:0 50px;border-right:0}
+body[data-interface="command"] #content{top:154px;left:0;right:0;bottom:0}body[data-interface="command"] #content .section{width:1920px}
+body[data-interface="command"] .mainnav{top:78px;left:38px;right:38px;width:auto;height:64px;padding:0 12px;display:flex!important;align-items:center;justify-content:flex-start;background:rgba(0,0,0,.12);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+body[data-interface="command"] .nav-item{height:54px;line-height:54px;margin:0 3px;padding:0 16px;font-size:20px;border-radius:10px}body[data-interface="command"] .nav-item .nv-ico,body[data-interface="command"] .nav-item .nv-ico svg{width:21px;height:21px}body[data-interface="command"] .nav-item .nv-ico{margin-right:7px}
+body[data-interface="command"] .hub{left:60px;right:60px;padding-top:22px}body[data-interface="command"] .hub-main{height:612px}
+body[data-interface="command"] .hub-side{flex:0 0 382px;height:580px;border-radius:var(--radius);padding:30px 28px;background:var(--panel)}body[data-interface="command"] .hub-side .hs-name{font-size:43px}body[data-interface="command"] .hub-side .hs-time{font-size:76px}
+body[data-interface="command"] .hub-side .hs-btns{left:28px;right:28px;bottom:22px}body[data-interface="command"] .hub-side .hs-btns .util{width:157px;height:62px;margin:0 10px 10px 0;font-size:17px}body[data-interface="command"] .hub-side .hs-btns .util:nth-child(2n){margin-right:0}body[data-interface="command"] .hub-side .hs-btns .util:nth-child(5){width:324px}
+body[data-interface="command"] .hub-command .tile-grid{flex:1;position:relative;height:580px}body[data-interface="command"] .hub-command .tile-grid .tile{position:absolute;width:268px;height:264px;margin:0;top:316px}
+body[data-interface="command"] .hub-command .tile-grid .tile.wide2{left:0;top:0;width:1118px;height:292px}body[data-interface="command"] .hub-command .tile-grid .tile:nth-child(2){left:0}body[data-interface="command"] .hub-command .tile-grid .tile:nth-child(3){left:284px}body[data-interface="command"] .hub-command .tile-grid .tile:nth-child(4){left:568px}body[data-interface="command"] .hub-command .tile-grid .tile:nth-child(5){left:852px}
+body[data-interface="command"] .hub-command .tile .t-lbl{font-size:28px;left:19px;bottom:39px}body[data-interface="command"] .hub-command .tile .t-sub{font-size:16px;left:19px;bottom:16px}body[data-interface="command"] .hub-command .tile .t-ico{width:48px;height:48px;left:16px;top:14px}body[data-interface="command"] .hub-command .tile .t-ico svg{width:27px;height:27px}
+body[data-interface="command"] .hub-command .tile.wide2 .t-lbl{font-size:48px;left:30px;bottom:57px}body[data-interface="command"] .hub-command .tile.wide2 .t-sub{font-size:21px;left:30px;bottom:26px}body[data-interface="command"] .hub-command .tile.wide2 .t-ico{width:66px;height:66px;left:24px;top:21px}
+body[data-interface="command"] .hub-command .hub-strip{margin-top:-8px}
+
+/* --- Guide First: guide cues and a rail make live browsing the landing task. --- */
+body[data-interface="guide"] .topbar{height:82px;width:1920px;overflow:visible}
+body[data-interface="guide"] #screen-home>.topbar{position:relative;left:auto;top:auto;width:1920px;height:82px;padding:0 50px;border-right:0}
+body[data-interface="guide"] #content{top:82px;left:252px;right:0;bottom:0}body[data-interface="guide"] #content .section{width:auto}
+body[data-interface="guide"] .mainnav{top:94px;left:14px;right:auto;width:222px;height:898px;padding:15px 10px;display:block!important;background:var(--panel);border:1px solid var(--line);border-left:0;box-shadow:10px 0 28px rgba(0,0,0,.16)}
+body[data-interface="guide"] .nav-item{display:flex;width:100%;height:58px;line-height:58px;margin:5px 0;padding:0 14px;font-size:20px}body[data-interface="guide"] .nav-item .nv-ico,body[data-interface="guide"] .nav-item .nv-ico svg{width:24px;height:24px}body[data-interface="guide"] .nav-item .nv-ico{margin-right:10px}
+body[data-interface="guide"] .nav-item.active:after{left:12px;right:12px;bottom:4px;height:3px}
+#sec-home[data-layout="guide"] .hero{height:264px;margin:22px 34px 0;border:1px solid var(--frame);box-shadow:0 12px 30px rgba(0,0,0,.24)}
+#sec-home[data-layout="guide"] .hero .hero-content{padding-top:30px}#sec-home[data-layout="guide"] .hero-title{font-size:48px}#sec-home[data-layout="guide"] .rows{top:286px;padding:0 34px 30px}#sec-home[data-layout="guide"] .rows .row:first-child{border-top:3px solid var(--accent);padding-top:12px}
+#sec-home[data-layout="guide"] .row-title{letter-spacing:1px;text-transform:uppercase}#sec-home[data-layout="guide"] .card.wide .thumb{border:1px solid var(--frame)}
+
+/* --- Spotlight: a cinematic primary decision and four supporting routes. --- */
+body[data-interface="spotlight"] .topbar{height:154px;width:1920px;overflow:visible}
+body[data-interface="spotlight"] #screen-home>.topbar{position:relative;left:auto;top:auto;width:1920px;height:154px;padding:0 50px;border-right:0}
+body[data-interface="spotlight"] #content{top:154px;left:0;right:0;bottom:0}body[data-interface="spotlight"] #content .section{width:1920px}
+body[data-interface="spotlight"] .mainnav{top:78px;left:38px;right:38px;width:auto;height:64px;padding:0;display:flex!important;align-items:center;justify-content:center;background:transparent;border:0}
+body[data-interface="spotlight"] .nav-item{height:54px;line-height:54px;margin:0 3px;padding:0 16px;font-size:20px}body[data-interface="spotlight"] .nav-item .nv-ico,body[data-interface="spotlight"] .nav-item .nv-ico svg{width:21px;height:21px}body[data-interface="spotlight"] .nav-item .nv-ico{margin-right:7px}
+body[data-interface="spotlight"] .hub{left:60px;right:60px;padding-top:12px}body[data-interface="spotlight"] .hub-spotlight .hub-main{height:488px}body[data-interface="spotlight"] .hub-spotlight .tile.big{height:488px}body[data-interface="spotlight"] .hub-spotlight .tile-grid{height:488px}body[data-interface="spotlight"] .hub-spotlight .tile-grid .tile{height:232px}body[data-interface="spotlight"] .hub-spotlight .tile-grid .tile:nth-child(3),body[data-interface="spotlight"] .hub-spotlight .tile-grid .tile:nth-child(4){top:256px}
+body[data-interface="spotlight"] .hub-spotlight .hub-util{margin-top:16px}body[data-interface="spotlight"] .hub-spotlight .hub-strip{margin-top:14px}
+
+/* --- Mosaic / App Grid: equal routes, rapid remote exploration. --- */
+body[data-interface="mosaic"] .topbar{height:154px;width:1920px;overflow:visible}
+body[data-interface="mosaic"] #screen-home>.topbar{position:relative;left:auto;top:auto;width:1920px;height:154px;padding:0 50px;border-right:0}
+body[data-interface="mosaic"] #content{top:154px;left:0;right:0;bottom:0}body[data-interface="mosaic"] #content .section{width:1920px}
+body[data-interface="mosaic"] .mainnav{top:78px;left:38px;right:38px;width:auto;height:64px;padding:0;display:flex!important;align-items:center;justify-content:center;background:transparent;border:0}
+body[data-interface="mosaic"] .nav-item{height:54px;line-height:54px;margin:0 3px;padding:0 16px;font-size:20px}body[data-interface="mosaic"] .nav-item .nv-ico,body[data-interface="mosaic"] .nav-item .nv-ico svg{width:21px;height:21px}body[data-interface="mosaic"] .nav-item .nv-ico{margin-right:7px}
+body[data-interface="mosaic"] .hub{left:60px;right:60px;padding-top:12px}body[data-interface="mosaic"] .hub-mosaic .hub-main{height:704px}body[data-interface="mosaic"] .hub-mosaic .tile{height:340px}body[data-interface="mosaic"] .hub-mosaic .tile:nth-child(n+5){height:300px;top:364px}body[data-interface="mosaic"] .hub-mosaic .tile:nth-child(n+5) .t-ico{top:48px}body[data-interface="mosaic"] .hub-mosaic .hub-info.slim{margin-top:10px}
+
+/* Prior releases had theme-owned hub geometry for a few themes. This final
+   override keeps selected interface geometry authoritative, including when a
+   user combines a legacy theme with one of the new Home styles. */
+body.hub-root[data-interface="rail"] .topbar{height:82px;width:1920px;overflow:visible}body.hub-root[data-interface="rail"] #content{top:82px;left:252px;right:0;bottom:0}body.hub-root[data-interface="rail"] #content .section{width:auto}body.hub-root[data-interface="rail"] .mainnav{top:94px;left:14px;right:auto;width:222px;height:898px;padding:15px 10px;display:block!important;background:var(--panel);border:1px solid var(--line);border-left:0}body.hub-root[data-interface="rail"] .nav-item{display:flex;width:100%;height:58px;line-height:58px;margin:5px 0;padding:0 14px;font-size:20px}body.hub-root[data-interface="rail"] .nav-item .nv-ico,body.hub-root[data-interface="rail"] .nav-item .nv-ico svg{width:24px;height:24px}body.hub-root[data-interface="rail"] .nav-item .nv-ico{margin-right:10px}
+body.hub-root[data-interface="command"] .topbar,body.hub-root[data-interface="spotlight"] .topbar,body.hub-root[data-interface="mosaic"] .topbar{height:154px;width:1920px;overflow:visible}body.hub-root[data-interface="command"] #content,body.hub-root[data-interface="spotlight"] #content,body.hub-root[data-interface="mosaic"] #content{top:154px;left:0;right:0;bottom:0}body.hub-root[data-interface="command"] #content .section,body.hub-root[data-interface="spotlight"] #content .section,body.hub-root[data-interface="mosaic"] #content .section{width:1920px}
+body.hub-root[data-interface="command"] .mainnav{top:78px;left:38px;right:38px;width:auto;height:64px;padding:0 12px;display:flex!important;align-items:center;justify-content:flex-start;background:rgba(0,0,0,.12);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}body.hub-root[data-interface="spotlight"] .mainnav,body.hub-root[data-interface="mosaic"] .mainnav{top:78px;left:38px;right:38px;width:auto;height:64px;padding:0;display:flex!important;align-items:center;justify-content:center;background:transparent;border:0}
+body.hub-root[data-interface="command"] .nav-item,body.hub-root[data-interface="spotlight"] .nav-item,body.hub-root[data-interface="mosaic"] .nav-item{display:inline-flex;width:auto;height:54px;line-height:54px;margin:0 3px;padding:0 16px;font-size:20px}body.hub-root[data-interface="command"] .nav-item .nv-ico,body.hub-root[data-interface="command"] .nav-item .nv-ico svg,body.hub-root[data-interface="spotlight"] .nav-item .nv-ico,body.hub-root[data-interface="spotlight"] .nav-item .nv-ico svg,body.hub-root[data-interface="mosaic"] .nav-item .nv-ico,body.hub-root[data-interface="mosaic"] .nav-item .nv-ico svg{width:21px;height:21px}body.hub-root[data-interface="command"] .nav-item .nv-ico,body.hub-root[data-interface="spotlight"] .nav-item .nv-ico,body.hub-root[data-interface="mosaic"] .nav-item .nv-ico{margin-right:7px}
+
+/* Shared interface focus safety. A visible focus never relies on a theme's
+   old geometry, and each focused nav target remains on top of its rail/dock. */
+body[data-interface="rail"] .mainnav,body[data-interface="guide"] .mainnav,body[data-interface="command"] .mainnav,body[data-interface="spotlight"] .mainnav,body[data-interface="mosaic"] .mainnav{z-index:60;visibility:visible;opacity:1;pointer-events:auto}
+body[data-interface="rail"] .nav-item.focus,body[data-interface="guide"] .nav-item.focus,body[data-interface="command"] .nav-item.focus,body[data-interface="spotlight"] .nav-item.focus,body[data-interface="mosaic"] .nav-item.focus{position:relative;z-index:2}
+
+/* RTL mirrors the two side rails and preserves the content reservation.
+   Hub tiles are data-order based and use the app's normal RTL rules. */
+body.rtl[data-interface="rail"] #content,body.rtl[data-interface="guide"] #content{left:0;right:252px}
+body.rtl[data-interface="rail"] .mainnav,body.rtl[data-interface="guide"] .mainnav{left:auto;right:14px;border-left:0;border-right:1px solid var(--line);box-shadow:-10px 0 28px rgba(0,0,0,.16)}
+body.rtl[data-interface="rail"] .nav-item .nv-ico,body.rtl[data-interface="guide"] .nav-item .nv-ico,body.rtl[data-interface="command"] .nav-item .nv-ico,body.rtl[data-interface="spotlight"] .nav-item .nv-ico,body.rtl[data-interface="mosaic"] .nav-item .nv-ico{margin-right:0;margin-left:10px}
+body.rtl[data-interface="command"] .nav-item .nv-ico,body.rtl[data-interface="spotlight"] .nav-item .nv-ico,body.rtl[data-interface="mosaic"] .nav-item .nv-ico{margin-left:7px}
+body.rtl.hub-root[data-interface="rail"] #content{left:0;right:252px}body.rtl.hub-root[data-interface="rail"] .mainnav{left:auto;right:14px;border-left:0;border-right:1px solid var(--line)}body.rtl.hub-root[data-interface="rail"] .nav-item .nv-ico{margin-right:0;margin-left:10px}
+body.rtl.hub-root[data-interface="command"] .nav-item .nv-ico,body.rtl.hub-root[data-interface="spotlight"] .nav-item .nv-ico,body.rtl.hub-root[data-interface="mosaic"] .nav-item .nv-ico{margin-right:0;margin-left:7px}
+body.rtl[data-interface="rail"] .hub-side .hs-btns .util{margin:0 0 10px 10px}body.rtl[data-interface="rail"] .hub-side .hs-btns .util:nth-child(2n){margin-left:0}
+body.rtl[data-interface="command"] .hub-side .hs-btns .util{margin:0 0 10px 10px}body.rtl[data-interface="command"] .hub-side .hs-btns .util:nth-child(2n){margin-left:0}
+body.rtl[data-interface="rail"] .hub-rail .tile-grid .tile.wide2{left:auto;right:0}body.rtl[data-interface="rail"] .hub-rail .tile-grid .tile:nth-child(2){left:auto;right:558px}body.rtl[data-interface="rail"] .hub-rail .tile-grid .tile:nth-child(3){left:auto;right:834px}body.rtl[data-interface="rail"] .hub-rail .tile-grid .tile:nth-child(4){left:auto;right:558px}body.rtl[data-interface="rail"] .hub-rail .tile-grid .tile:nth-child(5){left:auto;right:834px}
+body.rtl[data-interface="command"] .hub-command .tile-grid .tile.wide2{left:auto;right:0}body.rtl[data-interface="command"] .hub-command .tile-grid .tile:nth-child(2){left:auto;right:0}body.rtl[data-interface="command"] .hub-command .tile-grid .tile:nth-child(3){left:auto;right:284px}body.rtl[data-interface="command"] .hub-command .tile-grid .tile:nth-child(4){left:auto;right:568px}body.rtl[data-interface="command"] .hub-command .tile-grid .tile:nth-child(5){left:auto;right:852px}
+body.rtl[data-interface="rail"] .hub-rail .tile .t-lbl,body.rtl[data-interface="rail"] .hub-rail .tile .t-sub,body.rtl[data-interface="command"] .hub-command .tile .t-lbl,body.rtl[data-interface="command"] .hub-command .tile .t-sub{left:auto;right:19px}body.rtl[data-interface="rail"] .hub-rail .tile .t-ico,body.rtl[data-interface="command"] .hub-command .tile .t-ico{left:auto;right:16px}body.rtl[data-interface="rail"] .hub-rail .tile.wide2 .t-lbl,body.rtl[data-interface="rail"] .hub-rail .tile.wide2 .t-sub,body.rtl[data-interface="command"] .hub-command .tile.wide2 .t-lbl,body.rtl[data-interface="command"] .hub-command .tile.wide2 .t-sub{left:auto;right:28px}body.rtl[data-interface="rail"] .hub-rail .tile.wide2 .t-ico,body.rtl[data-interface="command"] .hub-command .tile.wide2 .t-ico{left:auto;right:24px}
+
+/* Large UI remains a real accessibility setting: labels grow instead of being
+   hidden by a narrow rail, and larger selection rings keep remote focus clear. */
+body.large[data-interface="rail"] .nav-item,body.large[data-interface="guide"] .nav-item{font-size:22px;height:64px;line-height:64px}body.large[data-interface="command"] .nav-item,body.large[data-interface="spotlight"] .nav-item,body.large[data-interface="mosaic"] .nav-item{font-size:22px;padding:0 18px}
+body.large[data-interface="rail"] .hub-side .hs-time{font-size:76px}body.large[data-interface="command"] .hub-side .hs-time{font-size:82px}
+body.high-contrast[data-interface] .mainnav{background:#000!important;border-color:#fff!important;box-shadow:none!important}body.high-contrast[data-interface] .nav-item{color:#fff!important}body.high-contrast[data-interface] .nav-item.active{background:#fff!important;color:#000!important}body.high-contrast[data-interface] .nav-item.focus,body.high-contrast[data-interface] .tile.focus{outline:5px solid #ffe600!important;box-shadow:0 0 0 5px #000!important}
+
+/* Interface previews are visual maps, not theme samples. */
+.swatch.layout i.lay-rail{background:linear-gradient(90deg,#40d6ff 0 23%,#0a0e1a 23% 28%,#263a58 28% 100%);background-size:100% 100%}
+.swatch.layout i.lay-command{background:linear-gradient(180deg,#2b3852 0 24%,#0a0e1a 24% 30%,#f79a32 30% 34%,#263a58 34% 100%);background-size:100% 100%}
+.swatch.layout i.lay-guide{background:linear-gradient(90deg,#76f0c1 0 23%,#0a0e1a 23% 28%,#1a3144 28% 100%);background-size:100% 100%}
+.swatch.layout.legacy{opacity:.76}.swatch.layout.legacy .nm{font-size:12px}

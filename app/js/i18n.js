@@ -128,6 +128,19 @@ var I18n = (function () {
   AR['groups.tools'] = 'أدوات المجموعة'; AR['groups.hide'] = 'إخفاء المجموعة'; AR['groups.restore'] = 'إظهار المجموعات المخفية'; AR['groups.hidden'] = 'تم إخفاء المجموعة'; AR['groups.restored'] = 'تمت استعادة المجموعات المخفية';
   AR['smart.empty'] = 'لا توجد قنوات في هذا القسم الذكي.'; AR['smart.favorites'] = 'المفضلة'; AR['smart.recent'] = 'شاهدتها مؤخرًا'; AR['smart.most'] = 'الأكثر مشاهدة'; AR['smart.added'] = 'أضيفت مؤخرًا'; AR['smart.sports'] = 'رياضة'; AR['smart.news'] = 'أخبار'; AR['smart.movies'] = 'أفلام'; AR['smart.kids'] = 'أطفال'; AR['smart.music'] = 'موسيقى'; AR['smart.entertainment'] = 'ترفيه'; AR['smart.regional'] = 'محلية';
 
+
+  /* Visual system v2.8: labels are deliberately separate from the old themes.
+     A theme never implies a navigation layout. */
+  EN['set.theme'] = 'Theme'; EN['set.theme.d'] = 'Choose the visual language: color system, surfaces, typography treatment, focus signature and player chrome. Interface style stays independent.';
+  EN['theme.astra'] = 'Astra OS'; EN['theme.receiverpro'] = 'Receiver Pro'; EN['theme.liquidglass'] = 'Liquid Glass TV'; EN['theme.livepulse'] = 'Live Pulse'; EN['theme.noormajlis'] = 'Noor Majlis';
+  EN['set.layout'] = 'Interface style'; EN['set.layout.d'] = 'Choose navigation geometry and Home information architecture independently from the theme. Every theme supports every style.';
+  EN['lay.rail'] = 'Side Rail'; EN['lay.command'] = 'Command Center'; EN['lay.guide'] = 'Guide First'; EN['lay.spotlight'] = 'Spotlight'; EN['lay.mosaic'] = 'Mosaic / App Grid'; EN['lay.classic'] = 'Classic (legacy)'; EN['lay.trio'] = 'Trio (legacy)'; EN['lay.dashboard'] = 'Dashboard (legacy)';
+
+  AR['set.theme'] = 'المظهر'; AR['set.theme.d'] = 'اختر اللغة البصرية: الألوان والأسطح وطابع الخط والتركيز وشكل المشغّل. نمط الواجهة يبقى مستقلاً.';
+  AR['theme.astra'] = 'نظام أسترا'; AR['theme.receiverpro'] = 'رسيفر برو'; AR['theme.liquidglass'] = 'زجاج سائل للتلفاز'; AR['theme.livepulse'] = 'نبض البث المباشر'; AR['theme.noormajlis'] = 'نور المجلس';
+  AR['set.layout'] = 'نمط الواجهة'; AR['set.layout.d'] = 'اختر هندسة التنقل وبنية معلومات الرئيسية بشكل مستقل عن المظهر. كل مظهر يدعم كل الأنماط.';
+  AR['lay.rail'] = 'شريط جانبي'; AR['lay.command'] = 'مركز الأوامر'; AR['lay.guide'] = 'الدليل أولاً'; AR['lay.spotlight'] = 'بؤرة'; AR['lay.mosaic'] = 'فسيفساء / شبكة التطبيقات'; AR['lay.classic'] = 'كلاسيكي (قديم)'; AR['lay.trio'] = 'ثلاثي (قديم)'; AR['lay.dashboard'] = 'لوحة (قديمة)';
+
   var LANGS = { en: EN, ar: AR }, lang = 'en', dict = EN;
 
   function t(key, vars) {

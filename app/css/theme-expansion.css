@@ -93,4 +93,5 @@ body[data-theme="receiver"] #screen-player .zap-list{background:linear-gradient(
 body[data-theme="sports"] #screen-player .zap-list{border-left-width:4px}body[data-theme="neocrt"] #screen-player .zap-list,body[data-theme="cyberpunk"] #screen-player .zap-head,body[data-theme="neocrt"] #screen-player .receiver-channel{border-radius:0}
 body.rtl #screen-player .zap-list{left:auto;right:0}body.rtl #screen-player .rc-num,body.rtl #screen-player .rc-logo{margin-right:0;margin-left:16px}body.rtl #screen-player .zap-head-count{float:left}body.rtl #screen-player .zap-epg{direction:rtl}
 
-/* Final status/menu/content geometry is isolated in theme-layout-contract.css. */
+/* Legacy status/menu/content compatibility remains in theme-layout-contract.css.
+   v2.8 interface geometry is applied later by theme-interface-suite.css. */

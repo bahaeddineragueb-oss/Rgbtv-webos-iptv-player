@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="css/theme-layout-contract.css">
   <link rel="stylesheet" href="css/experience.css">
   <link rel="stylesheet" href="css/theme-signatures.css">
+  <!-- Final visual contract: themes provide tokens; interface styles provide geometry. -->
+  <link rel="stylesheet" href="css/theme-interface-suite.css">
 </head>
 <body data-theme="dark">
 <div id="app">
@@ -251,6 +253,11 @@
         <div class="setting-row"><div><b data-i18n="set.language">Language</b><p class="muted" data-i18n="set.language.d">Interface language and layout direction.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="lang">English</button></div>
         <div class="setting-row"><div><b data-i18n="set.theme">Theme</b><p class="muted" data-i18n="set.theme.d">Aurora · Midnight · OLED Black · Ocean</p></div>
           <div class="theme-swatches" id="theme-swatches">
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="astra" data-theme="astra"><i></i><span class="nm" data-i18n="theme.astra">Astra OS</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="receiverpro" data-theme="receiverpro"><i></i><span class="nm" data-i18n="theme.receiverpro">Receiver Pro</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="liquidglass" data-theme="liquidglass"><i></i><span class="nm" data-i18n="theme.liquidglass">Liquid Glass TV</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="livepulse" data-theme="livepulse"><i></i><span class="nm" data-i18n="theme.livepulse">Live Pulse</span></button>
+            <button class="swatch focusable" data-nav="settings" data-theme-pick="noormajlis" data-theme="noormajlis"><i></i><span class="nm" data-i18n="theme.noormajlis">Noor Majlis</span></button>
             <button class="swatch focusable" data-nav="settings" data-theme-pick="aurora" data-theme="aurora"><i></i><span class="nm" data-i18n="theme.aurora">Aurora</span></button>
             <button class="swatch focusable" data-nav="settings" data-theme-pick="midnight" data-theme="midnight"><i></i><span class="nm" data-i18n="theme.midnight">Midnight</span></button>
             <button class="swatch focusable" data-nav="settings" data-theme-pick="oled" data-theme="oled"><i></i><span class="nm" data-i18n="theme.oled">OLED</span></button>
@@ -284,13 +291,17 @@
             <button class="swatch accent focusable" data-nav="settings" data-accent-pick="red"><i style="background:#ef4444"></i></button>
             <button class="swatch accent focusable" data-nav="settings" data-accent-pick="pink"><i style="background:#ec4899"></i></button>
           </div></div>
-        <div class="setting-row"><div><b data-i18n="set.layout">Interface style</b><p class="muted" data-i18n="set.layout.d">Classic RGBTv (hero + rows) · VIU-style hub · IBO Player-style hub.</p></div>
+        <div class="setting-row"><div><b data-i18n="set.layout">Interface style</b><p class="muted" data-i18n="set.layout.d">Choose navigation geometry and Home information architecture independently from the theme.</p></div>
           <div class="theme-swatches" id="layout-swatches">
-            <button class="swatch layout focusable" data-nav="settings" data-layout-pick="classic"><i class="lay-classic"></i><span class="nm" data-i18n="lay.classic">Classic</span></button>
+            <button class="swatch layout focusable" data-nav="settings" data-layout-pick="rail"><i class="lay-rail"></i><span class="nm" data-i18n="lay.rail">Side Rail</span></button>
+            <button class="swatch layout focusable" data-nav="settings" data-layout-pick="command"><i class="lay-command"></i><span class="nm" data-i18n="lay.command">Command Center</span></button>
+            <button class="swatch layout focusable" data-nav="settings" data-layout-pick="guide"><i class="lay-guide"></i><span class="nm" data-i18n="lay.guide">Guide First</span></button>
             <button class="swatch layout focusable" data-nav="settings" data-layout-pick="spotlight"><i class="lay-spotlight"></i><span class="nm" data-i18n="lay.spotlight">Spotlight</span></button>
-            <button class="swatch layout focusable" data-nav="settings" data-layout-pick="trio"><i class="lay-trio"></i><span class="nm" data-i18n="lay.trio">Trio</span></button>
-            <button class="swatch layout focusable" data-nav="settings" data-layout-pick="mosaic"><i class="lay-mosaic"></i><span class="nm" data-i18n="lay.mosaic">Mosaic</span></button>
-            <button class="swatch layout focusable" data-nav="settings" data-layout-pick="dashboard"><i class="lay-dashboard"></i><span class="nm" data-i18n="lay.dashboard">Dashboard</span></button>
+            <button class="swatch layout focusable" data-nav="settings" data-layout-pick="mosaic"><i class="lay-mosaic"></i><span class="nm" data-i18n="lay.mosaic">Mosaic / App Grid</span></button>
+            <!-- Kept selectable for existing installations and imported backups. -->
+            <button class="swatch layout legacy focusable" data-nav="settings" data-layout-pick="classic"><i class="lay-classic"></i><span class="nm" data-i18n="lay.classic">Classic</span></button>
+            <button class="swatch layout legacy focusable" data-nav="settings" data-layout-pick="trio"><i class="lay-trio"></i><span class="nm" data-i18n="lay.trio">Trio</span></button>
+            <button class="swatch layout legacy focusable" data-nav="settings" data-layout-pick="dashboard"><i class="lay-dashboard"></i><span class="nm" data-i18n="lay.dashboard">Dashboard</span></button>
           </div></div>
         <div class="setting-row"><div><b data-i18n="set.corners">Corners</b><p class="muted" data-i18n="set.corners.d">Rounded or square cards, tiles and buttons.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="corners">Rounded</button></div>
         <div class="setting-row"><div><b data-i18n="set.glow">Background glow</b><p class="muted" data-i18n="set.glow.d">Soft colored light behind the interface and under the highlight.</p></div><button class="btn ghost focusable" data-nav="settings" data-setting="glow">On</button></div>
@@ -315,7 +326,7 @@
         <div class="setting-row"><div><b data-i18n="pair.btn">Add from phone</b><p class="muted" data-i18n="pair.set.d">Show a QR code; type the server details on your phone instead of the remote.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="pair-phone">📱 QR</button></div>
         <div class="setting-row"><div><b data-i18n="backup.title">Backup &amp; restore</b><p class="muted" data-i18n="backup.settings.d">Create a portable backup code for profiles, favorites and settings.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="backup-open" data-i18n="backup.open">Open</button></div>
         <div class="setting-row"><div><b data-i18n="set.profile">Profile</b><p class="muted" id="settings-account-info"></p></div><div class="setting-actions"><button class="btn ghost focusable" data-nav="settings" data-action="edit-account" data-i18n="edit">Edit</button><button class="btn ghost focusable" data-nav="settings" data-action="switch-account" data-i18n="switch">Switch</button></div></div>
-        <div class="setting-row"><div><b data-i18n="set.about">About</b><p class="muted">RGBTv v2.7.7 · Playback Engine for LG webOS · Xtream Codes · Stalker Portal · M3U · Native player + hls.js</p></div><button class="btn ghost focusable" data-nav="settings" data-action="exit-app" data-i18n="set.exit">Exit App</button></div>
+        <div class="setting-row"><div><b data-i18n="set.about">About</b><p class="muted">RGBTv v2.8.0 · Playback Engine for LG webOS · Xtream Codes · Stalker Portal · M3U · Native player + hls.js</p></div><button class="btn ghost focusable" data-nav="settings" data-action="exit-app" data-i18n="set.exit">Exit App</button></div>
       </div>
     </section>
   </main>
