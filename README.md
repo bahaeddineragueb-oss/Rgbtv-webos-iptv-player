@@ -1,4 +1,4 @@
-# RGBTv — webOS TV source (v2.7.4)
+# RGBTv — webOS TV source (v2.7.5)
 
 Pure HTML5 web app for LG webOS (3.0+): ES5 JavaScript, legacy-safe CSS, native <video> + hls.js.
 
@@ -69,7 +69,7 @@ or simply `./build.sh tv`.
 - **Connection diagnostics** reports the selected provider, declared capabilities, cache footprint, last login timing and a user-triggered safe catalogue/playback-link check. It never starts a second stream, and it never displays credentials or a full stream URL.
 - Keep the package small: no bundled audio/video assets.
 
-## Playback Engine (v2.7.4)
+## Playback Engine (v2.7.5)
 
 Live playback uses one stable HTML5 `<video>` surface through a provider-neutral pipeline:
 
@@ -89,6 +89,10 @@ Validation is automated with provider, resolver, state-machine, cancellation, bu
 ### Stalker resolver repair (v2.7.2)
 
 The Stalker live resolver now accepts `cmd`, `command`, `url`, string `data`, nested `data`, and nested `result` create-link envelopes; normalizes `ffmpeg`/pipe command output into the actual media URL; and reports a missing link as `STREAM_RESOLUTION_ERROR` instead of attempting an expired channel command. MAG MAC cookies retain literal colon notation, and implicit HTTPS port 443 matches an explicitly returned `:443` stream origin so the active Stalker session is not accidentally dropped. Opaque signed live URLs that lack `.m3u8` receive one controlled hls.js fallback after native `SRC_NOT_SUPPORTED`, rather than being prematurely declared non-HLS.
+
+### Stalker localhost stream repair (v2.7.5)
+
+Some MAG portals return `create_link` commands such as `ffmpeg http://localhost/ch/512_`. `localhost` is an internal proxy alias understood by MAG firmware, not by a webOS browser application; assigning it to the stable video element attempts playback against the TV itself. Live resolution now rewrites only loopback aliases (`localhost`, `127.0.0.1`, `::1`, and `0.0.0.0`) to the authenticated portal host while retaining the channel path, query and any explicit gateway port. Remote stream URLs are never rewritten.
 
 ### Stalker live-priority and renewal repair (v2.7.4)
 

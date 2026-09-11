@@ -76,6 +76,18 @@ function stalkerSameOrigin(left, right) {
 function stalkerSafeStreamUrl(raw) {
   var match = String(raw || '').match(/^(https?:\/\/[^/]+)/i); return match ? match[1] + '/…' : 'unavailable';
 }
+/* MAG firmware exposes an internal HTTP proxy as localhost. Browser apps do
+   not have that firmware route: assigning http://localhost/ch/... to video
+   points at the TV itself and can never reach the subscriber's portal. Rewrite
+   only documented loopback aliases to the already authenticated portal origin. */
+function stalkerPortalStreamUrl(sourceUrl, endpoint) {
+  var source = String(sourceUrl || ''), local = /^(https?):\/\/(localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[?::1\]?)(?::(\d+))?((?:[\/?#].*)?)$/i.exec(source), portal = /^(https?):\/\/([^\/:?#]+)(?::(\d+))?/i.exec(String(endpoint || ''));
+  if (!local || !portal) return { url: source, loopbackRewritten: false };
+  /* An explicit local gateway port is retained on the real portal host. Without
+     one, use the portal's protocol and port because that is where /ch/ lives. */
+  if (local[3]) return { url: local[1].toLowerCase() + '://' + portal[2] + ':' + local[3] + (local[4] || '/'), loopbackRewritten: true };
+  return { url: portal[1].toLowerCase() + '://' + portal[2] + (portal[3] ? ':' + portal[3] : '') + (local[4] || '/'), loopbackRewritten: true };
+}
 /* Handshake payloads vary just as much as catalogue replies. Older Ministra
    portals commonly place the bearer below data/result, while newer portals put
    it at js.token. Only recognised response envelopes are inspected. */
@@ -555,6 +567,9 @@ StalkerProvider.prototype = {
       if (!command) throw stalkerStreamError(new Error('Stalker create_link returned no stream command'));
       source = stalkerCommandSource(command);
       if (!source.url) throw stalkerStreamError(new Error('Stalker create_link returned an invalid stream URL'));
+      var playable = stalkerPortalStreamUrl(source.url, self.endpoint);
+      source.url = playable.url; source.loopbackRewritten = playable.loopbackRewritten;
+      if (source.loopbackRewritten) stalkerDebug('Loopback stream command mapped to portal origin', { channelId: item && item.id });
       return source;
     }).catch(function (error) {
       if (error && (error.code === 'USER_CANCELLED' || error.name === 'AbortError')) throw error;
@@ -582,7 +597,7 @@ StalkerProvider.prototype = {
       var result = {
         url: source.url, streamUrl: source.url, streamType: detected, provider: self.type, channelId: item && item.id,
         headers: auth.headers, cookies: auth.cookies, token: auth.token,
-        metadata: { contentType: item && item.type, title: item && item.name, live: !!(item && item.type === 'live'), streamId: item && item.id, macPresent: !!self.mac, deviceIdPresent: !!self.deviceId, tokenPresent: !!self.token, cookiePresent: !!self._cookieHeader(), samePortal: auth.samePortal }
+        metadata: { contentType: item && item.type, title: item && item.name, live: !!(item && item.type === 'live'), streamId: item && item.id, macPresent: !!self.mac, deviceIdPresent: !!self.deviceId, tokenPresent: !!self.token, cookiePresent: !!self._cookieHeader(), samePortal: auth.samePortal, loopbackRewritten: !!source.loopbackRewritten }
       };
       /* Safe, opt-in portal diagnostic: fields prove the authenticated resolver
          path without writing MAC, bearer values, cookies or the full stream URL. */

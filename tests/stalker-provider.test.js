@@ -209,6 +209,13 @@ async function testStalkerStreamContract() {
   assert.strictEqual(authorized.metadata.deviceIdPresent, true);
 
   var nested = freshProvider();
+  var loopback = freshProvider(function () { return Promise.resolve(meta({ js: { cmd: 'ffmpeg http://localhost/ch/512_?token=private' } })); });
+  var loopbackResolved = await loopback.provider.resolveStream({ type: 'live', id: 'local', name: 'Internal proxy', cmd: 'ffmpeg http://localhost/ch/512_' });
+  assert.strictEqual(loopbackResolved.url, 'https://portal.example/ch/512_?token=private', 'MAG localhost stream commands must target the actual portal origin in a browser app');
+  assert.strictEqual(loopbackResolved.metadata.loopbackRewritten, true, 'diagnostics records only the safe loopback rewrite fact');
+  assert.strictEqual(nested.context.stalkerPortalStreamUrl('http://127.0.0.1:88/ch/5_', 'https://portal.example:8443/stalker_portal/server/load.php').url, 'http://portal.example:88/ch/5_', 'an explicit MAG gateway port remains intact while only loopback host is replaced');
+  assert.strictEqual(nested.context.stalkerPortalStreamUrl('https://edge.example/ch/5_', 'https://portal.example/stalker_portal/server/load.php').loopbackRewritten, false, 'a real remote stream URL is never rewritten');
+
   assert.strictEqual(nested.provider._linkCommand({ data: 'ffmpeg https://stream.example/one' }), 'ffmpeg https://stream.example/one');
   assert.strictEqual(nested.provider._linkCommand({ result: { command: 'ffmpeg https://stream.example/two' } }), 'ffmpeg https://stream.example/two');
   assert.strictEqual(nested.context.stalkerCommandSource('ffmpeg https://stream.example/opaque|User-Agent=MAG').url, 'https://stream.example/opaque', 'pipe annotations are never sent as the video URL');
