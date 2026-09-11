@@ -65,8 +65,13 @@ function stalkerCommandSource(command) {
   return { url: match[0], headers: headers, raw: raw };
 }
 function stalkerSameOrigin(left, right) {
-  var a = /^(https?):\/\/([^\/:?#]+)(?::(\d+))?/i.exec(String(left || '')), b = /^(https?):\/\/([^\/:?#]+)(?::(\d+))?/i.exec(String(right || ''));
-  return !!(a && b && a[1].toLowerCase() === b[1].toLowerCase() && a[2].toLowerCase() === b[2].toLowerCase() && String(a[3] || '') === String(b[3] || ''));
+  var a = /^(https?):\/\/([^\/:?#]+)(?::(\d+))?/i.exec(String(left || '')), b = /^(https?):\/\/([^\/:?#]+)(?::(\d+))?/i.exec(String(right || '')), ap, bp;
+  if (!a || !b || a[1].toLowerCase() !== b[1].toLowerCase() || a[2].toLowerCase() !== b[2].toLowerCase()) return false;
+  /* https://host and https://host:443 are the same portal. The old string
+     comparison silently dropped the active MAG session on this common form. */
+  ap = String(a[3] || (a[1].toLowerCase() === 'https' ? '443' : '80'));
+  bp = String(b[3] || (b[1].toLowerCase() === 'https' ? '443' : '80'));
+  return ap === bp;
 }
 function stalkerSafeStreamUrl(raw) {
   var match = String(raw || '').match(/^(https?:\/\/[^/]+)/i); return match ? match[1] + '/…' : 'unavailable';
@@ -98,7 +103,10 @@ function StalkerProvider(acc) {
   /* Tokens and portal session cookies are short-lived credentials. Keep both in
      memory only; each application launch starts with a fresh handshake. */
   this.token = null;
-  this.cookies = { mac: encodeURIComponent(this.mac), stb_lang: 'en', timezone: 'Europe/Paris' };
+  /* MAG middleware compares the cookie value as a MAC address. Keep colons
+     literal; URL-encoding them works on some PHP portals but is rejected by
+     others before create_link is reached. */
+  this.cookies = { mac: this.mac, stb_lang: 'en', timezone: 'Europe/Paris' };
   this.profile = null; this.portalInfo = null; this.agentMode = 0;
   this._genreCache = {}; this._keepalive = null; this._handshakePending = null; this._mem = {}; this._pending = {}; this._queue = []; this._activeRequests = 0;
   this._livePages = {}; this._allLive = { items: [], ids: {}, nextPage: 1, total: 0, complete: false, pending: null };
@@ -186,7 +194,10 @@ StalkerProvider.prototype = {
        A catalogue page is allowed a longer request budget, but requests themselves
        are serialized in _enqueue to protect rate-limited MAG portals. */
     var opt = { insecureTls: this.acc.insecureTls === true, timeout: 45000, responseMeta: true, signal: requestOpt.signal };
-    if (params && (params.action === 'get_ordered_list' || params.action === 'get_all_channels' || (params.action === 'get_categories' && params.type !== 'itv'))) opt.timeout = 120000;
+    /* create_link is on the click-to-first-frame path. A stuck portal must fail
+       fast so the PlaybackManager can perform its bounded fresh-session retry. */
+    if (params && params.action === 'create_link') opt.timeout = 8000;
+    else if (params && (params.action === 'get_ordered_list' || params.action === 'get_all_channels' || (params.action === 'get_categories' && params.type !== 'itv'))) opt.timeout = 120000;
     return U.getJSON(this._url(params), this._headers(), opt).then(function (response) {
       /* responseMeta is available through Luna. Keeping the fallback makes unit
          tests and non-webOS adapters compatible with the normalized call path. */
@@ -306,7 +317,7 @@ StalkerProvider.prototype = {
 
   _mapLiveChannel: function (source, fallbackCat, position) {
     source = source && typeof source === 'object' ? source : { cmd: String(source || '') };
-    var cmd = source.cmd || source.command || source.stream_url || source.stream || source.url || '', rawId = source.id;
+    var cmd = source.cmd || source.cmd_1 || source.cmd_0 || source.command || source.stream_url || source.stream || source.url || '', rawId = source.id;
     if (rawId == null || rawId === '') rawId = source.ch_id != null ? source.ch_id : (source.channel_id != null ? source.channel_id : (source.stream_id != null ? source.stream_id : source.number));
     var name = source.name || source.title || source.channel_name || source.display_name || '';
     /* A channel without a logo/number/category remains valid. If a portal omits
@@ -480,6 +491,13 @@ StalkerProvider.prototype = {
       return stalkerRows(r).map(function (e) { return { title: e.name || e.title || '', desc: e.descr || e.description || '', start: Number(e.start_timestamp || e.start), end: Number(e.stop_timestamp || e.end) }; });
     }).catch(function () { return []; });
   },
+  _linkCommand: function (reply) {
+    /* Ministra releases put the create_link command in different envelopes.
+       Resolve all documented shapes instead of treating a valid link as blank. */
+    if (typeof reply === 'string') return reply;
+    if (!reply || typeof reply !== 'object') return '';
+    return reply.cmd || reply.command || reply.url || reply.data && (typeof reply.data === 'string' ? reply.data : (reply.data.cmd || reply.data.command || reply.data.url)) || reply.result && (reply.result.cmd || reply.result.command || reply.result.url) || '';
+  },
   _createLink: function (item, requestOpt) {
     var self = this, cmd = item && item.cmd || '', params;
     if (!cmd) return Promise.reject(stalkerStreamError(new Error('Channel has no Stalker stream command')));
@@ -487,7 +505,7 @@ StalkerProvider.prototype = {
     else if (item.type === 'episode') params = { type: 'vod', action: 'create_link', cmd: cmd, series: item.seriesNum || item.episode || '', forced_storage: '', disable_ad: 0, download: 0 };
     else params = { type: 'vod', action: 'create_link', cmd: cmd, series: '', forced_storage: '', disable_ad: 0, download: 0 };
     return this._call(params, false, 'playback', requestOpt).then(function (reply) {
-      var command = reply && (reply.cmd || reply.data && reply.data.cmd), source;
+      var command = self._linkCommand(reply), source;
       /* A portal must explicitly produce a link. Falling back to the old channel
          command hides a failed authorization/resolution behind a broken spinner. */
       if (!command) throw stalkerStreamError(new Error('Stalker create_link returned no stream command'));

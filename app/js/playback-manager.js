@@ -457,7 +457,11 @@ var PlaybackManager = (function () {
       }
       /* HLS has one controlled native-to-hls.js handover. It is an engine change,
          not a retry and cannot cycle back to native for the same session. */
-      if (this.stream && this.stream.type === 'hls' && this.engine === 'native' && !this.hlsFallbackTried && this.adapter && this.adapter.canUseHls && this.adapter.canUseHls()) {
+      /* MAG create_link endpoints are frequently opaque PHP paths with no
+         .m3u8 suffix. A native SRC_NOT_SUPPORTED result is the decisive signal:
+         make one hls.js attempt for an unknown live source rather than denying a
+         valid HLS stream solely because its signed URL lacks an extension. */
+      if (this.stream && (this.stream.type === 'hls' || (this.stream.type === 'unknown' && this.stream.metadata && this.stream.metadata.live)) && this.engine === 'native' && !this.hlsFallbackTried && this.adapter && this.adapter.canUseHls && this.adapter.canUseHls()) {
         this.hlsFallbackTried = true; this.engine = 'hls'; this.metrics.strategy = 'hls'; this.hasMetadata = false; this.lastProgress = Date.now();
         this._setState(STATES.PREPARING_PLAYER, { fallback: true }); this._log('Native HLS fallback');
         this._armDeadline('start', session, this.requestId); this.adapter.load(this.stream, session, 'hls'); return true;

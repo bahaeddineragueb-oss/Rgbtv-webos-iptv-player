@@ -39,7 +39,10 @@ var Player = (function () {
       transition(true, current); error(null); loading(true, T('reconnecting', { n: detail.attempt, max: detail.max }));
       if (detail.attempt > 1) UI.toast(T('p.interrupted', { n: detail.attempt, max: detail.max }), 2500, '↻');
     } else if (state === PlaybackManager.STATES.ERROR) {
-      transition(false); loading(false); error((detail.error && detail.error.message) || T('p.error'));
+      transition(false); loading(false);
+      /* Keep the same error surface, but expose the classified cause and real
+         HTML5 media code so a portal failure is actionable instead of a spinner. */
+      error((detail.error && detail.error.code ? '[' + detail.error.code + '] ' : '') + ((detail.error && detail.error.message) || T('p.error')));
     } else if (state === PlaybackManager.STATES.IDLE || state === PlaybackManager.STATES.STOPPED) {
       transition(false); loading(false);
     }
@@ -229,7 +232,10 @@ var Player = (function () {
     video.addEventListener('error', function () {
       /* HLS errors are emitted by its adapter callback. Native errors are classified
          centrally, including the one HLS engine fallback and terminal formats. */
-      if (!hls && mediaBelongsToCurrentSession()) manager.mediaError({ nativeCode: video.error && video.error.code, message: T('p.error') });
+      if (!hls && mediaBelongsToCurrentSession()) {
+        var mediaCode = video.error && video.error.code || 0;
+        manager.mediaError({ nativeCode: mediaCode, phase: 'player', message: 'HTML5 media error code ' + mediaCode });
+      }
     });
     window.addEventListener('offline', function () { if (manager) manager.networkLost(); });
     window.addEventListener('online', function () { if (manager) manager.online(); });

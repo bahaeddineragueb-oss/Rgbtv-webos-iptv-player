@@ -52,6 +52,8 @@ async function testEnvelopeVariantsAndNormalizer() {
   var direct = freshProvider(null, { url: 'https://portal.example/c/portal.php?device=test' });
   assert.strictEqual(direct.provider.base, 'https://portal.example', 'direct /c/portal.php normalizes its common-root base');
   assert.strictEqual(direct.provider.endpoints[0], 'https://portal.example/c/portal.php', 'a user-provided direct endpoint is tried before endpoint discovery');
+  assert.strictEqual(direct.context.stalkerSameOrigin('https://portal.example/live/a', 'https://portal.example:443/server/load.php'), true, 'implicit and explicit HTTPS default ports keep the same MAG session');
+  assert.ok(direct.provider._cookieHeader().indexOf('mac=00:1A:79:AA:BB:CC') >= 0, 'MAG cookie sends the raw colon-separated configured MAC');
   var variants = [
     { js: { data: [channel(1, 'One')], total_items: 1, max_page_items: 1 } },
     { channels: [channel(2, 'Deux')], total: 1, page_size: 1 },
@@ -172,6 +174,11 @@ async function testStalkerStreamContract() {
   assert.strictEqual(authorized.token, 'fixture-token');
   assert.strictEqual(authorized.metadata.macPresent, true);
   assert.strictEqual(authorized.metadata.deviceIdPresent, true);
+
+  var nested = freshProvider();
+  assert.strictEqual(nested.provider._linkCommand({ data: 'ffmpeg https://stream.example/one' }), 'ffmpeg https://stream.example/one');
+  assert.strictEqual(nested.provider._linkCommand({ result: { command: 'ffmpeg https://stream.example/two' } }), 'ffmpeg https://stream.example/two');
+  assert.strictEqual(nested.context.stalkerCommandSource('ffmpeg https://stream.example/opaque|User-Agent=MAG').url, 'https://stream.example/opaque', 'pipe annotations are never sent as the video URL');
 
   var missing = freshProvider(function () { return Promise.resolve(meta({ js: { data: {} } })); });
   await assert.rejects(function () { return missing.provider.resolveStream({ type: 'live', id: 'bad', cmd: 'ffmpeg http://stale.example/old' }); }, function (err) { return err && err.code === 'STREAM_RESOLUTION_ERROR'; }, 'a failed create_link must not quietly play the stale channel command');
