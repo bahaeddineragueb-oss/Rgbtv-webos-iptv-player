@@ -69,7 +69,7 @@ or simply `./build.sh tv`.
 - **Connection diagnostics** reports the selected provider, declared capabilities, cache footprint, last login timing and a user-triggered safe catalogue/playback-link check. It never starts a second stream, and it never displays credentials or a full stream URL.
 - Keep the package small: no bundled audio/video assets.
 
-## Playback Engine (v2.7.2)
+## Playback Engine (v2.7.3)
 
 Live playback uses one stable HTML5 `<video>` surface through a provider-neutral pipeline:
 
@@ -89,3 +89,7 @@ Validation is automated with provider, resolver, state-machine, cancellation, bu
 ### Stalker resolver repair (v2.7.2)
 
 The Stalker live resolver now accepts `cmd`, `command`, `url`, string `data`, nested `data`, and nested `result` create-link envelopes; normalizes `ffmpeg`/pipe command output into the actual media URL; and reports a missing link as `STREAM_RESOLUTION_ERROR` instead of attempting an expired channel command. MAG MAC cookies retain literal colon notation, and implicit HTTPS port 443 matches an explicitly returned `:443` stream origin so the active Stalker session is not accidentally dropped. Opaque signed live URLs that lack `.m3u8` receive one controlled hls.js fallback after native `SRC_NOT_SUPPORTED`, rather than being prematurely declared non-HLS.
+
+### Native event ownership repair (v2.7.3)
+
+Native webOS media events are now associated with a session marker set immediately before `video.src`. The previous exact `currentSrc === providerUrl` comparison rejected legitimate `canplay` and `playing` events after Blink/WebOS canonicalized a signed or credential-bearing Xtream URL. As a result, video could visibly play while the loading overlay was never dismissed. The event marker invalidates before source cleanup and is renewed only for the winning channel, preserving stale-event protection without relying on URL string equality.

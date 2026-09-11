@@ -137,6 +137,11 @@ async function testPlayerFallback(parsed) {
   assert.strictEqual(native.nodes['player-transition'].classList.contains('show'), true, 'channel handoff presents a transition layer instead of a featureless black frame');
   assert.strictEqual(native.video.src, stream.url, 'auto mode must keep the direct M3U channel on native webOS first');
   assert.strictEqual(native.hls.length, 0, 'native-capable webOS must not eagerly create an hls.js pipeline');
+  /* webOS may canonicalize a source URL. The event remains owned by its stamped
+     player session, rather than being rejected by an exact string comparison. */
+  native.video.currentSrc = stream.url.replace('https://', 'https://edge-cache.');
+  native.emit('canplay');
+  assert.strictEqual(native.nodes['player-loading'].classList.contains('show'), false, 'a canonicalized native URL must still clear the loading layer on canplay');
   native.emit('playing');
   assert.strictEqual(native.nodes['player-transition'].classList.contains('show'), false, 'transition layer clears exactly when playback starts');
   native.video.error = { code: 4 };

@@ -50,6 +50,9 @@ var Player = (function () {
   function destroyHls() { if (hls) { try { hls.destroy(); } catch (e) { } hls = null; } }
   function clearSource() {
     destroyHls();
+    /* Invalidate the media event ownership before clear/load emits old source
+       events. A subsequent loadSource stamps the winning channel session. */
+    if (video) video._rgbSession = 0;
     try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) { }
   }
   function requiresScriptTransport(stream) {
@@ -138,12 +141,13 @@ var Player = (function () {
   }
   function mediaBelongsToCurrentSession() {
     if (!manager || !manager.current || !manager.stream) return false;
-    /* hls.js owns a MediaSource URL, while direct native playback exposes the
-       assigned source. Ignore a late native event if the element still reports
-       a previous channel URL after a rapid zap. */
+    /* Do not compare currentSrc text to the provider URL. webOS/Blink can
+       canonicalize encoded Xtream credentials, redirects and query strings, so
+       a real `canplay` / `playing` event was incorrectly discarded and the
+       loading layer remained visible over working video. The source session is
+       stamped synchronously before assignment and is stable across that rewrite. */
     if (hls) return hls._rgbSession === manager.currentSession();
-    var expected = String(manager.stream.url || ''), actual = String(video.currentSrc || video.src || '');
-    return !actual || !expected || actual === expected;
+    return video._rgbSession === manager.currentSession();
   }
   function recoverHlsMedia(session) { if (hls && hls._rgbSession === session) { try { hls.recoverMediaError(); } catch (e) { manager.mediaError({ hls: true, type: 'mediaError', message: e.message || 'Media recovery failed' }); } } }
   function recoverBuffer(session) {
@@ -166,6 +170,7 @@ var Player = (function () {
     /* This is the webOS adapter's direct handoff: preserve the exact provider URL
        and let the hardware-backed HTML5 media pipeline open it immediately. */
     try {
+      video._rgbSession = session;
       video.src = stream.url; video.load();
       video.play().catch(function (e) { if (manager.isCurrent(session)) manager.mediaError({ code: 'PLAYER_ERROR', phase: 'player', message: e && e.message || 'Unable to start native playback' }); });
     } catch (e2) { manager.mediaError({ code: 'PLAYER_ERROR', phase: 'player', message: e2.message || 'Unable to assign media source' }); }
