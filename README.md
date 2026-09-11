@@ -1,4 +1,4 @@
-# RGBTv — webOS TV source (v2.3.0)
+# RGBTv — webOS TV source (v2.7.4)
 
 Pure HTML5 web app for LG webOS (3.0+): ES5 JavaScript, legacy-safe CSS, native <video> + hls.js.
 
@@ -69,7 +69,7 @@ or simply `./build.sh tv`.
 - **Connection diagnostics** reports the selected provider, declared capabilities, cache footprint, last login timing and a user-triggered safe catalogue/playback-link check. It never starts a second stream, and it never displays credentials or a full stream URL.
 - Keep the package small: no bundled audio/video assets.
 
-## Playback Engine (v2.7.3)
+## Playback Engine (v2.7.4)
 
 Live playback uses one stable HTML5 `<video>` surface through a provider-neutral pipeline:
 
@@ -89,6 +89,10 @@ Validation is automated with provider, resolver, state-machine, cancellation, bu
 ### Stalker resolver repair (v2.7.2)
 
 The Stalker live resolver now accepts `cmd`, `command`, `url`, string `data`, nested `data`, and nested `result` create-link envelopes; normalizes `ffmpeg`/pipe command output into the actual media URL; and reports a missing link as `STREAM_RESOLUTION_ERROR` instead of attempting an expired channel command. MAG MAC cookies retain literal colon notation, and implicit HTTPS port 443 matches an explicitly returned `:443` stream origin so the active Stalker session is not accidentally dropped. Opaque signed live URLs that lack `.m3u8` receive one controlled hls.js fallback after native `SRC_NOT_SUPPORTED`, rather than being prematurely declared non-HLS.
+
+### Stalker live-priority and renewal repair (v2.7.4)
+
+Stalker portal traffic keeps ordinary catalogue work serialized to remain respectful of rate-limited MAG servers, but `create_link` now receives one dedicated high-priority lane alongside an already-running background catalogue request. A selected channel can therefore no longer wait behind a long VOD/Series page until the playback resolver expires. Renewal handshakes omit the known-expired `Authorization` bearer, recognise nested `data`/`result` token envelopes, retain session cookies, and preserve an installed portal's actual `/stalker_portal/c/` or custom `/c/` Referer path. The native adapter also accepts legacy webOS implementations where `HTMLMediaElement.play()` returns no Promise, avoiding a synthetic player failure after a valid Stalker source assignment.
 
 ### Native event ownership repair (v2.7.3)
 

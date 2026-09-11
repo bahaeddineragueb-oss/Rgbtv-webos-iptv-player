@@ -112,7 +112,7 @@ var Player = (function () {
         try { instance.startLevel = summary.selectableVideoLevel; instance.nextAutoLevel = summary.selectableVideoLevel; } catch (levelError) { }
       }
       manager.hlsManifest(summary, session); applyHlsTrackPreferences();
-      video.play().catch(function (e) { if (hls === instance && manager.isCurrent(session)) manager.mediaError({ code: 'PLAYER_ERROR', phase: 'player', message: e && e.message || 'Unable to start HLS playback' }); });
+      requestVideoPlay(session, function () { return hls === instance; }, 'Unable to start HLS playback');
       setTimeout(function () { if (hls === instance && manager.isCurrent(session)) updateQualityBadge(); }, 1000);
     });
     instance.on(Hls.Events.ERROR, function (ev, data) {
@@ -133,6 +133,23 @@ var Player = (function () {
     return U.inspectStream(stream.url, stream.headers || {}, { timeout: 12000, maxBytes: 4096 }).then(function (detail) {
       return detail || null;
     });
+  }
+  function requestVideoPlay(session, active, failureMessage) {
+    var result;
+    try {
+      result = video.play();
+    } catch (error) {
+      if (manager && manager.isCurrent(session) && (!active || active())) manager.mediaError({ code: 'PLAYER_ERROR', phase: 'player', message: error && error.message || failureMessage || 'Unable to start playback' });
+      return;
+    }
+    /* Older webOS WebKit implementations return undefined from play(). Calling
+       .catch unconditionally turned a successful native/Stalker start into a
+       synthetic PLAYER_ERROR before the actual media event could arrive. */
+    if (result && typeof result.then === 'function') {
+      result.then(null, function (error) {
+        if (manager && manager.isCurrent(session) && (!active || active())) manager.mediaError({ code: 'PLAYER_ERROR', phase: 'player', message: error && error.message || failureMessage || 'Unable to start playback' });
+      });
+    }
   }
   function mediaSnapshot() {
     var end = 0;
@@ -172,7 +189,7 @@ var Player = (function () {
     try {
       video._rgbSession = session;
       video.src = stream.url; video.load();
-      video.play().catch(function (e) { if (manager.isCurrent(session)) manager.mediaError({ code: 'PLAYER_ERROR', phase: 'player', message: e && e.message || 'Unable to start native playback' }); });
+      requestVideoPlay(session, function () { return !hls; }, 'Unable to start native playback');
     } catch (e2) { manager.mediaError({ code: 'PLAYER_ERROR', phase: 'player', message: e2.message || 'Unable to assign media source' }); }
   }
   function sourceResolved(stream, session, context) {

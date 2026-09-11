@@ -66,13 +66,13 @@ function element() {
     getAttribute: function (key) { return this[key] || null; }
   };
 }
-function playerHarness(canPlayType) {
+function playerHarness(canPlayType, playReturnsPromise) {
   var nodes = {}, handlers = {}, intervals = [], hlsInstances = [];
   var video = element();
   video.paused = false; video.ended = false; video.readyState = 0; video.currentTime = 0; video.duration = NaN;
   video.videoWidth = 0; video.videoHeight = 0; video.buffered = { length: 0 };
   video.canPlayType = function () { return canPlayType; };
-  video.play = function () { video.paused = false; return Promise.resolve(); };
+  video.play = function () { video.paused = false; return playReturnsPromise === false ? undefined : Promise.resolve(); };
   video.pause = function () { video.paused = true; };
   video.load = function () {};
   video.removeAttribute = function (name) { if (name === 'src') video.src = ''; };
@@ -144,6 +144,14 @@ async function testPlayerFallback(parsed) {
   assert.strictEqual(native.nodes['player-loading'].classList.contains('show'), false, 'a canonicalized native URL must still clear the loading layer on canplay');
   native.emit('playing');
   assert.strictEqual(native.nodes['player-transition'].classList.contains('show'), false, 'transition layer clears exactly when playback starts');
+
+  /* webOS 1.x WebKit may return undefined from HTMLMediaElement.play(). The
+     request is still valid; treating missing Promise.catch as a player failure
+     incorrectly diverted valid Stalker/native streams into recovery. */
+  var legacyWebkit = playerHarness('probably', false);
+  await legacyWebkit.player.play({ type: 'live', id: 'legacy-play', name: 'Legacy native play', url: stream.url });
+  assert.strictEqual(legacyWebkit.video.src, stream.url, 'a non-Promise native play return still assigns the live source');
+  assert.strictEqual(legacyWebkit.hls.length, 0, 'a non-Promise native play return never creates a synthetic fallback/error');
   native.video.error = { code: 4 };
   native.emit('error');
   assert.strictEqual(native.hls.length, 1, 'a rejected native HLS source must hand over once instead of beginning reconnects');

@@ -54,7 +54,8 @@ function withoutCredentials(input) {
   return out;
 }
 function sameOrigin(a, b) {
-  return a.protocol === b.protocol && String(a.hostname).toLowerCase() === String(b.hostname).toLowerCase() && String(a.port || '') === String(b.port || '');
+  function port(u) { return String(u.port || (u.protocol === 'https:' ? '443' : '80')); }
+  return a.protocol === b.protocol && String(a.hostname).toLowerCase() === String(b.hostname).toLowerCase() && port(a) === port(b);
 }
 /* Some playlist portals set a short session cookie before redirecting to the
    actual get.php URL. Retain only name=value pairs and only across same-origin

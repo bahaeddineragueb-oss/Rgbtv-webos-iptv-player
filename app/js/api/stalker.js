@@ -76,6 +76,23 @@ function stalkerSameOrigin(left, right) {
 function stalkerSafeStreamUrl(raw) {
   var match = String(raw || '').match(/^(https?:\/\/[^/]+)/i); return match ? match[1] + '/…' : 'unavailable';
 }
+/* Handshake payloads vary just as much as catalogue replies. Older Ministra
+   portals commonly place the bearer below data/result, while newer portals put
+   it at js.token. Only recognised response envelopes are inspected. */
+function stalkerToken(payload) {
+  var todo = [{ value: payload, depth: 0 }], seen = [], entry, value, keys, i, token;
+  while (todo.length) {
+    entry = todo.shift(); value = entry.value;
+    if (typeof value === 'string' && /^[\[{]/.test(value.trim())) { try { value = JSON.parse(value); } catch (e) { } }
+    if (!value || typeof value !== 'object' || seen.indexOf(value) >= 0 || entry.depth > 4) continue;
+    seen.push(value);
+    token = value.token || value.access_token || value.bearer_token;
+    if (typeof token === 'string' && token.trim()) return token.trim();
+    keys = ['js', 'data', 'result', 'response'];
+    for (i = 0; i < keys.length; i++) if (value[keys[i]] && (typeof value[keys[i]] === 'object' || typeof value[keys[i]] === 'string')) todo.push({ value: value[keys[i]], depth: entry.depth + 1 });
+  }
+  return '';
+}
 function stalkerStreamError(error) {
   var e = error instanceof Error ? error : new Error(String(error || 'Unable to resolve Stalker stream'));
   if (!e.code) e.code = 'STREAM_RESOLUTION_ERROR';
@@ -108,7 +125,11 @@ function StalkerProvider(acc) {
      others before create_link is reached. */
   this.cookies = { mac: this.mac, stb_lang: 'en', timezone: 'Europe/Paris' };
   this.profile = null; this.portalInfo = null; this.agentMode = 0;
-  this._genreCache = {}; this._keepalive = null; this._handshakePending = null; this._mem = {}; this._pending = {}; this._queue = []; this._activeRequests = 0;
+  this._genreCache = {}; this._keepalive = null; this._handshakePending = null; this._mem = {}; this._pending = {}; this._queue = [];
+  /* One catalogue request is deliberately serialised, but create_link has a
+     dedicated high-priority lane. A 120-second VOD/page fetch must never hold a
+     selected live channel behind it until PlaybackManager times out. */
+  this._activeRequests = 0; this._activePlaybackRequests = 0;
   this._livePages = {}; this._allLive = { items: [], ids: {}, nextPage: 1, total: 0, complete: false, pending: null };
 }
 StalkerProvider.prototype = {
@@ -131,37 +152,59 @@ StalkerProvider.prototype = {
   _enqueue: function (work, priority, signal) {
     var self = this;
     return new Promise(function (resolve, reject) {
-      var job = { work: work, resolve: resolve, reject: reject, signal: signal };
-      if (priority === 'playback') self._queue.unshift(job); else self._queue.push(job);
+      var job = { work: work, resolve: resolve, reject: reject, signal: signal, priority: priority === 'playback' ? 'playback' : 'background' };
+      if (job.priority === 'playback') self._queue.unshift(job); else self._queue.push(job);
       self._drainQueue();
     });
   },
   _drainQueue: function () {
-    var self = this;
-    if (this._activeRequests || !this._queue.length) return;
-    var job = this._queue.shift();
+    var self = this, job = null, index = -1, i;
+    if (!this._queue.length) return;
+    /* Normal portal work remains one-at-a-time. There is exactly one exception:
+       one create_link may run beside an already-active catalogue request. This
+       preserves anti-flood behaviour while protecting click-to-first-frame. */
+    if (!this._activePlaybackRequests && this._activeRequests < 2) {
+      for (i = 0; i < this._queue.length; i++) {
+        if (this._queue[i].priority === 'playback') { index = i; break; }
+      }
+    }
+    if (index >= 0) job = this._queue.splice(index, 1)[0];
+    else if (!this._activeRequests) job = this._queue.shift();
+    else return;
     /* A channel zap can cancel a create_link request before its turn. Do not send
        abandoned playback work to a rate-limited portal merely to discard it later. */
     if (job.signal && job.signal.aborted) { job.reject(stalkerCancelledError()); this._drainQueue(); return; }
     this._activeRequests++;
+    if (job.priority === 'playback') this._activePlaybackRequests++;
     Promise.resolve().then(job.work).then(function (value) {
-      self._activeRequests--; job.resolve(value); self._drainQueue();
+      self._activeRequests--; if (job.priority === 'playback') self._activePlaybackRequests--; job.resolve(value); self._drainQueue();
     }, function (err) {
-      self._activeRequests--; job.reject(err); self._drainQueue();
+      self._activeRequests--; if (job.priority === 'playback') self._activePlaybackRequests--; job.reject(err); self._drainQueue();
     });
   },
-  _headers: function () {
+  _portalReferer: function () {
+    var endpoint = String(this.endpoint || this.base || '').replace(/\?.*$/, '').replace(/\/+$/, ''), root;
+    root = endpoint.replace(/\/(?:server\/load\.php|portal\.php)$/i, '');
+    /* Keep the portal's real subdirectory. Sending /c/ for a portal installed
+       below /stalker_portal/ is a common reason for profile/create_link 403s. */
+    if (/\/c$/i.test(root)) return root + '/';
+    if (/\/stalker_portal$/i.test(root)) return root + '/c/';
+    return root + '/c/';
+  },
+  _headers: function (includeAuthorization) {
     /* Portals sometimes filter by the exact MAG model or the browser user agent and answer with nginx 444.
        Keep the standard MAG250 identity first, then try two compatible identities during handshake. */
     var modes = [
-      { xua: 'Model: MAG250; Link: WiFi', ua: 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3', ref: this.base + '/c/' },
-      { xua: 'Model: MAG254; Link: WiFi', ua: 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG254 stbapp ver: 2 rev: 272 Safari/533.3', ref: this.base + '/c/' },
-      { xua: 'Model: MAG256; Link: WiFi', ua: 'Mozilla/5.0 (Linux; Web0S; SmartTV) AppleWebKit/537.36', ref: this.base + '/' }
+      { xua: 'Model: MAG250; Link: WiFi', ua: 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3' },
+      { xua: 'Model: MAG254; Link: WiFi', ua: 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG254 stbapp ver: 2 rev: 272 Safari/533.3' },
+      { xua: 'Model: MAG256; Link: WiFi', ua: 'Mozilla/5.0 (Linux; Web0S; SmartTV) AppleWebKit/537.36' }
     ], m = modes[this.agentMode] || modes[0], h = {
-      'User-Agent': m.ua, 'X-User-Agent': m.xua, 'Referer': m.ref,
+      'User-Agent': m.ua, 'X-User-Agent': m.xua, 'Referer': this._portalReferer(),
       'Cookie': this._cookieHeader()
     };
-    if (this.token) h.Authorization = 'Bearer ' + this.token;
+    /* A token refresh must not send the known-expired bearer back to handshake.
+       Several Ministra portals reject that request before issuing a fresh token. */
+    if (includeAuthorization !== false && this.token) h.Authorization = 'Bearer ' + this.token;
     return h;
   },
   _url: function (params) {
@@ -236,13 +279,14 @@ StalkerProvider.prototype = {
       }
       var currentMode = mode;
       self.endpoint = self.endpoints[endpointIndex]; self.agentMode = currentMode;
-      return U.getJSON(self._url({ type: 'stb', action: 'handshake', token: '', prehash: '' }), self._headers(), { insecureTls: self.acc && self.acc.insecureTls === true, timeout: 45000, responseMeta: true }).then(function (response) {
+      return U.getJSON(self._url({ type: 'stb', action: 'handshake', token: '', prehash: '' }), self._headers(false), { insecureTls: self.acc && self.acc.insecureTls === true, timeout: 45000, responseMeta: true }).then(function (response) {
         var raw = response && response.headers && Object.prototype.hasOwnProperty.call(response, 'data') ? response.data : response;
         self._mergeCookies(response && response.headers);
-        var js = raw && raw.js != null ? raw.js : raw;
+        var js = raw && raw.js != null ? raw.js : raw, token;
         if (typeof js === 'string') { try { js = JSON.parse(js); } catch (e) { } }
-        if (!js || !js.token) throw new Error('No token returned by portal');
-        self.token = js.token;
+        token = stalkerToken(js);
+        if (!token) throw new Error('No token returned by portal');
+        self.token = token;
         stalkerDebug('Handshake: SUCCESS', { status: response && response.status || 200, token: 'received', cookies: response && response.headers && (response.headers['set-cookie'] || response.headers['Set-Cookie']) ? 'received' : 'none' });
         /* Only the endpoint is cached. Persisting a bearer token exposes a credential and causes stale-token failures. */
         delete self.acc.token; self.acc.endpoint = self.endpoint; Store.updateAccount(self.acc);

@@ -152,6 +152,39 @@ async function testQueueDedupe429AndSingleRefresh() {
   assert.deepStrictEqual(phases, ['get_ordered_list', 'handshake', 'get_ordered_list'], 'expired token gets exactly one handshake and exactly one retry');
 }
 
+async function testPlaybackPriorityAndHandshakeCompatibility() {
+  var releaseCatalogue, h = freshProvider(function (url, headers) {
+    var action = actionOf(url);
+    if (action === 'get_ordered_list') {
+      return new Promise(function (resolve) {
+        releaseCatalogue = function () { resolve(meta({ js: { data: [channel(10)], total_items: 1, max_page_items: 1 } })); };
+      });
+    }
+    if (action === 'create_link') return Promise.resolve(meta({ js: { cmd: 'ffmpeg https://stream.example/priority.m3u8' } }));
+    throw new Error('unexpected ' + action);
+  });
+  var catalogue = h.provider._call({ type: 'itv', action: 'get_ordered_list', p: 1 });
+  await Promise.resolve();
+  assert.strictEqual(h.calls.length, 1, 'the initial catalogue request starts normally');
+  var playback = h.provider._call({ type: 'itv', action: 'create_link', cmd: 'ffmpeg http://old.example/live' }, false, 'playback');
+  await Promise.resolve(); await Promise.resolve();
+  assert.strictEqual(h.calls.length, 2, 'create_link must not wait behind an active long catalogue request');
+  await playback;
+  releaseCatalogue(); await catalogue;
+
+  var handshake = freshProvider(function (url, headers) {
+    assert.strictEqual(actionOf(url), 'handshake');
+    assert.strictEqual(headers.Authorization, undefined, 'a refreshed handshake never sends a known-stale bearer token');
+    assert.strictEqual(headers.Referer, 'https://portal.example/stalker_portal/c/', 'the Stalker portal subdirectory is preserved in Referer');
+    return Promise.resolve(meta({ js: { data: { token: 'nested-handshake-token' } } }, { 'set-cookie': 'sid=renewed; Path=/; HttpOnly' }));
+  });
+  handshake.provider.endpoint = 'https://portal.example/stalker_portal/server/load.php';
+  handshake.provider.token = 'expired-token';
+  await handshake.provider._handshake();
+  assert.strictEqual(handshake.provider.token, 'nested-handshake-token', 'nested Ministra token envelopes are accepted');
+  assert.ok(handshake.provider._cookieHeader().indexOf('sid=renewed') >= 0, 'handshake response cookies remain available for the renewed session');
+}
+
 async function testStalkerStreamContract() {
   var h = freshProvider(function (url) {
     assert.strictEqual(actionOf(url), 'create_link');
@@ -203,6 +236,7 @@ async function testLoadedIndexSearch() {
   await testOnePageForLargeCatalogues();
   await testPaginationAndExplicitLegacyFallback();
   await testQueueDedupe429AndSingleRefresh();
+  await testPlaybackPriorityAndHandshakeCompatibility();
   await testStalkerStreamContract();
   await testLoadedIndexSearch();
   console.log('Stalker progressive catalogue regression checks passed');
