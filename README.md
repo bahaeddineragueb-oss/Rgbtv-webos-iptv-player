@@ -1,128 +1,66 @@
-# RGBTv — webOS TV source (v2.8.1)
+# RGBTv — webOS TV source (v2.8.2)
 
-Pure HTML5 web app for LG webOS 1.x–3.x: ES5 application JavaScript, legacy-safe CSS, one native <video> surface with capability-gated Shaka MSE, hls.js, and direct playback.
+RGBTv is a pure HTML5 IPTV app for LG webOS 1.x–3.x. It supports **Xtream Codes** and **M3U/M3U8 playlists** only. Application JavaScript is ES5-compatible and playback always uses one stable native `<video>` surface.
 
-```
+```text
 RGBTv-webOS/
-├─ app/                      the application (packaged as-is)
-│  ├─ appinfo.json           id com.rgbtv.app, version, icons, permissions
-│  ├─ index.html             single page, all screens
-│  ├─ css/style.css          base themes, hub styles, RTL, TV-safe layout (1920×1080 stage scaled to any TV)
-│  ├─ css/theme-layout-contract.css  legacy geometry compatibility layer
-│  ├─ css/theme-interface-suite.css  final v2.8 theme tokens + independent interface geometry
-│  ├─ img/                   icon / largeIcon / splash / bg
+├─ app/
+│  ├─ appinfo.json             application metadata
+│  ├─ index.html               single-page TV interface
+│  ├─ css/                     TV-safe themes, interfaces and RTL styling
 │  └─ js/
-│     ├─ util.js             DOM helpers, HTTP (XHR + Luna proxy), fitScreen, SHA-1
-│     ├─ i18n.js             English + Arabic strings
-│     ├─ storage.js          profiles, settings, favorites, history (localStorage)
-│     ├─ nav.js              spatial navigation for the remote + Magic Remote (click-only)
-│     ├─ vlist.js            virtual lists/grids for very large playlists
-│     ├─ api/xtream.js       Xtream Codes API
-│     ├─ api/stalker.js      Stalker Portal (MAC / token handshake)
-│     ├─ api/m3u.js          M3U / M3U8 playlists + XMLTV EPG
-│     ├─ player.js           playback, OSD, reconnect/stall watchdog, stats, ratio, zap list
-│     ├─ ui.js               screens, rows, grids, modals, toasts
-│     ├─ keyboard.js         on-screen keyboard
-│     ├─ weather.js          Open-Meteo forecast page + topbar chip
-│     ├─ adhan.js            prayer times (AlAdhan API) — visual banner only
-│     ├─ tmdb.js             optional TMDB artwork/ratings
-│     ├─ avatars.js          profile avatars
-│     ├─ lib/shaka-player.compiled.js  Shaka Player 4.3.6 (MSE, Apache-2.0)
-│     ├─ lib/hls.min.js      hls.js fallback
-│     ├─ lib/qrcode.min.js   QR for "Add from phone"
-│     └─ app.js              boot, screens flow, key routing
-├─ services/com.rgbtv.app.service/   Node.js Luna service (JS service, runs on the TV)
-│  ├─ service.js             HTTP proxy with custom headers (Stalker cookies/UA) + "Add from phone" LAN server :8765
-│  ├─ services.json / package.json
-└─ build.sh                  ares-package (+ optional install/launch on a device)
+│     ├─ api/xtream.js         Xtream Codes API
+│     ├─ api/m3u.js            M3U/M3U8 playlists and XMLTV EPG
+│     ├─ playback-manager.js   bounded playback lifecycle
+│     ├─ player.js             one-video playback adapter and OSD
+│     └─ lib/                  Shaka Player, hls.js and QR library
+├─ services/com.rgbtv.app.service/
+│  └─ service.js               bounded HTTP helper and phone pairing service
+└─ build.sh                    package, optionally install and launch
 ```
 
-## Build the .ipk
+## Build the IPK
 
 ```bash
-npm install -g @webos-tools/cli          # once
+npm install -g @webos-tools/cli
 ares-package app services/com.rgbtv.app.service -o dist
-# → dist/com.rgbtv.app_2.3.0_all.ipk
 ```
 
-Install on a TV in Developer Mode:
+Install on a Developer Mode TV:
 
 ```bash
-ares-setup-device            # add the TV (IP + passphrase from the Developer Mode app)
-ares-install -d tv dist/com.rgbtv.app_2.3.0_all.ipk
-ares-launch  -d tv com.rgbtv.app
+ares-setup-device
+ares-install -d tv dist/com.rgbtv.app_2.8.2_all.ipk
+ares-launch -d tv com.rgbtv.app
 ```
 
-or simply `./build.sh tv`.
+Or run `./build.sh tv`.
 
-## Notes
-- Do not add ES6 syntax (arrow functions, let/const, template strings) in `app/js` — older webOS browsers will fail to parse.
-- Avoid CSS `inset`, flex `gap`, `backdrop-filter`, `@supports`, and `Element.closest()` for the same reason.
-- M3U supports quoted/unquoted attributes, relative stream URLs, stable item IDs, and an optional XMLTV EPG URL (or `url-tvg` declared in the playlist). It downloads the text playlist once with a 120-second timeout, caches parsed items for six hours, and sends the parsed direct stream URL to the player without a per-channel control request. The packaged Luna service is preferred for CORS-safe playlist/guide fetches; it retains same-origin redirect cookies, requests identity encoding, handles gzip/deflate responses, accepts downloads up to 64 MiB, and allows the full 120-second timeout. The app reports login-page, HTTP-status, network, and timeout failures separately. A credential-bearing `get.php` M3U URL first tries the compatible Xtream API through the same Luna/native-safe path for fast metadata, then falls back automatically to the valid text playlist if the API or a large catalogue request is unavailable. Xtream and Stalker catalogue pages receive a 120-second budget; the Movies and Series screens first load a concrete category so the TV can render titles without waiting for an entire provider catalogue.
-- Stalker/Ministra needs the Luna service for its MAG cookie and bearer-token handshake. It tries common portal roots (`/server/load.php`, `/c/server/load.php`, and `/stalker_portal/...`) before reporting a connection failure. HTTPS certificates are verified by default; a clearly labelled per-profile switch is available only for a self-signed portal you trust.
-- The **Ramadan** theme supplies emerald-and-gold surfaces, crescent branding and the five-prayer/Hijri strip on its compatible Home surface; it reuses the cached AlAdhan calendar, clearly reports disabled or unavailable times, and does **not** turn notifications on when they were disabled. The selected interface style, not Ramadan, owns navigation geometry.
-- The player deliberately uses one video decoder because many webOS TVs expose only one reliable hardware video plane. This keeps channel zapping and playback predictable.
-- Selecting a live channel starts with a **classic receiver information banner**: number, logo, name, current programme, next programme and progress. Press **LEFT** (or select **Channels** in the player controls) to open the virtualized right-side channel panel; UP/DOWN browses, OK watches, and LEFT/BACK closes it. This remains responsive with large playlists.
-- **Visual system v2.8:** `theme-interface-suite.css` is loaded last and makes visual theme and interface geometry independent. Astra OS, Receiver Pro, Liquid Glass TV, Live Pulse and Noor Majlis each work with Side Rail, Command Center, Guide First, Spotlight and Mosaic/App Grid. The legacy `theme-layout-contract.css` remains only as a compatibility layer for old selections; the final suite takes geometry authority for every new interface. RTL mirrors the side rail and its content reservation; Large UI and High Contrast retain visible labels and focus.
-- The detailed visual contract, migration behaviour and manual device audit checklist are in [`docs/design-system-v2.8.md`](docs/design-system-v2.8.md).
-- Phone pairing is time-limited and QR-token protected; review the received profile on the TV before it is stored.
-- **Performance mode** defaults to Fast: it disables the optional preview decoder and expensive decorative motion while browsing. Live, Movies and Series category changes are request-versioned so a slow stale response cannot overwrite the latest selection; short EPG requests are coalesced for five minutes.
-- The expanded TV Guide fetches a long schedule only for the channel the user asks to inspect. It supports one-minute **local reminders** and catch-up playback only when the provider marks the channel as archive-enabled. Reminders appear while RGBTv is running; IPTV does not expose a portable server-side reminder standard.
-- Favorites support named personal collections (including a default **My List**), per-channel hide/order controls, and portable backup/restore. Audio/subtitle choices are remembered per item when the webOS player exposes tracks; manual quality selection is presented only for adaptive HLS streams.
-- **Connection diagnostics** reports the selected provider, declared capabilities, cache footprint, last login timing and a user-triggered safe catalogue/playback-link check. It never starts a second stream, and it never displays credentials or a full stream URL.
-- Keep the package small: no bundled audio/video assets.
+## Providers and profiles
 
-## Playback Engine (v2.8.1)
+- **Xtream Codes:** server URL, username and password. A credential-bearing `get.php` URL can use the Xtream metadata route and safely fall back to its valid text playlist.
+- **M3U/M3U8:** playlist URL, optional XMLTV guide URL, and optional documented User-Agent/Referer fields. Quoted attributes, relative URLs, per-stream header annotations, stable IDs, playlist caching and direct-stream playback are supported.
+- Phone pairing accepts the same two profile types. Backup restore accepts only those types. On first profile access, unsupported historic profiles and their account-local data are removed while Xtream/M3U settings, favorites, history, lists, watch positions, reminders and channel customizations are retained.
 
-Live playback uses one stable HTML5 `<video>` surface through a provider-neutral pipeline:
+The Luna service provides CORS-safe, bounded HTTP(S) downloading for provider APIs, playlists and guides. It has explicit size and timeout limits, verifies HTTPS certificates, retains only allowed custom headers, and reports HTTP, network and timeout failures separately.
 
-```
-Provider → authentication → StreamResolver → normalized StreamSource →
-webOS strategy adapter → PlaybackManager state machine
+## Playback engine
+
+The player is provider-neutral:
+
+```text
+Provider → StreamResolver → normalized StreamSource → strategy adapter → PlaybackManager
 ```
 
-Xtream and Stalker return the same normalized source contract (`streamUrl`, stream type, MIME/protocol/container, headers, in-memory cookie/token context and metadata). Provider API logic never enters the player adapter. The manager has isolated session IDs, aborts obsolete resolver work while zapping, destroys the prior hls.js instance/source before replacement, and uses bounded recovery: player reinitialization, fresh resolution, then one Stalker session refresh. It reaches `TIMEOUT` and then a bounded retry/error path rather than retaining an infinite loading state.
+New profiles prefer capability-gated **Shaka/MSE** for compatible HLS and DASH. Stored **Auto** settings remain native-first for HLS. MPEG-TS, MP4 and direct or unknown sources remain native. When appropriate, a failed HLS start receives one hls.js handoff, followed by bounded central recovery; no engine creates an independent retry loop. Shaka and hls.js reuse the same `#video` element and are safely destroyed before a replacement source begins.
 
-The existing **Stats** panel (INFO / BLUE) is the developer diagnostics surface. It exposes safe metadata only—provider, redacted source origin, protocol, MIME, stream type, selected strategy, current state/event, HLS variant facts, HTTP response metadata when explicitly probed, retry count and time to first frame. Opening it requests only an opt-in 4 KiB Range probe after playback begins; normal playback performs neither a HEAD request nor a stream prefetch.
+Custom request headers and browser credentials are sent only to the exact normalized source origin. Redirected or signed CDN segment URLs receive neither those headers nor browser credentials. The on-screen Stats panel offers safe diagnostics without exposing account credentials or full stream URLs.
 
-For Stalker, `create_link` is required to produce a fresh URL. A failed or empty result is reported as `STREAM_RESOLUTION_ERROR` rather than falling back to a stale `cmd`. Same-origin links retain their active MAG headers/cookies/token in memory; credentials are deliberately not forwarded to a different CDN origin. New installations prefer the capability-gated Shaka/MSE route for compatible HLS/DASH, then make one hls.js handoff for a failed HLS MSE route; existing **Auto** settings retain the original native-first policy. MPEG-TS/direct streams remain native. Mixed audio-only/video HLS manifests are parsed from the real hls.js manifest and start on a video rendition; WebOS compatibility warnings are recorded in diagnostics.
+## Compatibility notes
 
-Validation is automated with provider, resolver, state-machine, cancellation, buffering, HLS fallback, deadline and Stalker-session tests. Final device acceptance still requires testing the subscriber's actual streams on their target LG webOS version, because portal authorization and codec support cannot be proven from a development fixture.
+- Keep `app/js` ES5-only: use `var` and regular functions, not arrow functions, `let`/`const`, classes, `fetch`, `async`/`await`, template literals, or destructuring.
+- Legacy webOS support also avoids newer CSS and DOM features such as `inset`, `backdrop-filter`, `@supports`, and `Element.closest()`.
+- Do not add a second video element. Many webOS TVs provide only one dependable hardware video plane.
+- Profiles, favorites, recent items, EPG, categories, parental controls, settings, VOD, series, themes, remote navigation, RTL and the TV Guide remain part of the application.
 
-### Shaka + MSE route (v2.8.1)
-
-The packaged `shaka-player.compiled.js` is the **Shaka Player 4.3.6 compiled, non-UI build** (Apache-2.0). It is loaded before the application adapter, but not activated merely because the library exists. The player uses the existing `#video` element only after all of the following are true:
-
-1. The normalized source is HLS or DASH — MPEG-TS, MP4 and unknown/direct sources stay on HTML5.
-2. `MediaSource` exists and `shaka.Player.isBrowserSupported()` accepts the device after Shaka installs its own polyfills.
-3. The selected Player engine setting permits Shaka. New profiles default to **Shaka (MSE)**; an already stored **Auto** choice deliberately remains native-first to preserve its previous behavior.
-
-The engine setting cycles **Shaka (MSE) → Auto → Native → hls.js**. Auto keeps native HLS first, while Shaka mode has this finite ladder:
-
-```
-Shaka/MSE (compatible HLS/DASH) → hls.js/MSE (one failed-HLS handoff) → bounded manager recovery
-```
-
-If Shaka/hls.js capability is absent, direct/native HTML5 remains the fallback. DASH is attempted through Shaka where supported, otherwise through an advertised native DASH path; it is not forced through hls.js. The shared manager has an eight-second first-frame deadline and owns all recovery, so the adapters cannot create their own retry loops or bounce back to Shaka after an hls.js failure. Shaka teardown is serialized before any new source is attached, protecting the stable webOS video plane during rapid channel zaps.
-
-Shaka request filters and hls.js XHR setup apply per-stream headers only to the normalized media source origin. For Stalker, `Authorization`, Cookie/MAG and browser credential mode additionally require the resolver's `metadata.samePortal` proof. Signed or redirected CDN segment URLs receive none of those portal credentials. Shaka errors, including exposed HTTP status, go through the same `PlaybackErrorClassifier`, UI error surface, diagnostics and bounded Stalker refresh lifecycle as native/hls.js failures.
-
-### Stalker resolver repair (v2.7.2)
-
-The Stalker live resolver now accepts `cmd`, `command`, `url`, string `data`, nested `data`, and nested `result` create-link envelopes; normalizes `ffmpeg`/pipe command output into the actual media URL; and reports a missing link as `STREAM_RESOLUTION_ERROR` instead of attempting an expired channel command. MAG MAC cookies retain literal colon notation, and implicit HTTPS port 443 matches an explicitly returned `:443` stream origin so the active Stalker session is not accidentally dropped. Opaque signed live URLs that lack `.m3u8` receive one controlled hls.js fallback after native `SRC_NOT_SUPPORTED`, rather than being prematurely declared non-HLS.
-
-### Stalker large-catalogue repair (v2.7.6)
-
-Stalker Live now explicitly requests bounded 100-channel ITV pages (`page_size` and `limit`) while preserving the portal's own pagination metadata. If an old portal ignores pagination and returns a giant channel array, mapping is sliced across event-loop turns instead of blocking the TV UI. A new page-cache namespace ensures an upgrade cannot revive an old giant channel cache from localStorage. The Home dashboard also stops scanning enormous Stalker VOD/Series catalogues merely to render decorative counts; those catalogues load only when their own screens are opened, leaving the first Live page and fresh `create_link` request free to start immediately.
-
-### Stalker localhost stream repair (v2.7.5)
-
-Some MAG portals return `create_link` commands such as `ffmpeg http://localhost/ch/512_`. `localhost` is an internal proxy alias understood by MAG firmware, not by a webOS browser application; assigning it to the stable video element attempts playback against the TV itself. Live resolution now rewrites only loopback aliases (`localhost`, `127.0.0.1`, `::1`, and `0.0.0.0`) to the authenticated portal host while retaining the channel path, query and any explicit gateway port. Remote stream URLs are never rewritten.
-
-### Stalker live-priority and renewal repair (v2.7.4)
-
-Stalker portal traffic keeps ordinary catalogue work serialized to remain respectful of rate-limited MAG servers, but `create_link` now receives one dedicated high-priority lane alongside an already-running background catalogue request. A selected channel can therefore no longer wait behind a long VOD/Series page until the playback resolver expires. Renewal handshakes omit the known-expired `Authorization` bearer, recognise nested `data`/`result` token envelopes, retain session cookies, and preserve an installed portal's actual `/stalker_portal/c/` or custom `/c/` Referer path. The native adapter also accepts legacy webOS implementations where `HTMLMediaElement.play()` returns no Promise, avoiding a synthetic player failure after a valid Stalker source assignment.
-
-### Native event ownership repair (v2.7.3)
-
-Native webOS media events are now associated with a session marker set immediately before `video.src`. The previous exact `currentSrc === providerUrl` comparison rejected legitimate `canplay` and `playing` events after Blink/WebOS canonicalized a signed or credential-bearing Xtream URL. As a result, video could visibly play while the loading overlay was never dismissed. The event marker invalidates before source cleanup and is renewed only for the winning channel, preserving stale-event protection without relying on URL string equality.
+See [`docs/design-system-v2.8.md`](docs/design-system-v2.8.md) for the visual-system contract and device audit checklist.

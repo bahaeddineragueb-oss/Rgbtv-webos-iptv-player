@@ -161,7 +161,7 @@ async function testPlayerFallback(parsed) {
 
   /* webOS 1.x WebKit may return undefined from HTMLMediaElement.play(). The
      request is still valid; treating missing Promise.catch as a player failure
-     incorrectly diverted valid Stalker/native streams into recovery. */
+     incorrectly diverted valid native streams into recovery. */
   var legacyWebkit = playerHarness('probably', false);
   await legacyWebkit.player.play({ type: 'live', id: 'legacy-play', name: 'Legacy native play', url: stream.url });
   assert.strictEqual(legacyWebkit.video.src, stream.url, 'a non-Promise native play return still assigns the live source');
@@ -195,34 +195,34 @@ async function testPlayerFallback(parsed) {
   assert.deepStrictEqual(cdnHeaders.headers, {}, 'provider headers do not leak from a manifest to a signed CDN segment');
   assert.strictEqual(cdnHeaders.allowCrossSiteCredentials, false, 'a signed CDN segment never receives portal credentials');
 
-  /* Stalker credentials need the resolver's samePortal proof and only reach its
-     exact origin. A Shaka failure then performs the one hls.js fallback. */
+  /* Custom M3U credentials reach their exact source origin only. A Shaka
+     failure then performs the single hls.js handoff through the manager. */
   mse.context.App.provider = {
-    type: 'stalker',
-    resolveStream: function () { return Promise.resolve({ url: 'https://portal.example/live/1.m3u8', provider: 'stalker', channelId: 'portal', type: 'hls', headers: { Authorization: 'Bearer private', Referer: 'https://portal.example/' }, cookies: 'sid=private', metadata: { live: true, samePortal: true } }); }
+    type: 'm3u',
+    resolveStream: function () { return Promise.resolve({ url: 'https://portal.example/live/1.m3u8', provider: 'm3u', channelId: 'portal', type: 'hls', headers: { Authorization: 'Bearer private', Referer: 'https://portal.example/' }, cookies: 'sid=private', metadata: { live: true } }); }
   };
   await mse.player.play({ type: 'live', id: 'portal', name: 'Portal HLS' }); await flushPlayback();
   assert.strictEqual(mse.shaka.length, 2, 'a second channel destroys the former Shaka instance before creating one replacement');
   assert.strictEqual(mse.shaka[0].destroyed, true, 'the previous Shaka instance is destroyed before channel replacement');
   var portalHeaders = { uris: ['https://portal.example/live/1.m3u8'], headers: {} };
   mse.shaka[1].networking.filter(0, portalHeaders);
-  assert.deepStrictEqual(portalHeaders.headers, { Authorization: 'Bearer private', Referer: 'https://portal.example/' }, 'same-portal Stalker headers are retained for the resolved portal media URL');
-  assert.strictEqual(portalHeaders.allowCrossSiteCredentials, true, 'same-portal Stalker requests may use the active browser credentials');
+  assert.deepStrictEqual(portalHeaders.headers, { Authorization: 'Bearer private', Referer: 'https://portal.example/' }, 'same-source M3U headers are retained for the resolved media URL');
+  assert.strictEqual(portalHeaders.allowCrossSiteCredentials, true, 'same-source M3U requests may use the active browser credentials');
   var leakedPortalHeaders = { uris: ['https://edge-cdn.example/part.ts?signature=private'], headers: {} };
   mse.shaka[1].networking.filter(0, leakedPortalHeaders);
-  assert.deepStrictEqual(leakedPortalHeaders.headers, {}, 'Stalker bearer and MAG headers never leak to a CDN origin');
-  assert.strictEqual(leakedPortalHeaders.allowCrossSiteCredentials, false, 'Stalker cookies never leak to a CDN origin');
+  assert.deepStrictEqual(leakedPortalHeaders.headers, {}, 'custom bearer headers never leak to a CDN origin');
+  assert.strictEqual(leakedPortalHeaders.allowCrossSiteCredentials, false, 'source cookies never leak to a CDN origin');
   mse.shaka[1].emitError({ severity: 2, category: 3, code: 3016 }); await flushPlayback();
   assert.strictEqual(mse.hls.length, 1, 'one critical Shaka HLS failure falls back to hls.js through the central manager');
-  assert.strictEqual(mse.hls[0].url, 'https://portal.example/live/1.m3u8', 'the fallback uses the same resolved Stalker create_link URL');
+  assert.strictEqual(mse.hls[0].url, 'https://portal.example/live/1.m3u8', 'the fallback uses the same resolved M3U URL');
   var fallbackPortalHeaders = [], fallbackPortalXhr = { setRequestHeader: function (name, value) { fallbackPortalHeaders.push([name, value]); } };
   mse.hls[0].config.xhrSetup(fallbackPortalXhr, 'https://portal.example/live/1.m3u8');
   assert.deepStrictEqual(fallbackPortalHeaders, [['Authorization', 'Bearer private'], ['Referer', 'https://portal.example/']], 'the hls.js fallback retains headers only for the safe portal origin');
   assert.strictEqual(fallbackPortalXhr.withCredentials, true, 'the hls.js fallback retains cookies only for the safe portal origin');
   var fallbackCdnHeaders = [], fallbackCdnXhr = { setRequestHeader: function (name, value) { fallbackCdnHeaders.push([name, value]); } };
   mse.hls[0].config.xhrSetup(fallbackCdnXhr, 'https://edge-cdn.example/part.ts?signature=private');
-  assert.deepStrictEqual(fallbackCdnHeaders, [], 'hls.js does not forward Stalker headers to a CDN segment');
-  assert.strictEqual(!!fallbackCdnXhr.withCredentials, false, 'hls.js does not forward Stalker cookies to a CDN segment');
+  assert.deepStrictEqual(fallbackCdnHeaders, [], 'hls.js does not forward custom headers to a CDN segment');
+  assert.strictEqual(!!fallbackCdnXhr.withCredentials, false, 'hls.js does not forward source cookies to a CDN segment');
 
   var route = 'https://edge.example/get.php?username=user&password=pass&output=m3u8';
   var extensionless = playerHarness('probably');

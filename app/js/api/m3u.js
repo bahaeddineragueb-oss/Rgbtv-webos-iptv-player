@@ -383,7 +383,7 @@ M3UGetPhpProvider.prototype = {
 
 function createProvider(acc) {
   var xtream;
-  if (acc.type === 'stalker') return new StalkerProvider(acc);
-  if (acc.type === 'm3u') { xtream = m3uXtreamAccount(acc); return xtream ? new M3UGetPhpProvider(acc, xtream) : new M3UProvider(acc); }
-  return new XtreamProvider(acc);
+  if (acc && acc.type === 'm3u') { xtream = m3uXtreamAccount(acc); return xtream ? new M3UGetPhpProvider(acc, xtream) : new M3UProvider(acc); }
+  if (acc && acc.type === 'xtream') return new XtreamProvider(acc);
+  throw new Error('Unsupported profile type');
 }

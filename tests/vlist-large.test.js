@@ -1,4 +1,4 @@
-/* Virtual-list capacity regression checks for Stalker-scale channel metadata.
+/* Virtual-list capacity regression checks for large IPTV channel metadata.
  * Run with: node tests/vlist-large.test.js */
 'use strict';
 var assert = require('assert');

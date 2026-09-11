@@ -34,7 +34,7 @@ var SmartPlaylist = (function () {
   function safeUrl(url) {
     url = trim(url);
     /* Live URL schemes that webOS/IPTV backends commonly hand through. An item
-       without a URL belongs to Xtream/Stalker and is resolved by its provider. */
+       without a URL belongs to Xtream/M3U and is resolved by its provider. */
     return !url || /^(https?|rtsp|rtmp|udp):\/\//i.test(url);
   }
   function cleanName(name) {
@@ -74,7 +74,7 @@ var SmartPlaylist = (function () {
     /* Query values can be the channel identity on some portals. Only collapse
        byte-for-byte duplicate direct URLs; never guess that two routes match. */
     if (url) return 'url:' + url;
-    /* Providers resolve routes later. Do not collapse similarly named Xtream/Stalker
+    /* Providers resolve routes later. Do not collapse similarly named Xtream/M3U
        channels because they can point to intentionally different streams. */
     return '';
   }

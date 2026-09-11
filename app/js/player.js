@@ -91,16 +91,15 @@ var Player = (function () {
   }
   function canSendStreamCredentials(stream, requestUrl) {
     if (!isSameStreamOrigin(stream, requestUrl)) return false;
-    /* A Stalker create_link response may redirect to a CDN. Its MAG cookie or
-       bearer header is only valid for the known same-portal final media origin. */
-    if (String(stream && stream.provider || '').toLowerCase() === 'stalker') return !!(stream.metadata && stream.metadata.samePortal);
+    /* Credentials are valid only for the exact normalized source origin.
+       Redirected or signed CDN segment URLs never inherit them. */
     return true;
   }
   function isSensitiveHeader(name) { return /^(authorization|cookie|x-token|x-auth-token)$/i.test(String(name || '')); }
   function requestHeadersFor(stream, requestUrl) {
     var headers = stream && stream.headers || {}, safe = {}, key, value, sameOrigin = isSameStreamOrigin(stream, requestUrl || stream && stream.url), credentialSafe = canSendStreamCredentials(stream, requestUrl || stream && stream.url);
     /* A source's custom headers never travel to a different segment/CDN origin.
-       Cookie/Bearer/MAG headers additionally require the Stalker samePortal proof. */
+       Cookie and bearer headers are restricted by the same exact-origin rule. */
     if (!sameOrigin) return safe;
     for (key in headers) if (Object.prototype.hasOwnProperty.call(headers, key)) {
       value = String(headers[key] || '');
@@ -278,8 +277,8 @@ var Player = (function () {
       return;
     }
     /* Older webOS WebKit implementations return undefined from play(). Calling
-       .catch unconditionally turned a successful native/Stalker start into a
-       synthetic PLAYER_ERROR before the actual media event could arrive. */
+       .catch unconditionally turned a successful native start into a synthetic
+       PLAYER_ERROR before the actual media event could arrive. */
     if (result && typeof result.then === 'function') {
       result.then(null, function (error) {
         if (manager && manager.isCurrent(session) && (!active || active())) manager.mediaError({ code: 'PLAYER_ERROR', phase: 'player', message: error && error.message || failureMessage || 'Unable to start playback' });
@@ -356,7 +355,6 @@ var Player = (function () {
     var savedRatio = Store.settings().aspectRatio; ratioMode = ['fit', 'fill', 'stretch'].indexOf(savedRatio); if (ratioMode < 0) ratioMode = 0; applyRatio(); updateTrackControls();
     manager = new PlaybackManager({
       resolve: function (item, opt) { return StreamResolver.resolve(App.provider, item, opt); },
-      refreshSession: function (provider, opt) { return App.provider && App.provider.type === provider && App.provider.refreshSession ? App.provider.refreshSession(opt) : Promise.resolve(false); },
       adapter: { clear: clearSource, load: loadSource, reload: reloadSource, snapshot: mediaSnapshot, selectEngine: selectEngine, canUseShaka: canUseShaka, canUseHls: canUseHls, canUseNativeHls: canUseNativeHls, canPlayDash: canPlayDash, recoverMedia: recoverHlsMedia, recoverBuffer: recoverBuffer, inspect: inspectSource },
       onState: playbackUi,
       onSource: sourceResolved,

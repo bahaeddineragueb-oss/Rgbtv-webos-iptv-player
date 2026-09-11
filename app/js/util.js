@@ -58,13 +58,12 @@ var U = (function () {
     return out;
   }
   function lunaFetch(url, opt) {
-    return luna('fetch', { url: url, method: opt.method || 'GET', headers: opt.headers || {}, body: opt.body || null, timeout: opt.timeout || 20000, maxBytes: Number(opt.maxBytes) || 0, insecureTls: opt.insecureTls === true }).then(function (r) {
+    return luna('fetch', { url: url, method: opt.method || 'GET', headers: opt.headers || {}, body: opt.body || null, timeout: opt.timeout || 20000, maxBytes: Number(opt.maxBytes) || 0 }).then(function (r) {
       if (r.status >= 200 && r.status < 300) {
         if (opt.json) {
           try {
             var data = JSON.parse(r.body);
-            /* Stalker uses session cookies in addition to its bearer token. Keep
-               response metadata available only to callers that explicitly need it
+            /* Keep response metadata available only to callers that explicitly need it
                so existing providers continue to receive their plain JSON value. */
             return opt.responseMeta ? { data: data, status: r.status, headers: r.headers || {}, bytesRead: Number(r.bytesRead) || 0, redirects: Number(r.redirects) || 0, finalUrl: r.finalUrl || url } : data;
           } catch (e) { throw new Error('Invalid JSON from server'); }
@@ -82,7 +81,7 @@ var U = (function () {
     if (opt.signal && opt.signal.aborted) return Promise.reject(abortError());
     if (window.RGBTvHost && RGBTvHost.fetchAsync && /^https?:/i.test(url)) return abortable(hostFetch(url, opt), opt.signal);
     /* Use the packaged Luna proxy for providers that need to bypass browser CORS. Restricted
-       Stalker headers always need it; M3U/EPG can explicitly request it with opt.proxy. */
+       Xtream requests use it; M3U/EPG can explicitly request it with opt.proxy. */
     var needsService = (opt.proxy || (opt.headers && (opt.headers.Cookie || opt.headers.Authorization))) && typeof window.PalmServiceBridge !== 'undefined' && lunaAvailable !== false;
     if (needsService) {
       return abortable(lunaFetch(url, opt), opt.signal).then(function (r) { lunaAvailable = true; return r; }).catch(function (e) {
@@ -151,7 +150,7 @@ var U = (function () {
     });
   }
 
-  /* SHA-1 (used for Stalker device signatures) */
+  /* SHA-1 utility for stable local identifiers */
   function sha1(msg) {
     function rotl(n, s) { return (n << s) | (n >>> (32 - s)); }
     function toHex(v) { var s = ''; for (var i = 7; i >= 0; i--) s += ((v >>> (i * 4)) & 0xf).toString(16); return s; }

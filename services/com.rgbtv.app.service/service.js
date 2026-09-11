@@ -1,5 +1,5 @@
-/* RGBTv webOS JS Service — authenticated helper for Stalker and phone pairing.
- * fetch is intentionally limited to HTTP(S), safe methods, safe headers and bounded bodies. */
+/* RGBTv webOS JS Service — bounded HTTP helper and phone pairing service.
+ * Fetching is limited to HTTP(S), safe methods, safe headers and bounded bodies. */
 var Service = require('webos-service');
 var http = require('http'), https = require('https'), url = require('url'), os = require('os'), crypto = require('crypto'), zlib = require('zlib');
 var service = new Service('com.rgbtv.app.service');
@@ -7,13 +7,12 @@ var service = new Service('com.rgbtv.app.service');
    response ceiling while allowing the client-facing 120-second playlist timeout. */
 var MAX_REQUEST_BODY = 1024 * 1024, MAX_RESPONSE_BODY = 64 * 1024 * 1024, MAX_INSPECTION_BODY = 64 * 1024, MAX_TIMEOUT = 120000;
 var DEFAULT_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3',
+  'User-Agent': 'RGBTv webOS IPTV Player',
   'Accept': '*/*', 'Accept-Encoding': 'identity', 'Connection': 'keep-alive'
 };
 var ALLOWED_HEADERS = { 'accept': 1, 'accept-language': 1, 'authorization': 1, 'content-type': 1, 'cookie': 1, 'referer': 1, 'user-agent': 1, 'x-user-agent': 1, 'range': 1 };
-/* A Stalker login is several small, authenticated requests. Reusing a bounded
-   connection pool prevents a new TCP connection for every handshake/profile call,
-   which is a common trigger for anti-flood rules on older portals. */
+/* A bounded connection pool avoids a new TCP connection for every playlist,
+   guide, and provider API request while respecting older TV networking stacks. */
 var httpAgent = new http.Agent({ keepAlive: true, maxSockets: 4 });
 var httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 4 });
 /* HTTP 429 is a server instruction to slow down, not an alternate-endpoint error.
@@ -114,7 +113,7 @@ function doFetch(opts, cb, redirects, rateRetries, startedAt, skipRateGate) {
   var mod = u.protocol === 'https:' ? https : http;
   var req = mod.request({
     hostname: u.hostname, port: u.port, path: u.path || '/', method: String(opts.method || 'GET').toUpperCase(),
-    headers: safeHeaders(opts.headers), rejectUnauthorized: opts.insecureTls !== true, timeout: timeout,
+    headers: safeHeaders(opts.headers), rejectUnauthorized: true, timeout: timeout,
     agent: u.protocol === 'https:' ? httpsAgent : httpAgent
   }, function (res) {
     /* Do not let the endpoint discovery code turn one 429 into seven rapid requests.
@@ -195,27 +194,26 @@ function lanIPs() {
 function newToken() { return crypto.randomBytes(24).toString('hex'); }
 function safeText(v, max) { return typeof v === 'string' ? v.trim().slice(0, max) : ''; }
 function validPairProfile(raw) {
-  var d = raw || {}, type = safeText(d.type, 16), name = safeText(d.name, 40), serverUrl = safeText(d.url, 2048), mac;
-  if (!/^(xtream|stalker|m3u)$/.test(type) || !name || !validHttpUrl(serverUrl)) return null;
+  var d = raw || {}, type = safeText(d.type, 16), name = safeText(d.name, 40), serverUrl = safeText(d.url, 2048);
+  if (!/^(xtream|m3u)$/.test(type) || !name || !validHttpUrl(serverUrl)) return null;
   var out = { type: type, name: name, url: serverUrl, pin: /^\d{4}$/.test(String(d.pin || '')) ? String(d.pin) : '' };
   if (type === 'xtream') { out.username = safeText(d.username, 256); out.password = safeText(d.password, 512); if (!out.username || !out.password) return null; }
-  if (type === 'stalker') { mac = safeText(d.mac, 17).toUpperCase().replace(/-/g, ':'); if (!/^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(mac)) return null; out.mac = mac; }
   if (type === 'm3u') out.epg = safeText(d.epg, 2048);
   return out;
 }
 function pairPage(lang, token) {
   var ar = lang === 'ar';
-  var t = ar ? { title: 'إضافة سيرفر إلى RGBTv', sub: 'امسح رمز QR الظاهر على التلفاز، ثم أرسل البيانات. هذه الصفحة مؤمّنة برمز مؤقت.', name: 'اسم البروفايل', type: 'نوع السيرفر', url: 'رابط السيرفر', user: 'اسم المستخدم', pass: 'كلمة المرور', mac: 'عنوان MAC', epg: 'رابط EPG (اختياري)', pin: 'رمز PIN (اختياري، 4 أرقام)', send: 'إرسال إلى التلفاز', ok: 'تم الإرسال ✓ — أكّد العملية على التلفاز', err: 'تعذر الإرسال، تحقق من البيانات وحاول مجددًا', m3uHint: 'أو ألصق رابط get.php الكامل هنا', dir: 'rtl' }
-             : { title: 'Add a server to RGBTv', sub: 'Scan the QR code displayed on the TV, then send the details. This page is protected by a temporary code.', name: 'Profile name', type: 'Server type', url: 'Server URL', user: 'Username', pass: 'Password', mac: 'MAC address', epg: 'EPG URL (optional)', pin: 'PIN (optional, 4 digits)', send: 'Send to TV', ok: 'Sent ✓ — confirm on the TV', err: 'Could not send. Check the details and try again.', m3uHint: 'or paste a full get.php link here', dir: 'ltr' };
+  var t = ar ? { title: 'إضافة سيرفر إلى RGBTv', sub: 'امسح رمز QR الظاهر على التلفاز، ثم أرسل البيانات. هذه الصفحة مؤمّنة برمز مؤقت.', name: 'اسم البروفايل', type: 'نوع السيرفر', url: 'رابط السيرفر', user: 'اسم المستخدم', pass: 'كلمة المرور', epg: 'رابط EPG (اختياري)', pin: 'رمز PIN (اختياري، 4 أرقام)', send: 'إرسال إلى التلفاز', ok: 'تم الإرسال ✓ — أكّد العملية على التلفاز', err: 'تعذر الإرسال، تحقق من البيانات وحاول مجددًا', m3uHint: 'أو ألصق رابط get.php الكامل هنا', dir: 'rtl' }
+             : { title: 'Add a server to RGBTv', sub: 'Scan the QR code displayed on the TV, then send the details. This page is protected by a temporary code.', name: 'Profile name', type: 'Server type', url: 'Server URL', user: 'Username', pass: 'Password', epg: 'EPG URL (optional)', pin: 'PIN (optional, 4 digits)', send: 'Send to TV', ok: 'Sent ✓ — confirm on the TV', err: 'Could not send. Check the details and try again.', m3uHint: 'or paste a full get.php link here', dir: 'ltr' };
   return '<!DOCTYPE html><html lang="' + (ar ? 'ar' : 'en') + '" dir="' + t.dir + '"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + t.title + '</title><style>' +
     'body{margin:0;background:#0a0e1a;color:#f3f4f6;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:20px}h1{font-size:22px;margin:0 0 6px}h1 span{background:linear-gradient(90deg,#ef4444,#22c55e,#3b82f6);-webkit-background-clip:text;color:transparent}p{color:#9aa3b2;font-size:14px;margin:0 0 18px}label{display:block;font-size:13px;color:#9aa3b2;margin:12px 0 4px}input,select{width:100%;box-sizing:border-box;padding:13px 14px;border-radius:10px;border:1px solid #2a3350;background:#141b30;color:#fff;font-size:16px}.tabs{display:flex;gap:8px;margin-top:8px}.tabs button{flex:1;padding:12px;border-radius:10px;border:1px solid #2a3350;background:#141b30;color:#9aa3b2;font-size:14px}.tabs button.on{background:#6d5dfc;color:#fff;border-color:#6d5dfc}.f{display:none}.f.on{display:block}button.send{width:100%;margin-top:22px;padding:16px;border:0;border-radius:12px;background:#6d5dfc;color:#fff;font-size:17px;font-weight:700}#msg{margin-top:14px;font-size:15px;text-align:center;min-height:20px}.ok{color:#4ade80}.bad{color:#f87171}small{color:#6b7280}</style></head><body><h1>RGB<span>Tv</span> · ' + t.title + '</h1><p>' + t.sub + '</p>' +
     '<form id="f" onsubmit="return send()"><input type="hidden" name="token" value="' + token + '"><label>' + t.name + '</label><input name="name" required placeholder="Living room">' +
-    '<label>' + t.type + '</label><div class="tabs"><button type="button" class="on" data-t="xtream">Xtream Codes</button><button type="button" data-t="stalker">Stalker</button><button type="button" data-t="m3u">M3U</button></div><input type="hidden" name="type" value="xtream">' +
+    '<label>' + t.type + '</label><div class="tabs"><button type="button" class="on" data-t="xtream">Xtream Codes</button><button type="button" data-t="m3u">M3U</button></div><input type="hidden" name="type" value="xtream">' +
     '<label>' + t.url + '</label><input name="url" required placeholder="http://host:port" inputmode="url" autocapitalize="off"><small id="hint">' + t.m3uHint + '</small>' +
     '<div class="f on" data-f="xtream"><label>' + t.user + '</label><input name="username" autocapitalize="off" required><label>' + t.pass + '</label><input name="password" type="password" autocapitalize="off" required></div>' +
-    '<div class="f" data-f="stalker"><label>' + t.mac + '</label><input name="mac" placeholder="00:1A:79:XX:XX:XX" autocapitalize="characters"></div><div class="f" data-f="m3u"><label>' + t.epg + '</label><input name="epg" inputmode="url" autocapitalize="off"></div>' +
+    '<div class="f" data-f="m3u"><label>' + t.epg + '</label><input name="epg" inputmode="url" autocapitalize="off"></div>' +
     '<label>' + t.pin + '</label><input name="pin" maxlength="4" inputmode="numeric" pattern="\\d{4}"><button class="send" type="submit">' + t.send + '</button><div id="msg"></div></form>' +
-    '<script>var tabs=document.querySelectorAll(".tabs button");for(var i=0;i<tabs.length;i++)tabs[i].onclick=function(){for(var j=0;j<tabs.length;j++)tabs[j].className="";this.className="on";var t=this.getAttribute("data-t");document.querySelector("[name=type]").value=t;var fs=document.querySelectorAll(".f");for(var k=0;k<fs.length;k++)fs[k].className="f"+(fs[k].getAttribute("data-f")===t?" on":"");document.getElementById("hint").style.display=t==="xtream"?"":"none";document.querySelector("[name=username]").required=t==="xtream";document.querySelector("[name=password]").required=t==="xtream";};function send(){var f=document.getElementById("f"),d={},els=f.elements;for(var i=0;i<els.length;i++)if(els[i].name)d[els[i].name]=els[i].value;var x=new XMLHttpRequest();x.open("POST","/add",true);x.setRequestHeader("Content-Type","application/json");x.onload=function(){var m=document.getElementById("msg");if(x.status===200){m.className="ok";m.textContent="' + t.ok + '";f.reset();}else{m.className="bad";m.textContent="' + t.err + '";}};x.onerror=function(){document.getElementById("msg").className="bad";document.getElementById("msg").textContent="' + t.err + '";};x.send(JSON.stringify(d));return false;}</script></body></html>';
+    '<script>var tabs=document.querySelectorAll(".tabs button");for(var i=0;i<tabs.length;i++)tabs[i].onclick=function(){for(var j=0;j<tabs.length;j++)tabs[j].className="";this.className="on";var t=this.getAttribute("data-t");document.querySelector("[name=type]").value=t;var fs=document.querySelectorAll(".f");for(var k=0;k<fs.length;k++)fs[k].className="f"+(fs[k].getAttribute("data-f")===t?" on":"");document.getElementById("hint").style.display=t==="xtream"?"":"none";document.querySelector("[name=username]").required=t==="xtream";document.querySelector("[name=password]").required=t==="xtream";};function send(){var f=document.getElementById("f"),d={},els=f.elements;for(var i=0;i<els.length;i++)if(els[i].name)d[els[i].name]=els[i].value;var x=new XMLHttpRequest();x.open("POST","/add",true);x.timeout=20000;x.setRequestHeader("Content-Type","application/json");x.onload=function(){var m=document.getElementById("msg");if(x.status===200){m.className="ok";m.textContent="' + t.ok + '";f.reset();}else{m.className="bad";m.textContent="' + t.err + '";}};function failed(){document.getElementById("msg").className="bad";document.getElementById("msg").textContent="' + t.err + '";}x.onerror=failed;x.ontimeout=failed;x.send(JSON.stringify(d));return false;}</script></body></html>';
 }
 function startPairServer(lang, cb) {
   if (pairServer) { cb(null); return; }

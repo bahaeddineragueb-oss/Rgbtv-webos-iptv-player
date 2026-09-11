@@ -49,10 +49,10 @@ async function testDetectionAndNormalization() {
 
   var m3u = await R.resolve({ type: 'm3u', resolveStream: function () { return Promise.resolve({ url: 'https://stream.example/a.m3u8?token=do-not-change', headers: { Referer: 'https://portal.example/' } }); } }, { id: 'a', type: 'live' }, {});
   var xtream = await R.resolve({ type: 'xtream', resolveStream: function () { return Promise.resolve({ url: 'https://stream.example/b.ts?username=private' }); } }, { id: 'b', type: 'live' }, {});
-  var stalker = await R.resolve({ type: 'stalker', resolveStream: function () { return Promise.resolve({ url: 'https://stream.example/c.m3u8?token=private' }); } }, { id: 'c', type: 'live' }, {});
+  var m3uHls = await R.resolve({ type: 'm3u', resolveStream: function () { return Promise.resolve({ url: 'https://stream.example/c.m3u8?token=private' }); } }, { id: 'c', type: 'live' }, {});
   assert.strictEqual(m3u.type, 'hls'); assert.strictEqual(m3u.url, 'https://stream.example/a.m3u8?token=do-not-change', 'normalization preserves exact M3U URLs');
   assert.strictEqual(m3u.headers.Referer, 'https://portal.example/');
-  assert.strictEqual(xtream.type, 'mpegts'); assert.strictEqual(stalker.type, 'hls');
+  assert.strictEqual(xtream.type, 'mpegts'); assert.strictEqual(m3uHls.type, 'hls');
 }
 
 async function testSessionRaceAndRapidSwitching() {
@@ -255,10 +255,10 @@ async function testExplicitDeadlineAndSafeDiagnostics() {
   assert.strictEqual(d.protocol, 'https'); assert.strictEqual(d.mimeType, 'application/vnd.apple.mpegurl'); assert.strictEqual(d.extension, 'm3u8');
   assert.strictEqual(context.StreamTypeDetector.detect('http://edge.example/live/42.ts').type, 'mpegts', 'HTTP MPEG-TS is classified before adapter selection');
   assert.strictEqual(context.StreamTypeDetector.detect('https://edge.example/live/42.ts').protocol, 'https', 'HTTPS MPEG-TS preserves its transport diagnostic');
-  var normalized = context.StreamResolver.normalize({ streamUrl: 'http://edge.example/live/42.ts', streamType: 'mpegts', mimeType: 'video/mp2t', token: 'private', cookies: 'sid=private' }, { type: 'stalker' }, { id: 42, type: 'live' });
+  var normalized = context.StreamResolver.normalize({ streamUrl: 'http://edge.example/live/42.ts', streamType: 'mpegts', mimeType: 'video/mp2t', token: 'private', cookies: 'sid=private' }, { type: 'm3u' }, { id: 42, type: 'live' });
   assert.strictEqual(normalized.protocol, 'http'); assert.strictEqual(normalized.container, 'ts'); assert.strictEqual(normalized.streamUrl, normalized.url);
   assert.strictEqual(normalized.token, 'private'); assert.strictEqual(normalized.cookies, 'sid=private');
-  var opaqueHls = context.StreamResolver.normalize({ url: 'https://edge.example/get.php?output=m3u8', streamType: 'unknown' }, { type: 'stalker' }, { id: 43, type: 'live' });
+  var opaqueHls = context.StreamResolver.normalize({ url: 'https://edge.example/get.php?output=m3u8', streamType: 'unknown' }, { type: 'm3u' }, { id: 43, type: 'live' });
   assert.strictEqual(opaqueHls.streamType, 'hls', 'an extensionless resolved URL is re-detected rather than locked as unknown');
   var sourceSummary = context.StreamInspector.sourceSummary(normalized);
   assert.strictEqual(sourceSummary.tokenPresent, true); assert.strictEqual(sourceSummary.cookiePresent, true); assert.strictEqual(sourceSummary.protocol, 'http');
@@ -271,12 +271,7 @@ async function testExplicitDeadlineAndSafeDiagnostics() {
   assert.ok(starts.states.some(function (entry) { return entry.state === context.PlaybackManager.STATES.TIMEOUT && entry.detail.phase === 'start'; }), 'a source that produces no media event cannot remain in LOADING');
   starts.manager.stop();
 
-  var stalker = harness(function () { return Promise.resolve(stream('stalker-refresh', 'hls')); }), refreshes = 0;
-  await stalker.manager.play({ id: 'stalker-refresh', type: 'live' }, { provider: 'stalker' });
-  stalker.manager.refreshSession = function (provider) { refreshes++; assert.strictEqual(provider, 'stalker'); return Promise.resolve(true); };
-  stalker.manager._retry(stalker.manager.currentSession(), 3, { code: 'NETWORK_ERROR' }); await wait(0);
-  assert.strictEqual(refreshes, 1, 'only the final Stalker recovery attempt refreshes the provider session');
-  stalker.manager.stop();
+
 }
 
 

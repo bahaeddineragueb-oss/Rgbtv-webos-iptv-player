@@ -39,7 +39,7 @@
       <button class="btn ghost focusable" data-action="manage-profiles" data-nav="acc-actions" id="manage-btn"><svg class="ico" viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.8 9.94l-3.75-3.75L3 17.25zm17.7-10.2a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg><span class="lbl" data-i18n="acc.manage">Manage Profiles</span></button>
       <button class="btn ghost focusable" data-action="exit-app" data-nav="acc-actions"><svg class="ico" viewBox="0 0 24 24"><path d="M11 2h2v10h-2V2zm6.36 3.64l-1.42 1.42A7 7 0 1 1 8.06 7.06L6.64 5.64a9 9 0 1 0 10.72 0z"/></svg><span class="lbl" data-i18n="exit">Exit</span></button>
     </div>
-    <div class="hint acc-hint"><span class="hint-pill"><b data-i18n="acc.mac">Device MAC (Stalker)</b><span class="hint-sep"></span><b id="acc-mac"></b></span><span class="hint-pill" id="acc-device"></span><span class="hint-pill"><span class="key red"></span><span data-i18n="acc.redhint">Profile menu</span></span><span class="hint-pill"><svg class="ico" viewBox="0 0 24 24"><path d="M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm0 3v13h10V5H7zm5 14.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/></svg><span data-i18n="pair.hint">Add servers from your phone without the remote</span></span></div>
+    <div class="hint acc-hint"><span class="hint-pill" id="acc-device"></span><span class="hint-pill"><span class="key red"></span><span data-i18n="acc.redhint">Profile menu</span></span><span class="hint-pill"><svg class="ico" viewBox="0 0 24 24"><path d="M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm0 3v13h10V5H7zm5 14.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/></svg><span data-i18n="pair.hint">Add servers from your phone without the remote</span></span></div>
   </div>
 </div>
 
@@ -85,7 +85,6 @@
     <div class="avatar-picker" id="avatar-picker"></div>
     <div class="tabs" id="add-type-tabs">
       <button class="tab focusable active" data-type="xtream" data-nav="add-tabs">Xtream Codes</button>
-      <button class="tab focusable" data-type="stalker" data-nav="add-tabs">Stalker Portal</button>
       <button class="tab focusable" data-type="m3u" data-nav="add-tabs">M3U Playlist</button>
     </div>
     <form id="add-form" class="form" autocomplete="off">
@@ -93,7 +92,7 @@
         <label>Profile name<input class="focusable" data-nav="add-form" name="name" placeholder="e.g. Living room" required></label>
         <label>PIN (optional, 4 digits)<input class="focusable" data-nav="add-form" name="pin" placeholder="••••" maxlength="4" inputmode="numeric"></label>
       </div>
-      <div class="type-fields" data-for="xtream stalker m3u">
+      <div class="type-fields" data-for="xtream m3u">
         <label><span id="lbl-url">Server URL</span><input class="focusable" data-nav="add-form" name="url" placeholder="http://host:port" required></label>
       </div>
       <div class="type-fields" data-for="xtream">
@@ -101,14 +100,6 @@
           <label>Username<input class="focusable" data-nav="add-form" name="username" placeholder="username"></label>
           <label>Password<input class="focusable" data-nav="add-form" name="password" type="password" placeholder="password"></label>
         </div>
-      </div>
-      <div class="type-fields" data-for="stalker">
-        <label>MAC Address<input class="focusable" data-nav="add-form" name="mac" placeholder="00:1A:79:XX:XX:XX" maxlength="17"></label>
-        <div class="form-grid">
-          <label>Serial Number (optional)<input class="focusable" data-nav="add-form" name="sn" placeholder="auto"></label>
-          <label>Device ID (optional)<input class="focusable" data-nav="add-form" name="deviceId" placeholder="auto"></label>
-        </div>
-        <div class="switch-row compact"><div><b data-i18n="stalker.insecure">Allow self-signed HTTPS</b><p class="muted" data-i18n="stalker.insecure.d">Only enable this for a portal you trust.</p></div><button type="button" class="switch focusable" data-nav="add-form" id="tls-switch" data-on="0"><i></i></button></div>
       </div>
       <div class="type-fields" data-for="m3u">
         <label><span data-i18n="m3u.profile">Playlist connection profile</span><select class="focusable" data-nav="add-form" name="m3uProfile"><option value="auto" data-i18n="m3u.profile.auto">Automatic (webOS, Android, VU &amp; VLC)</option><option value="vu" data-i18n="m3u.profile.vu">VU IPTV compatible</option><option value="webos" data-i18n="m3u.profile.webos">webOS browser</option><option value="android" data-i18n="m3u.profile.android">Android IPTV client</option><option value="vlc" data-i18n="m3u.profile.vlc">VLC</option></select></label>
@@ -189,7 +180,7 @@
     <section id="sec-live" class="section browse">
       <aside class="cat-panel"><div class="panel-title" data-i18n="categories">Categories</div><div class="cat-list" id="live-cats"></div></aside>
       <div class="channel-panel">
-        <div class="panel-title"><span id="live-cat-title">All Channels</span><span id="live-load-status" class="live-load-status" aria-live="polite"></span><button class="guide-open focusable" data-nav="chl" data-action="guide-open" data-i18n="guide.open">TV Guide</button></div>
+        <div class="panel-title"><span id="live-cat-title">All Channels</span><button class="guide-open focusable" data-nav="chl" data-action="guide-open" data-i18n="guide.open">TV Guide</button></div>
         <div class="channel-list" id="live-channels"></div>
       </div>
       <div class="preview-panel">
@@ -326,7 +317,7 @@
         <div class="setting-row"><div><b data-i18n="pair.btn">Add from phone</b><p class="muted" data-i18n="pair.set.d">Show a QR code; type the server details on your phone instead of the remote.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="pair-phone">📱 QR</button></div>
         <div class="setting-row"><div><b data-i18n="backup.title">Backup &amp; restore</b><p class="muted" data-i18n="backup.settings.d">Create a portable backup code for profiles, favorites and settings.</p></div><button class="btn ghost focusable" data-nav="settings" data-action="backup-open" data-i18n="backup.open">Open</button></div>
         <div class="setting-row"><div><b data-i18n="set.profile">Profile</b><p class="muted" id="settings-account-info"></p></div><div class="setting-actions"><button class="btn ghost focusable" data-nav="settings" data-action="edit-account" data-i18n="edit">Edit</button><button class="btn ghost focusable" data-nav="settings" data-action="switch-account" data-i18n="switch">Switch</button></div></div>
-        <div class="setting-row"><div><b data-i18n="set.about">About</b><p class="muted">RGBTv v2.8.1 · Playback Engine for LG webOS · Xtream Codes · Stalker Portal · M3U · Shaka MSE + hls.js + Native</p></div><button class="btn ghost focusable" data-nav="settings" data-action="exit-app" data-i18n="set.exit">Exit App</button></div>
+        <div class="setting-row"><div><b data-i18n="set.about">About</b><p class="muted">RGBTv v2.8.2 · Playback Engine for LG webOS · Xtream Codes · M3U · Shaka MSE + hls.js + Native</p></div><button class="btn ghost focusable" data-nav="settings" data-action="exit-app" data-i18n="set.exit">Exit App</button></div>
       </div>
     </section>
   </main>
@@ -461,7 +452,6 @@
 <script src="js/vlist.js"></script>
 <script src="js/avatars.js"></script>
 <script src="js/api/xtream.js"></script>
-<script src="js/api/stalker.js"></script>
 <script src="js/api/m3u.js"></script>
 <script src="js/tmdb.js"></script>
 <script src="js/weather.js"></script>

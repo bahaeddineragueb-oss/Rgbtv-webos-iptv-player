@@ -129,7 +129,7 @@ function PlaybackErrorClassifier(raw, stream) {
   if (!retryAfter && retryValue && !/^\d+(?:\.\d+)?$/.test(String(retryValue))) { var retryDate = Date.parse(retryValue); if (!isNaN(retryDate)) retryAfter = Math.max(0, retryDate - Date.now()); }
   if (retryAfter > 0 && retryAfter < 1000) retryAfter *= 1000;
   if (raw.name === 'AbortError' || raw.code === 'USER_CANCELLED' || /cancelled|canceled/i.test(text)) return new PlaybackError('USER_CANCELLED', 'Playback request cancelled', false, false, raw);
-  if (raw.code === 'STREAM_RESOLUTION_ERROR' || raw.phase === 'resolve' || /create_link|resolve stream|missing stream url|invalid stream url/i.test(text)) return new PlaybackError('STREAM_RESOLUTION_ERROR', 'Unable to resolve a playable stream URL', true, true, raw, status, retryAfter);
+  if (raw.code === 'STREAM_RESOLUTION_ERROR' || raw.phase === 'resolve' || /resolve stream|missing stream url|invalid stream url/i.test(text)) return new PlaybackError('STREAM_RESOLUTION_ERROR', 'Unable to resolve a playable stream URL', true, true, raw, status, retryAfter);
   if (raw.code === 'TOKEN_EXPIRED' || /token.*(?:expired|invalid)|expired.*token/i.test(text)) return new PlaybackError('TOKEN_ERROR', 'Stream authorization expired', true, true, raw, status, retryAfter);
   if (status === 401 || status === 403 || /HTTP\s*(401|403)|unauthori[sz]ed|forbidden|access denied/i.test(text)) return new PlaybackError('AUTHENTICATION_ERROR', 'Access to this stream was denied', false, false, raw, status);
   if (status === 404 || /HTTP\s*404|not found/i.test(text)) return new PlaybackError('HTTP_ERROR', 'Stream was not found', false, false, raw, status);
@@ -301,7 +301,7 @@ var PlaybackManager = (function () {
     try { console.log('[RGBTV PLAYER] ' + event, data || ''); } catch (e) { }
   }
   function Manager(options) {
-    this.adapter = options.adapter || {}; this.resolve = options.resolve; this.refreshSession = options.refreshSession || function () { return Promise.resolve(false); }; this.onState = options.onState || function () {};
+    this.adapter = options.adapter || {}; this.resolve = options.resolve; this.onState = options.onState || function () {};
     this.onSource = options.onSource || function () {}; this.onError = options.onError || function () {};
     this.sessionId = 0; this.requestId = 0; this.state = STATES.IDLE; this.current = null; this.options = null; this.stream = null; this.engine = 'native';
     this.abortController = null; this.startedAt = 0; this.lastProgress = 0; this.lastCurrentTime = -1; this.lastCurrentTimeAt = 0; this.hasMetadata = false; this.userPaused = false; this.mediaRecovered = false; this.hlsFallbackTried = false; this.networkOffline = false;
@@ -413,7 +413,7 @@ var PlaybackManager = (function () {
       this._armDeadline('resolve', session, requestId);
       request.signal = this.abortController && this.abortController.signal;
       /* A catch-up URL is already resolved by its provider; normal live retries
-         deliberately re-resolve to refresh expiring Stalker/Xtream links. */
+         deliberately re-resolve to refresh expiring Xtream/M3U links. */
       if (opt.url && item.type === 'catchup') request.url = opt.url;
       return this.resolve(item, request).then(function (stream) {
         if (!self.isCurrent(session) || self.requestId !== requestId) return null;
@@ -477,10 +477,10 @@ var PlaybackManager = (function () {
          to hls.js exactly once; native HLS may also hand to hls.js exactly once.
          MPEG-TS/direct streams never enter this MSE branch and no path goes back
          to Shaka, so a failure cannot cause an engine-switch loop. */
-      /* MAG create_link endpoints are frequently opaque PHP paths with no
-         .m3u8 suffix. A native SRC_NOT_SUPPORTED result is the decisive signal:
-         make one hls.js attempt for an unknown live source rather than denying a
-         valid HLS stream solely because its signed URL lacks an extension. */
+      /* Some IPTV providers use opaque signed endpoints with no .m3u8 suffix.
+         A native SRC_NOT_SUPPORTED result is the decisive signal: make one
+         hls.js attempt for an unknown live source rather than denying HLS solely
+         because its URL lacks an extension. */
       if (this.stream && (this.stream.type === 'hls' || (this.stream.type === 'unknown' && this.stream.metadata && this.stream.metadata.live)) && (this.engine === 'native' || this.engine === 'shaka') && !this.hlsFallbackTried && this.adapter && this.adapter.canUseHls && this.adapter.canUseHls() && (this.engine === 'shaka' || error.code !== 'AUTHENTICATION_ERROR' && error.code !== 'HTTP_ERROR')) {
         var fromEngine = this.engine;
         this.hlsFallbackTried = true; this.engine = 'hls'; this.metrics.strategy = 'hls'; this.hasMetadata = false; this.lastProgress = Date.now();
@@ -557,12 +557,9 @@ var PlaybackManager = (function () {
         this._setState(STATES.PREPARING_PLAYER, { recoveryLevel: 'reinitialize', sourceChanged: false, attempt: attempt }); this._log('Player reinitialized', { sourceChanged: false }); this._armDeadline('start', session, this.requestId); this.adapter.reload(this.stream, session, this.engine); return;
       }
       this._abort(); this._clear(); this.abortController = makeAbortController(); this.startedAt = now; this.lastProgress = now; this.lastCurrentTimeAt = now; this.hasMetadata = false; this.buffer.reset(now);
-      /* Final bounded attempt refreshes a Stalker session before a fresh link;
-         other providers simply re-resolve, without inventing credentials. */
-      if (attempt >= 3 && (this.providerType || this.options && this.options.provider) === 'stalker') {
-        var self = this;
-        Promise.resolve(this.refreshSession('stalker', { signal: this.abortController.signal })).then(function () { if (self.isCurrent(session)) self._open(session, false, resumeAt); }, function (refreshError) { if (self.isCurrent(session)) self.fail(refreshError, session); });
-      } else this._open(session, false, resumeAt);
+      /* Each remaining bounded attempt obtains a fresh provider URL. No provider
+         maintains a hidden secondary session or engine-specific retry loop. */
+      this._open(session, false, resumeAt);
     },
     retryNow: function () {
       if (!this.current) return false;

@@ -5,21 +5,27 @@ var Store = (function () {
   function set(k, v) { try { var str = JSON.stringify(v); if (str.length > 1500000) return false; localStorage.setItem(PREFIX + k, str); return true; } catch (e) { return false; /* quota */ } }
   function del(k) { try { localStorage.removeItem(PREFIX + k); } catch (e) { } }
 
-  /* ---- device identity (used for Stalker) ---- */
-  function device() {
-    var d = get('device');
-    if (!d) {
-      d = { mac: U.randomMac(), sn: U.sha1(U.uuid()).substr(0, 13), deviceId: U.sha1(U.uuid()), deviceId2: U.sha1(U.uuid()) };
-      set('device', d);
-    }
-    return d;
-  }
-
   /* ---- accounts ---- */
-  function accounts() { return get('accounts', []); }
+  function isSupportedAccount(acc) { return !!(acc && (acc.type === 'xtream' || acc.type === 'm3u')); }
+  function clearRemovedAccountData(id) {
+    var prefix = PREFIX + 'acc:' + String(id) + ':';
+    try { Object.keys(localStorage).forEach(function (key) { if (key.indexOf(prefix) === 0) localStorage.removeItem(key); }); } catch (e) { }
+  }
+  function accounts() {
+    var list = get('accounts', []), kept = [], removed = [], i, item, last;
+    if (!Array.isArray(list)) list = [];
+    for (i = 0; i < list.length; i++) {
+      item = list[i];
+      if (isSupportedAccount(item)) kept.push(item); else if (item && item.id != null) removed.push(item.id);
+    }
+    if (removed.length) {
+      removed.forEach(clearRemovedAccountData); set('accounts', kept); last = get('lastAccount'); if (removed.map(String).indexOf(String(last)) >= 0) del('lastAccount');
+    }
+    return kept;
+  }
   function saveAccounts(list) { set('accounts', list); }
-  function addAccount(acc) { var l = accounts(); acc.id = acc.id || U.uuid(); acc.createdAt = Date.now(); l.push(acc); saveAccounts(l); return acc; }
-  function updateAccount(acc) { var l = accounts().map(function (a) { return a.id === acc.id ? acc : a; }); saveAccounts(l); }
+  function addAccount(acc) { if (!isSupportedAccount(acc)) return null; var l = accounts(); acc.id = acc.id || U.uuid(); acc.createdAt = Date.now(); l.push(acc); saveAccounts(l); return acc; }
+  function updateAccount(acc) { if (!isSupportedAccount(acc)) { if (acc && acc.id != null) removeAccount(acc.id); return; } var l = accounts().map(function (a) { return a.id === acc.id ? acc : a; }); saveAccounts(l); }
   function removeAccount(id) {
     saveAccounts(accounts().filter(function (a) { return a.id !== id; }));
     Object.keys(localStorage).forEach(function (k) { if (k.indexOf(PREFIX + 'acc:' + id + ':') === 0) localStorage.removeItem(k); });
@@ -27,13 +33,14 @@ var Store = (function () {
   }
   function getAccount(id) { return accounts().filter(function (a) { return a.id === id; })[0] || null; }
   function lastAccount() { return get('lastAccount', null); }
-  function setLastAccount(id) { set('lastAccount', id); }
+  function setLastAccount(id) { if (getAccount(id)) set('lastAccount', id); else del('lastAccount'); }
 
   /* ---- settings ---- */
   var DEFAULTS = { liveFormat: 'm3u8', engine: 'shaka', parental: true, autostart: false, theme: 'aurora', tmdbKey: '', preview: true, lang: 'en', refreshHours: 6, layout: 'classic', designSystemVersion: 2, focusStyle: 'glow', largeUi: false, highContrast: false, liveGrid: false, ambient: true, weather: true, autoNext: true, accent: 'auto', pointer: 'click', corners: 'round', glow: true, wxMode: 'auto', wxUnit: 'c', adhan: true, adhanMethod: 'algeria', pictureMode: 'original', pictureBrightness: 100, pictureContrast: 100, pictureSaturation: 100, pictureTone: 0, pictureBlackLevel: 0, pictureGamma: 0, aspectRatio: 'fit' };
   var THEME_MIGRATE = { dark: 'aurora' }, LAYOUT_MIGRATE = { viu: 'spotlight', ibo: 'trio', guidefirst: 'guide', sideRail: 'rail', commandcenter: 'command' };
   function settings() {
     var s = get('settings', {}), oldVisualSystem = !s.designSystemVersion;
+    del('device');
     if (Object.prototype.hasOwnProperty.call(s, 'performance')) delete s.performance;
     for (var k in DEFAULTS) if (!(k in s)) s[k] = DEFAULTS[k];
     if (THEME_MIGRATE[s.theme]) s.theme = THEME_MIGRATE[s.theme]; if (LAYOUT_MIGRATE[s.layout]) s.layout = LAYOUT_MIGRATE[s.layout];
@@ -224,7 +231,7 @@ name = String(name || '').replace(/^\s+|\s+$/g, '').slice(0, 32);
   function safeAccountCopy(acc, includeSecrets) {
     var out = {}, k;
     for (k in acc) if (Object.prototype.hasOwnProperty.call(acc, k)) out[k] = acc[k];
-    delete out.token; delete out.endpoint; delete out.lastLogin; delete out.expires;
+    delete out.lastLogin; delete out.expires;
     if (!includeSecrets) {
       delete out.username; delete out.password; delete out.m3uUserAgent; delete out.m3uReferer;
       /* An M3U URL itself often embeds subscription credentials. Keep the profile shell, not that secret. */
@@ -240,7 +247,7 @@ name = String(name || '').replace(/^\s+|\s+$/g, '').slice(0, 32);
     });
     return utf8b64(JSON.stringify(data));
   }
-  function validImportedAccount(a) { return a && /^(xtream|stalker|m3u)$/.test(a.type) && typeof a.name === 'string' && a.name.length > 0 && a.name.length <= 80; }
+  function validImportedAccount(a) { return a && /^(xtream|m3u)$/.test(a.type) && typeof a.name === 'string' && a.name.length > 0 && a.name.length <= 80; }
   function importBackup(code) {
     var raw = b64utf8(String(code || '').replace(/\s/g, '')), data, imported = [], used = {}, i, a, state, newId;
     if (!raw || raw.length > 1500000) throw new Error('Invalid or oversized backup code');
@@ -250,7 +257,7 @@ name = String(name || '').replace(/^\s+|\s+$/g, '').slice(0, 32);
       a = data.accounts[i]; if (!validImportedAccount(a)) continue;
       a = safeAccountCopy(a, true); newId = String(a.id || U.uuid());
       while (used[newId]) newId = U.uuid(); used[newId] = 1; a.id = newId; a.createdAt = a.createdAt || Date.now();
-      delete a.token; delete a.endpoint; imported.push(a);
+      imported.push(a);
       state = data.data && data.data[data.accounts[i].id] || {};
       set(accKey(newId, 'favs'), Array.isArray(state.favs) ? state.favs.slice(0, 300) : []);
       saveFavoriteLists(newId, Array.isArray(state.favLists) ? state.favLists : []);
@@ -269,5 +276,5 @@ name = String(name || '').replace(/^\s+|\s+$/g, '').slice(0, 32);
     return { count: imported.length, needsCredentials: imported.some(function (x) { return x.needsCredentials; }) };
   }
 
-  return { get: get, set: set, del: del, device: device, accounts: accounts, addAccount: addAccount, updateAccount: updateAccount, removeAccount: removeAccount, getAccount: getAccount, lastAccount: lastAccount, setLastAccount: setLastAccount, settings: settings, setSetting: setSetting, favoriteLists: favoriteLists, createFavoriteList: createFavoriteList, renameFavoriteList: renameFavoriteList, removeFavoriteList: removeFavoriteList, favorites: favorites, isFav: isFav, toggleFav: toggleFav, toggleFavInList: toggleFavInList, history: history, pushHistory: pushHistory, watchStats: watchStats, recordWatch: recordWatch, getPos: getPos, setPos: setPos, trackPref: trackPref, setTrackPref: setTrackPref, reminders: reminders, isReminder: isReminder, toggleReminder: toggleReminder, dueReminders: dueReminders, upcomingReminders: upcomingReminders, health: health, setHealth: setHealth, cacheInfo: cacheInfo, cacheGet: cacheGet, cacheSet: cacheSet, clearCache: clearCache, isLocked: isLocked, toggleLock: toggleLock, lockedIds: lockedIds, hiddenChannels: hiddenChannels, isChannelHidden: isChannelHidden, toggleChannelHidden: toggleChannelHidden, clearHiddenChannels: clearHiddenChannels, hiddenCategories: hiddenCategories, isCategoryHidden: isCategoryHidden, toggleCategoryHidden: toggleCategoryHidden, clearHiddenCategories: clearHiddenCategories, sortChannels: sortChannels, moveChannel: moveChannel, clearChannelOrder: clearChannelOrder, snapshot: snapshot, setSnapshot: setSnapshot, exportBackup: exportBackup, importBackup: importBackup };
+  return { get: get, set: set, del: del, accounts: accounts, addAccount: addAccount, updateAccount: updateAccount, removeAccount: removeAccount, getAccount: getAccount, lastAccount: lastAccount, setLastAccount: setLastAccount, settings: settings, setSetting: setSetting, favoriteLists: favoriteLists, createFavoriteList: createFavoriteList, renameFavoriteList: renameFavoriteList, removeFavoriteList: removeFavoriteList, favorites: favorites, isFav: isFav, toggleFav: toggleFav, toggleFavInList: toggleFavInList, history: history, pushHistory: pushHistory, watchStats: watchStats, recordWatch: recordWatch, getPos: getPos, setPos: setPos, trackPref: trackPref, setTrackPref: setTrackPref, reminders: reminders, isReminder: isReminder, toggleReminder: toggleReminder, dueReminders: dueReminders, upcomingReminders: upcomingReminders, health: health, setHealth: setHealth, cacheInfo: cacheInfo, cacheGet: cacheGet, cacheSet: cacheSet, clearCache: clearCache, isLocked: isLocked, toggleLock: toggleLock, lockedIds: lockedIds, hiddenChannels: hiddenChannels, isChannelHidden: isChannelHidden, toggleChannelHidden: toggleChannelHidden, clearHiddenChannels: clearHiddenChannels, hiddenCategories: hiddenCategories, isCategoryHidden: isCategoryHidden, toggleCategoryHidden: toggleCategoryHidden, clearHiddenCategories: clearHiddenCategories, sortChannels: sortChannels, moveChannel: moveChannel, clearChannelOrder: clearChannelOrder, snapshot: snapshot, setSnapshot: setSnapshot, exportBackup: exportBackup, importBackup: importBackup };
 })();
