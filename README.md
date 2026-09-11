@@ -1,4 +1,4 @@
-# RGBTv — webOS TV source (v2.7.6)
+# RGBTv — webOS TV source (v2.7.7)
 
 Pure HTML5 web app for LG webOS (3.0+): ES5 JavaScript, legacy-safe CSS, native <video> + hls.js.
 
@@ -69,7 +69,7 @@ or simply `./build.sh tv`.
 - **Connection diagnostics** reports the selected provider, declared capabilities, cache footprint, last login timing and a user-triggered safe catalogue/playback-link check. It never starts a second stream, and it never displays credentials or a full stream URL.
 - Keep the package small: no bundled audio/video assets.
 
-## Playback Engine (v2.7.6)
+## Playback Engine (v2.7.7)
 
 Live playback uses one stable HTML5 `<video>` surface through a provider-neutral pipeline:
 
@@ -92,7 +92,7 @@ The Stalker live resolver now accepts `cmd`, `command`, `url`, string `data`, ne
 
 ### Stalker large-catalogue repair (v2.7.6)
 
-Stalker Live now explicitly requests bounded 100-channel ITV pages (`page_size` and `limit`) while preserving the portal's own pagination metadata. If an old portal ignores pagination and returns a giant channel array, mapping is sliced across event-loop turns instead of blocking the TV UI. The Home dashboard also stops scanning enormous Stalker VOD/Series catalogues merely to render decorative counts; those catalogues load only when their own screens are opened, leaving the first Live page and fresh `create_link` request free to start immediately.
+Stalker Live now explicitly requests bounded 100-channel ITV pages (`page_size` and `limit`) while preserving the portal's own pagination metadata. If an old portal ignores pagination and returns a giant channel array, mapping is sliced across event-loop turns instead of blocking the TV UI. A new page-cache namespace ensures an upgrade cannot revive an old giant channel cache from localStorage. The Home dashboard also stops scanning enormous Stalker VOD/Series catalogues merely to render decorative counts; those catalogues load only when their own screens are opened, leaving the first Live page and fresh `create_link` request free to start immediately.
 
 ### Stalker localhost stream repair (v2.7.5)
 

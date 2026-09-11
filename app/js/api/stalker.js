@@ -440,7 +440,9 @@ StalkerProvider.prototype = {
      first rows. `p`/`genre`/`get_ordered_list` are the portal's documented ITV
      pagination fields and are already used by the VOD Stalker implementation. */
   livePage: function (catId, page) {
-    var self = this, key = this._pageKey(catId, page), cached = this._livePages[key] || (Number(page) <= 2 && Store.cacheGet(this.acc.id, 'stalker_live_page_' + key, 6 * 3600e3));
+    var self = this, key = this._pageKey(catId, page), cacheKey = 'stalker_live_v2_page_' + key, cached = this._livePages[key] || (Number(page) <= 2 && Store.cacheGet(this.acc.id, cacheKey, 6 * 3600e3));
+    /* Do not resurrect a huge, pre-pagination cache after upgrade. The v2 key
+       represents bounded-page semantics and lets old localStorage expire safely. */
     if (cached) return Promise.resolve(cached);
     return this._call({ type: 'itv', action: 'get_ordered_list', genre: catId == null ? '*' : String(catId), force_ch_link_check: 0, fav: 0, sortby: 'number', hd: 0, p: Number(page) || 1, page_size: STALKER_LIVE_PAGE_SIZE, limit: STALKER_LIVE_PAGE_SIZE }).then(function (reply) {
       var rows = stalkerRows(reply), info, items = [], seen = {};
@@ -454,7 +456,7 @@ StalkerProvider.prototype = {
         });
         var result = { items: items, page: info.page, pageSize: info.pageSize, total: info.total, hasMore: info.hasMore, legacy: false };
         self._livePages[key] = result;
-        if (info.page <= 2) Store.cacheSet(self.acc.id, 'stalker_live_page_' + key, result);
+        if (info.page <= 2) Store.cacheSet(self.acc.id, cacheKey, result);
         /* This is an in-memory search index of pages the viewer has actually seen,
            including category-filtered pages. It is not written as one giant cache. */
         self._rememberAllLive(items); if (catId == null && info.total) self._allLive.total = info.total;
