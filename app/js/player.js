@@ -1,7 +1,7 @@
 /* RGBTv — HTML5/webOS player adapter. Playback lifecycle, source resolution,
  * session invalidation and recovery belong to PlaybackManager (not the UI). */
 var Player = (function () {
-  var video, hls = null, manager = null, osdTimer = null, current = null, playlist = [], index = -1, ratioMode = 0, RATIOS = ['Fit', 'Fill', 'Stretch'], lastLive = null, lastLiveAccount = null;
+  var video, hls = null, shaka = null, shakaTeardown = null, manager = null, osdTimer = null, current = null, playlist = [], index = -1, ratioMode = 0, RATIOS = ['Fit', 'Fill', 'Stretch'], lastLive = null, lastLiveAccount = null;
   var onEnded = null, canPlay = null, posKey = null, posTimer = null, seekAccum = 0, seekTimer = null, numBuf = '', numTimer = null, zapOpen = false, trackMenuOpen = false, trackMenuKind = '', trackReturnEl = null;
   var els = {}, lastTime = -1, lastBufferEnd = -1;
   var ICON_PLAY = '<svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M7 4v16l14-8z"/></svg>', ICON_PAUSE = '<svg viewBox="0 0 24 24" width="36" height="36" fill="currentColor"><path d="M6 5h4v14h-4z"/></svg>';
@@ -48,35 +48,156 @@ var Player = (function () {
     }
   }
   function destroyHls() { if (hls) { try { hls.destroy(); } catch (e) { } hls = null; } }
+  /* Shaka owns an MSE MediaSource asynchronously. Its destroy promise must settle
+     before another source is attached to the one stable webOS video plane; this
+     avoids an old detach callback clearing a newly selected channel. */
+  function destroyShaka() {
+    var instance = shaka, teardown;
+    if (!instance) return shakaTeardown;
+    shaka = null;
+    teardown = function () {
+      var result;
+      try { result = instance.destroy && instance.destroy(); }
+      catch (e) { return null; }
+      return result && typeof result.then === 'function' ? result : null;
+    };
+    if (shakaTeardown && typeof shakaTeardown.then === 'function') shakaTeardown = shakaTeardown.then(teardown, teardown);
+    else {
+      try { shakaTeardown = Promise.resolve(teardown()); }
+      catch (error) { shakaTeardown = Promise.resolve(null); }
+    }
+    (function (pending) { pending.then(function () { if (shakaTeardown === pending) shakaTeardown = null; }, function () { if (shakaTeardown === pending) shakaTeardown = null; }); })(shakaTeardown);
+    return shakaTeardown;
+  }
+  function destroyScriptEngines() { destroyHls(); return destroyShaka(); }
   function clearSource() {
-    destroyHls();
+    destroyScriptEngines();
     /* Invalidate the media event ownership before clear/load emits old source
        events. A subsequent loadSource stamps the winning channel session. */
     if (video) video._rgbSession = 0;
     try { video.pause(); video.removeAttribute('src'); video.load(); } catch (e) { }
   }
+  function streamOrigin(url) {
+    /* URL is unavailable on webOS 1.x. This compact parser is enough for absolute
+       HTTP(S) media URLs and normalizes implicit default ports for safe compares. */
+    var match = String(url || '').match(/^([a-z][a-z0-9+.-]*:)?\/\/([^\/?#@]*@)?(\[[^\]]+\]|[^\/:?#]+)(?::(\d+))?/i), protocol, host, port;
+    if (!match || !match[1] || !match[3]) return '';
+    protocol = String(match[1]).toLowerCase(); host = String(match[3]).toLowerCase(); port = match[4] || (protocol === 'https:' ? '443' : protocol === 'http:' ? '80' : '');
+    return protocol + '//' + host + (port ? ':' + port : '');
+  }
+  function isSameStreamOrigin(stream, requestUrl) {
+    var source = streamOrigin(stream && stream.url), request = streamOrigin(requestUrl || stream && stream.url);
+    return !!source && source === request;
+  }
+  function canSendStreamCredentials(stream, requestUrl) {
+    if (!isSameStreamOrigin(stream, requestUrl)) return false;
+    /* A Stalker create_link response may redirect to a CDN. Its MAG cookie or
+       bearer header is only valid for the known same-portal final media origin. */
+    if (String(stream && stream.provider || '').toLowerCase() === 'stalker') return !!(stream.metadata && stream.metadata.samePortal);
+    return true;
+  }
+  function isSensitiveHeader(name) { return /^(authorization|cookie|x-token|x-auth-token)$/i.test(String(name || '')); }
+  function requestHeadersFor(stream, requestUrl) {
+    var headers = stream && stream.headers || {}, safe = {}, key, value, sameOrigin = isSameStreamOrigin(stream, requestUrl || stream && stream.url), credentialSafe = canSendStreamCredentials(stream, requestUrl || stream && stream.url);
+    /* A source's custom headers never travel to a different segment/CDN origin.
+       Cookie/Bearer/MAG headers additionally require the Stalker samePortal proof. */
+    if (!sameOrigin) return safe;
+    for (key in headers) if (Object.prototype.hasOwnProperty.call(headers, key)) {
+      value = String(headers[key] || '');
+      if (!value || value.length > 2048 || /[\r\n]/.test(value)) continue;
+      if (isSensitiveHeader(key) && !credentialSafe) continue;
+      safe[key] = value;
+    }
+    return safe;
+  }
   function requiresScriptTransport(stream) {
-    var headers = stream && stream.headers || {}, key;
-    /* Native HTMLVideoElement cannot attach bearer/cookie headers. When a portal
-       explicitly made them part of a resolved HLS source, use the one adapter
-       that can attempt permitted headers rather than silently dropping them. */
-    for (key in headers) if (Object.prototype.hasOwnProperty.call(headers, key) && /^(authorization|cookie)$/i.test(key) && headers[key]) return true;
+    var headers = requestHeadersFor(stream, stream && stream.url), key;
+    /* Native HTMLVideoElement cannot attach bearer/cookie headers. Select a
+       guarded MSE adapter only when these credentials are safe to forward. */
+    if (stream && stream.cookies && canSendStreamCredentials(stream, stream.url)) return true;
+    for (key in headers) if (Object.prototype.hasOwnProperty.call(headers, key) && isSensitiveHeader(key) && headers[key]) return true;
     return false;
   }
-  function hlsHeaderSetup(headers) {
-    var safe = {}, key, value, has = false;
-    for (key in headers || {}) if (Object.prototype.hasOwnProperty.call(headers, key)) {
-      value = String(headers[key] || '');
-      if (value && value.length <= 2048 && !/[\r\n]/.test(value)) { safe[key] = value; has = true; }
-    }
-    if (!has) return null;
-    return function (xhr) {
-      for (key in safe) if (Object.prototype.hasOwnProperty.call(safe, key)) {
+  function hlsHeaderSetup(stream) {
+    var hasHeaders = false, key;
+    for (key in stream && stream.headers || {}) if (Object.prototype.hasOwnProperty.call(stream.headers, key)) { hasHeaders = true; break; }
+    if (!hasHeaders && !(stream && stream.cookies)) return null;
+    return function (xhr, requestUrl) {
+      var headers = requestHeadersFor(stream, requestUrl || stream && stream.url), name;
+      for (name in headers) if (Object.prototype.hasOwnProperty.call(headers, name)) {
         /* Some headers are forbidden by browser XHR. Try permitted IPTV headers
            without blocking the direct source assignment on webOS. */
-        try { xhr.setRequestHeader(key, safe[key]); } catch (e) { }
+        try { xhr.setRequestHeader(name, headers[name]); } catch (e) { }
       }
+      if (stream && stream.cookies && canSendStreamCredentials(stream, requestUrl || stream.url)) { try { xhr.withCredentials = true; } catch (credentialError) { } }
     };
+  }
+  function shakaErrorStatus(detail) {
+    var data = detail && detail.data || [], i, value;
+    if (detail && Number(detail.status) >= 100) return Number(detail.status);
+    for (i = 0; i < data.length; i++) {
+      value = data[i];
+      if (typeof value === 'number' && value >= 100 && value <= 599) return value;
+      if (value && typeof value === 'object' && Number(value.status || value.code) >= 100 && Number(value.status || value.code) <= 599) return Number(value.status || value.code);
+    }
+    return 0;
+  }
+  function canUseShaka(stream) {
+    var api = window.shaka;
+    if (!api || !api.Player || !api.Player.isBrowserSupported) return false;
+    if (stream && stream.type !== 'hls' && stream.type !== 'dash') return false;
+    try {
+      /* Some old WebKit/webOS builds expose a prefixed MediaSource. Let Shaka's
+         compatibility polyfills normalize it before deciding that MSE is absent. */
+      if (!canUseShaka.polyfillsInstalled && api.polyfill && api.polyfill.installAll) { api.polyfill.installAll(); canUseShaka.polyfillsInstalled = true; }
+      return typeof window.MediaSource !== 'undefined' && !!api.Player.isBrowserSupported();
+    } catch (e) { return false; }
+  }
+  function shakaRetryParameters(timeout) {
+    /* The manager owns reconnect policy. A Shaka request gets one finite attempt
+       and the manager's eight-second start deadline remains the visible contract. */
+    return { maxAttempts: 1, baseDelay: 0, backoffFactor: 1, fuzzFactor: 0, timeout: timeout, stallTimeout: 0, connectionTimeout: 0 };
+  }
+  function startShaka(stream, session) {
+    var api = window.shaka, instance, networking, failureReported = false;
+    function reportFailure(detail) {
+      if (failureReported || !instance || shaka !== instance || !manager.isCurrent(session)) return;
+      failureReported = true; manager.mediaError(detail);
+    }
+    if (!canUseShaka(stream)) { manager.mediaError({ shaka: true, code: 'SHAKA_UNSUPPORTED', message: 'Shaka MSE is not supported by this TV' }); return; }
+    try {
+      instance = new api.Player(video); shaka = instance; instance._rgbSession = session;
+      /* Conservative buffer and request settings suit webOS 3/Chrome 38-class
+         MSE implementations. Shaka's webOS platform adapter supplies further
+         device-specific workarounds when it recognizes the TV. */
+      instance.configure({
+        manifest: { retryParameters: shakaRetryParameters(8000) },
+        streaming: { bufferingGoal: 10, rebufferingGoal: 2, bufferBehind: 15, retryParameters: shakaRetryParameters(12000) }
+      });
+      networking = instance.getNetworkingEngine && instance.getNetworkingEngine();
+      if (networking && networking.registerRequestFilter) networking.registerRequestFilter(function (type, request) {
+        var requestUrl = request && request.uris && request.uris[0], headers = requestHeadersFor(stream, requestUrl), name;
+        if (!request) return;
+        request.headers = request.headers || {};
+        for (name in headers) if (Object.prototype.hasOwnProperty.call(headers, name)) request.headers[name] = headers[name];
+        /* Do not opt a signed cross-origin CDN segment into portal credentials. */
+        request.allowCrossSiteCredentials = !!(stream.cookies && canSendStreamCredentials(stream, requestUrl));
+      });
+      instance.addEventListener('error', function (event) {
+        var detail = event && event.detail || {};
+        if (shaka !== instance || !manager.isCurrent(session)) return;
+        /* Recovery-class warnings are informational. Critical Shaka failures use
+           the same manager as native/hls.js so the ladder cannot loop. */
+        if (detail.severity && api.util && api.util.Error && detail.severity !== api.util.Error.Severity.CRITICAL) return;
+        reportFailure({ shaka: true, category: detail.category, severity: detail.severity, status: shakaErrorStatus(detail), details: detail.message || '', message: 'Shaka error ' + (detail.code || detail.category || 'unknown') });
+      });
+      instance.load(stream.url).then(function () {
+        if (shaka !== instance || !manager.isCurrent(session)) return;
+        applyShakaTrackPreferences(); updateQualityBadge(); requestVideoPlay(session, function () { return shaka === instance; }, 'Unable to start Shaka MSE playback');
+      }, function (reason) {
+        reportFailure({ shaka: true, category: reason && reason.category, status: shakaErrorStatus(reason), details: reason && reason.message || '', message: 'Shaka load failed: ' + (reason && (reason.code || reason.message) || 'unknown') });
+      });
+    } catch (e) { if (manager.isCurrent(session)) manager.mediaError({ shaka: true, message: e && e.message || 'Unable to initialize Shaka MSE' }); }
   }
   function startHls(stream, session) {
     destroyHls();
@@ -84,14 +205,10 @@ var Player = (function () {
       /* Recovery is centralized in PlaybackRecoveryManager. hls.js may report
          a fatal error, but it never owns a second reconnect loop. */
       maxBufferLength: 18, maxMaxBufferLength: 30, liveSyncDurationCount: 3, enableWorker: false,
-      fragLoadingTimeOut: 20000, manifestLoadingTimeOut: 10000,
+      fragLoadingTimeOut: 12000, manifestLoadingTimeOut: 8000,
       manifestLoadingMaxRetry: 0, levelLoadingMaxRetry: 0, fragLoadingMaxRetry: 0
-    }, setup = hlsHeaderSetup(stream.headers), instance, manifestHint = null;
+    }, setup = hlsHeaderSetup(stream), instance, manifestHint = null;
     if (setup) cfg.xhrSetup = setup;
-    /* Cookie-bearing requests need the browser credential mode too. The server
-       must still opt in through CORS; a failure becomes a classified diagnostic,
-       never a false PLAYING state. */
-    if (stream.cookies) cfg.xhrSetup = (function (previous) { return function (xhr) { try { xhr.withCredentials = true; } catch (e) { } if (previous) previous(xhr); }; })(cfg.xhrSetup);
     instance = new Hls(cfg); hls = instance; instance._rgbSession = session;
     instance.loadSource(stream.url); instance.attachMedia(video);
     if (Hls.Events.MANIFEST_LOADED) instance.on(Hls.Events.MANIFEST_LOADED, function (event, data) {
@@ -121,7 +238,25 @@ var Player = (function () {
     });
   }
   function canUseHls() { return !!(window.Hls && Hls.isSupported && Hls.isSupported()); }
+  function canUseNativeHls(stream) {
+    try { return !!(video && video.canPlayType && video.canPlayType('application/vnd.apple.mpegurl') && !requiresScriptTransport(stream)); } catch (e) { return false; }
+  }
   function canPlayDash() { try { return !!(video && video.canPlayType && video.canPlayType('application/dash+xml')); } catch (e) { return false; } }
+  function selectEngine(stream) {
+    var setting = Store.settings().engine || 'auto', nativeHls = canUseNativeHls(stream), scriptTransport = requiresScriptTransport(stream);
+    /* TS/direct files are deliberately never placed in MSE. Dash is Shaka-only
+       unless a TV advertises native DASH; HLS follows the chosen safe policy. */
+    if (!stream || stream.type === 'mpegts' || stream.type === 'mp4' || stream.type === 'unknown') return 'native';
+    if (stream.type === 'dash') {
+      if (setting !== 'native' && canUseShaka(stream)) return 'shaka';
+      return 'native';
+    }
+    if (stream.type !== 'hls') return 'native';
+    if (setting === 'native') return 'native';
+    if (setting === 'shaka' && canUseShaka(stream)) return 'shaka';
+    if ((setting === 'hlsjs' || setting === 'shaka' || (setting === 'auto' && (!nativeHls || scriptTransport))) && canUseHls()) return 'hls';
+    return 'native';
+  }
   function developerDiagnosticsEnabled() {
     try { return !!(window.RGBTvDebug || (Store.settings && Store.settings().developerDiagnostics)); } catch (e) { return false; }
   }
@@ -164,6 +299,7 @@ var Player = (function () {
        loading layer remained visible over working video. The source session is
        stamped synchronously before assignment and is stable across that rewrite. */
     if (hls) return hls._rgbSession === manager.currentSession();
+    if (shaka) return shaka._rgbSession === manager.currentSession();
     return video._rgbSession === manager.currentSession();
   }
   function recoverHlsMedia(session) { if (hls && hls._rgbSession === session) { try { hls.recoverMediaError(); } catch (e) { manager.mediaError({ hls: true, type: 'mediaError', message: e.message || 'Media recovery failed' }); } } }
@@ -173,24 +309,27 @@ var Player = (function () {
   }
   function reloadSource(stream, session, engine) { if (!manager.isCurrent(session)) return false; loadSource(stream, session, engine); return true; }
   function loadSource(stream, session, forcedEngine) {
+    var teardown, start;
     if (!manager.isCurrent(session)) return;
-    var setting = Store.settings().engine, nativeHls = false, useHls, requiresHeaders = requiresScriptTransport(stream);
-    try { nativeHls = !!video.canPlayType('application/vnd.apple.mpegurl'); } catch (e) { }
-    /* Native webOS media remains the first HLS strategy when it can play the
-       playlist. HLS.js is selected only for an actual missing native capability,
-       an explicit diagnostics setting, a controlled native fallback, or a stream
-       whose bearer/cookie headers cannot be attached by HTMLVideoElement. */
-    useHls = stream.type === 'hls' && canUseHls() && (forcedEngine === 'hls' || setting === 'hlsjs' || (setting === 'auto' && (!nativeHls || requiresHeaders)));
-    current.url = stream.url; current.streamHeaders = stream.headers || {};
-    if (useHls) { startHls(stream, session); return; }
-    destroyHls();
-    /* This is the webOS adapter's direct handoff: preserve the exact provider URL
-       and let the hardware-backed HTML5 media pipeline open it immediately. */
-    try {
-      video._rgbSession = session;
-      video.src = stream.url; video.load();
-      requestVideoPlay(session, function () { return !hls; }, 'Unable to start native playback');
-    } catch (e2) { manager.mediaError({ code: 'PLAYER_ERROR', phase: 'player', message: e2.message || 'Unable to assign media source' }); }
+    /* The manager supplies a finite ladder decision. Re-evaluate only if a
+       capability vanished between selection and actual assignment. */
+    start = function () {
+      var engine = forcedEngine || selectEngine(stream);
+      if (!manager.isCurrent(session)) return;
+      current.url = stream.url; current.streamHeaders = stream.headers || {};
+      if (engine === 'shaka' && canUseShaka(stream)) { startShaka(stream, session); return; }
+      if (engine === 'hls' && stream.type === 'hls' && canUseHls()) { startHls(stream, session); return; }
+      /* This is the webOS adapter's direct handoff: preserve the exact provider URL
+         and let the hardware-backed HTML5 media pipeline open it immediately. */
+      try {
+        video._rgbSession = session;
+        video.src = stream.url; video.load();
+        requestVideoPlay(session, function () { return !hls && !shaka; }, 'Unable to start native playback');
+      } catch (e) { manager.mediaError({ code: 'PLAYER_ERROR', phase: 'player', message: e.message || 'Unable to assign media source' }); }
+    };
+    teardown = destroyScriptEngines();
+    if (teardown && typeof teardown.then === 'function') return teardown.then(start, start);
+    return start();
   }
   function sourceResolved(stream, session, context) {
     if (!manager.isCurrent(session) || !current) return;
@@ -218,7 +357,7 @@ var Player = (function () {
     manager = new PlaybackManager({
       resolve: function (item, opt) { return StreamResolver.resolve(App.provider, item, opt); },
       refreshSession: function (provider, opt) { return App.provider && App.provider.type === provider && App.provider.refreshSession ? App.provider.refreshSession(opt) : Promise.resolve(false); },
-      adapter: { clear: clearSource, load: loadSource, reload: reloadSource, snapshot: mediaSnapshot, canUseHls: canUseHls, canPlayDash: canPlayDash, recoverMedia: recoverHlsMedia, recoverBuffer: recoverBuffer, inspect: inspectSource },
+      adapter: { clear: clearSource, load: loadSource, reload: reloadSource, snapshot: mediaSnapshot, selectEngine: selectEngine, canUseShaka: canUseShaka, canUseHls: canUseHls, canUseNativeHls: canUseNativeHls, canPlayDash: canPlayDash, recoverMedia: recoverHlsMedia, recoverBuffer: recoverBuffer, inspect: inspectSource },
       onState: playbackUi,
       onSource: sourceResolved,
       onError: function () { /* state renderer supplies the bounded retry result */ }
@@ -254,7 +393,7 @@ var Player = (function () {
     video.addEventListener('error', function () {
       /* HLS errors are emitted by its adapter callback. Native errors are classified
          centrally, including the one HLS engine fallback and terminal formats. */
-      if (!hls && mediaBelongsToCurrentSession()) {
+      if (!hls && !shaka && mediaBelongsToCurrentSession()) {
         var mediaCode = video.error && video.error.code || 0;
         manager.mediaError({ nativeCode: mediaCode, phase: 'player', message: 'HTML5 media error code ' + mediaCode });
       }
@@ -266,7 +405,7 @@ var Player = (function () {
 
   function trackCapabilities() {
     var audio = 0, subs = 0;
-    try { audio = (hls && hls.audioTracks ? hls.audioTracks.length : 0) || (video.audioTracks ? video.audioTracks.length : 0); subs = (hls && hls.subtitleTracks ? hls.subtitleTracks.length : 0) || (video.textTracks ? video.textTracks.length : 0); } catch (e) { }
+    try { audio = (hls && hls.audioTracks ? hls.audioTracks.length : 0) || (shaka ? shakaAudioTracks().length : 0) || (video.audioTracks ? video.audioTracks.length : 0); subs = (hls && hls.subtitleTracks ? hls.subtitleTracks.length : 0) || (shaka ? shakaTextTracks().length : 0) || (video.textTracks ? video.textTracks.length : 0); } catch (e) { }
     return { audio: audio, subtitles: subs };
   }
   function updateTrackControls() {
@@ -276,7 +415,7 @@ var Player = (function () {
   }
   function capabilities() {
     var can = function (mime) { try { return !!(video && video.canPlayType && video.canPlayType(mime)); } catch (e) { return false; } }, tracks = trackCapabilities();
-    return { nativeHls: can('application/vnd.apple.mpegurl'), mp4: can('video/mp4'), mpegts: can('video/mp2t'), dash: can('application/dash+xml'), hlsjs: canUseHls(), audioTracks: tracks.audio > 1, subtitleTracks: tracks.subtitles > 0, fullscreen: !!(video && (video.requestFullscreen || video.webkitRequestFullscreen)) };
+    return { nativeHls: can('application/vnd.apple.mpegurl'), mp4: can('video/mp4'), mpegts: can('video/mp2t'), dash: can('application/dash+xml'), shaka: canUseShaka(), hlsjs: canUseHls(), audioTracks: tracks.audio > 1, subtitleTracks: tracks.subtitles > 0, fullscreen: !!(video && (video.requestFullscreen || video.webkitRequestFullscreen)) };
   }
   /* Resolution badge in OSD (4K / FHD / HD / SD) from the decoded video size */
   function updateQualityBadge() {
@@ -285,7 +424,7 @@ var Player = (function () {
     if (w && h) { var uhd = (w >= 3800 || h >= 2100); b.push('<span class="osd-badge' + (uhd ? ' uhd' : '') + '">' + (uhd ? '4K UHD' : (h >= 1000 || w >= 1900) ? 'FHD' : (h >= 700 || w >= 1200) ? 'HD' : 'SD') + '</span>'); b.push('<span class="osd-badge">' + w + '×' + h + '</span>'); }
     else if (/\b(4k|uhd|2160p)\b/i.test(nm)) b.push('<span class="osd-badge uhd">4K</span>');
     if (/\b(hdr|dolby ?vision)\b/i.test(nm)) b.push('<span class="osd-badge hdr">HDR</span>');
-    var subs = 0, auds = 0; try { subs = (hls && hls.subtitleTracks ? hls.subtitleTracks.length : 0) || (video.textTracks ? video.textTracks.length : 0); auds = (hls && hls.audioTracks ? hls.audioTracks.length : 0) || (video.audioTracks ? video.audioTracks.length : 0); } catch (e) { }
+    var subs = 0, auds = 0; try { subs = (hls && hls.subtitleTracks ? hls.subtitleTracks.length : 0) || (shaka ? shakaTextTracks().length : 0) || (video.textTracks ? video.textTracks.length : 0); auds = (hls && hls.audioTracks ? hls.audioTracks.length : 0) || (shaka ? shakaAudioTracks().length : 0) || (video.audioTracks ? video.audioTracks.length : 0); } catch (e) { }
     if (subs) b.push('<span class="osd-badge">CC ' + subs + '</span>'); if (auds > 1) b.push('<span class="osd-badge">♪ ' + auds + '</span>');
     if (!b.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
     el.className = 'osd-badges'; el.innerHTML = b.join(''); el.style.display = '';
@@ -479,8 +618,38 @@ var Player = (function () {
     if (audio >= 0) hls.audioTrack = audio;
     if (subs >= -1) hls.subtitleTrack = subs;
   }
+  function shakaAudioTracks() {
+    var variants, tracks = [], seen = {}, i, track, role, key;
+    if (!shaka || !shaka.getVariantTracks) return tracks;
+    try { variants = shaka.getVariantTracks() || []; } catch (e) { return tracks; }
+    for (i = 0; i < variants.length; i++) {
+      track = variants[i] || {}; role = track.audioRoles && track.audioRoles[0] || ''; key = String(track.language || 'und') + '|' + role + '|' + String(track.channelsCount || '');
+      if (seen[key]) { if (track.active) seen[key].active = true; continue; }
+      seen[key] = { language: track.language || '', role: role, label: track.label || track.language || '', active: !!track.active, original: track };
+      tracks.push(seen[key]);
+    }
+    return tracks;
+  }
+  function shakaTextTracks() {
+    try { return shaka && shaka.getTextTracks ? shaka.getTextTracks() || [] : []; } catch (e) { return []; }
+  }
+  function selectShakaAudio(track) {
+    if (!shaka || !shaka.selectAudioLanguage) return;
+    try { shaka.selectAudioLanguage(track.language || '', track.role || ''); } catch (e) { }
+  }
+  function selectShakaText(track) {
+    if (!shaka) return;
+    try { if (track && shaka.selectTextTrack) shaka.selectTextTrack(track); if (shaka.setTextTrackVisibility) shaka.setTextTrackVisibility(!!track); } catch (e) { }
+  }
+  function applyShakaTrackPreferences() {
+    if (!shaka || !current) return;
+    var audioTracks = shakaAudioTracks(), textTracks = shakaTextTracks(), audio = preferredTrackIndex('audio', audioTracks), subs = preferredTrackIndex('subs', textTracks);
+    if (audio >= 0) selectShakaAudio(audioTracks[audio]);
+    if (subs >= -1) selectShakaText(subs < 0 ? null : textTracks[subs]);
+    updateTrackControls();
+  }
   function applyNativeTrackPreference() {
-    if (!current) return;
+    if (!current || shaka) return;
     var i, audio = preferredTrackIndex('audio', video.audioTracks), subs = preferredTrackIndex('subs', video.textTracks);
     if (audio >= 0 && video.audioTracks) for (i = 0; i < video.audioTracks.length; i++) video.audioTracks[i].enabled = i === audio;
     if (video.textTracks && subs >= -1) for (i = 0; i < video.textTracks.length; i++) video.textTracks[i].mode = subs === -1 ? 'disabled' : i === subs ? 'showing' : 'disabled';
@@ -491,7 +660,10 @@ var Player = (function () {
     trackReturnEl = kind === 'audio' ? els['osd-audio'] : els['osd-subs'];
     menu.classList.remove('picture-menu');
     menu.innerHTML = '<div class="tm-title">' + (kind === 'audio' ? 'Audio tracks' : 'Subtitles') + '</div>';
-    if (hls) {
+    if (shaka) {
+      if (kind === 'audio') shakaAudioTracks().forEach(function (t, i) { list.push({ label: t.label || t.language || T('p.track', { n: i + 1 }), active: !!t.active, track: t, index: i, act: function () { selectShakaAudio(t); } }); });
+      else { list.push({ label: T('off'), active: shaka.isTextTrackVisible ? !shaka.isTextTrackVisible() : false, off: true, act: function () { selectShakaText(null); } }); shakaTextTracks().forEach(function (t, i) { list.push({ label: t.label || t.language || T('p.subTrack', { n: i + 1 }), active: !!t.active, track: t, index: i, act: function () { selectShakaText(t); } }); }); }
+    } else if (hls) {
       if (kind === 'audio') hls.audioTracks.forEach(function (t, i) { list.push({ label: t.name || t.lang || T('p.track', { n: i + 1 }), active: hls.audioTrack === i, track: t, index: i, act: function () { hls.audioTrack = i; } }); });
       else { list.push({ label: T('off'), active: hls.subtitleTrack === -1, off: true, act: function () { hls.subtitleTrack = -1; } }); hls.subtitleTracks.forEach(function (t, i) { list.push({ label: t.name || t.lang || T('p.subTrack', { n: i + 1 }), active: hls.subtitleTrack === i, track: t, index: i, act: function () { hls.subtitleTrack = i; } }); }); }
     } else {
@@ -687,6 +859,9 @@ var Player = (function () {
     if (hls) {
       var lv = hls.levels && hls.levels[hls.currentLevel]; if (lv) { br = lv.bitrate; codec = [lv.videoCodec, lv.audioCodec].filter(Boolean).join(' / '); }
       bw = hls.bandwidthEstimate; if (hls.latency != null && isFinite(hls.latency)) lat = hls.latency;
+    } else if (shaka) {
+      var shakaStats = null; try { shakaStats = shaka.getStats && shaka.getStats(); } catch (shakaStatsError) { }
+      if (shakaStats) { br = shakaStats.streamBandwidth; bw = shakaStats.estimatedBandwidth; }
     } else {
       var bytes = (video.webkitVideoDecodedByteCount || 0) + (video.webkitAudioDecodedByteCount || 0), now = Date.now();
       if (statsPrev && bytes > statsPrev.bytes) br = (bytes - statsPrev.bytes) * 8 / ((now - statsPrev.t) / 1000);
@@ -702,7 +877,7 @@ var Player = (function () {
     rows.push([T('stats.buffer'), bufferAhead().toFixed(1) + ' s', bufferAhead() < 2 ? 'warn' : 'good']);
     if (q) rows.push([T('stats.dropped'), q.dropped + ' / ' + q.decoded + ' (' + dropPct.toFixed(2) + '%)', dropPct > 5 ? 'bad' : dropPct > 1 ? 'warn' : 'good']);
     rows.push([T('stats.codec'), (codec ? codec + ' · ' : '') + (container || T('stats.unknown'))]);
-    rows.push([T('stats.engine'), hls ? T('stats.hlsjs') : T('stats.native')]);
+    rows.push([T('stats.engine'), shaka ? T('stats.shaka') : hls ? T('stats.hlsjs') : T('stats.native')]);
     if (manager && manager.diagnostics) {
       var metric = manager.diagnostics();
       /* INFO / BLUE is the existing developer diagnostic surface. Values are
@@ -712,7 +887,7 @@ var Player = (function () {
       if (metric.mimeType) rows.push(['MIME', metric.mimeType]);
       if (metric.hlsMaster) rows.push(['HLS master', metric.videoVariants + ' video / ' + metric.audioOnlyVariants + ' audio-only']);
       if (metric.nativeCompatibilityWarning) rows.push(['webOS HLS', metric.nativeCompatibilityWarning, 'warn']);
-      rows.push(['Strategy', metric.strategy || (hls ? 'hls.js' : 'native')]);
+      rows.push(['Strategy', metric.strategy || (shaka ? 'Shaka MSE' : hls ? 'hls.js' : 'native')]);
       rows.push([T('stats.state'), metric.currentState || manager.state]);
       if (metric.lastEvent) rows.push(['Event', metric.lastEvent]);
       if (metric.httpStatus || metric.inspectionError) rows.push(['HTTP', metric.httpStatus ? String(metric.httpStatus) : 'probe unavailable', metric.httpStatus >= 400 ? 'bad' : '']);

@@ -18,7 +18,7 @@ var context = {
 vm.runInNewContext(fs.readFileSync(ROOT + '/app/js/playback-manager.js', 'utf8'), context, { filename: 'playback-manager.js' });
 
 function wait(ms) { return new Promise(function (resolve) { setTimeout(resolve, ms); }); }
-function stream(id, type) { return { url: 'https://stream.example/' + id + (type === 'hls' ? '.m3u8?token=private' : type === 'mpegts' ? '.ts' : '.mp4'), type: type || 'mp4', provider: 'fixture', channelId: id, headers: {}, metadata: { live: true } }; }
+function stream(id, type) { return { url: 'https://stream.example/' + id + (type === 'hls' ? '.m3u8?token=private' : type === 'dash' ? '.mpd?token=private' : type === 'mpegts' ? '.ts' : '.mp4'), type: type || 'mp4', provider: 'fixture', channelId: id, headers: {}, metadata: { live: true } }; }
 function harness(resolve) {
   var loads = [], states = [], errors = [], clears = 0, snapshot = { paused: false, ended: false, readyState: 0, currentTime: 0 };
   var manager = new context.PlaybackManager({
@@ -88,6 +88,30 @@ async function testFallbackAndBoundedRecovery() {
   h.manager.mediaError({ hls: true, type: 'networkError', message: 'segment network error' });
   await wait(320);
   assert.strictEqual(h.loads[2].engine, 'hls', 'recovery stays on the selected HLS adapter instead of oscillating decoders');
+
+  var shaka = harness(function () { return Promise.resolve(stream('shaka', 'hls')); });
+  shaka.manager.adapter.selectEngine = function () { return 'shaka'; };
+  shaka.manager.adapter.canUseShaka = function () { return true; };
+  await shaka.manager.play({ id: 'shaka', type: 'live' }, {});
+  assert.strictEqual(shaka.loads[0].engine, 'shaka', 'the adapter can select capability-safe Shaka/MSE before hls.js');
+  shaka.manager.mediaError({ shaka: true, category: 3, message: 'Shaka error 3016' });
+  assert.strictEqual(shaka.loads[1].engine, 'hls', 'a Shaka HLS failure has one hls.js fallback');
+  shaka.manager.mediaError({ hls: true, details: 'manifest parsing error', message: 'HLS manifest parsing error' });
+  assert.strictEqual(shaka.loads.filter(function (entry) { return entry.engine === 'shaka'; }).length, 1, 'the HLS failure never cycles back to Shaka');
+  assert.strictEqual(shaka.manager.timeouts.start, 8000, 'all engines share the eight-second first-frame deadline');
+
+  var shakaDenied = harness(function () { return Promise.resolve(stream('shaka-denied', 'hls')); });
+  shakaDenied.manager.adapter.selectEngine = function () { return 'shaka'; };
+  shakaDenied.manager.adapter.canUseShaka = function () { return true; };
+  await shakaDenied.manager.play({ id: 'shaka-denied', type: 'live' }, {});
+  shakaDenied.manager.mediaError({ shaka: true, status: 401, message: 'HTTP 401' });
+  assert.strictEqual(shakaDenied.loads[1].engine, 'hls', 'a Shaka HLS failure still receives its one hls.js fallback when the status is exposed');
+
+  var dash = harness(function () { return Promise.resolve(stream('dash', 'dash')); });
+  dash.manager.adapter.selectEngine = function () { return 'shaka'; };
+  dash.manager.adapter.canUseShaka = function () { return true; };
+  await dash.manager.play({ id: 'dash', type: 'live' }, {});
+  assert.strictEqual(dash.loads[0].engine, 'shaka', 'DASH can use Shaka even when native DASH is unavailable');
 
   var calls = 0, retry = harness(function () {
     calls++;
@@ -206,6 +230,8 @@ async function testCancellationAndErrorPolicy() {
   var dated = C({ status: 429, response: { headers: { 'Retry-After': new Date(Date.now() + 3000).toUTCString() } } });
   assert.ok(dated.retryAfter > 0 && dated.retryAfter <= 3000, 'Retry-After HTTP dates are honored centrally');
   assert.strictEqual(C({ nativeCode: 4 }).retryable, false, 'unsupported native format never reconnects forever');
+  assert.strictEqual(C({ shaka: true, category: 3, message: 'Shaka error 3016' }).code, 'SHAKA_ERROR', 'fatal Shaka errors are normalized before generic player errors');
+  assert.strictEqual(C({ shaka: true, category: 6, message: 'DRM key system error' }).retryable, false, 'unsupported protected Shaka content cannot reconnect forever');
 
   var tokenCalls = 0, token = harness(function () { tokenCalls++; return Promise.resolve(stream('token', 'mpegts')); });
   await token.manager.play({ id: 'token', type: 'live' }, {});

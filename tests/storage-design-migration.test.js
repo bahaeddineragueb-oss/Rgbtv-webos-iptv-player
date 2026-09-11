@@ -31,4 +31,9 @@ var classic = storeFor({ theme: 'aurora', layout: 'classic' });
 assert.strictEqual(classic.Store.settings().layout, 'classic', 'existing classic selection remains untouched');
 var aliases = storeFor({ theme: 'astra', layout: 'guidefirst', designSystemVersion: 2 });
 assert.strictEqual(aliases.Store.settings().layout, 'guide', 'guide-first aliases normalize to the canonical new ID');
+var newInstall = storeFor({});
+assert.strictEqual(newInstall.Store.settings().engine, 'shaka', 'new settings default to the selected capability-gated Shaka policy');
+var oldEngine = storeFor({ engine: 'auto', designSystemVersion: 2 });
+assert.strictEqual(oldEngine.Store.settings().engine, 'auto', 'an existing Auto preference stays native-first until the user changes it');
+
 console.log('Visual-system settings migration checks passed');

@@ -1079,7 +1079,7 @@ var App = (function () {
     U.$('[data-setting="lang"]').textContent = I18n.name(s.lang);
     U.$('[data-setting="refresh"]').textContent = s.refreshHours ? T('refresh.h', { h: s.refreshHours }) : T('refresh.off');
     U.$('[data-setting="liveFormat"]').textContent = s.liveFormat === 'ts' ? 'MPEG-TS' : 'HLS (m3u8)';
-    U.$('[data-setting="engine"]').textContent = { auto: 'Auto', native: 'Native', hlsjs: 'hls.js' }[s.engine];
+    U.$('[data-setting="engine"]').textContent = { shaka: T('set.engine.shaka'), auto: T('set.engine.auto'), native: T('set.engine.native'), hlsjs: 'hls.js' }[s.engine] || T('set.engine.shaka');
     var pb = U.$('[data-setting="parental"]'); pb.textContent = account.kids ? T('set.lockedKids') : (s.parental ? T('on') : T('off'));
     U.$('[data-setting="autostart"]').textContent = s.autostart ? T('on') : T('off');
     U.$('[data-setting="preview"]').textContent = s.preview ? T('on') : T('off');
@@ -1107,7 +1107,7 @@ var App = (function () {
     else if (k === 'refresh') { var steps = [0, 3, 6, 12, 24], i = steps.indexOf(s.refreshHours); Store.setSetting('refreshHours', steps[(i + 1) % steps.length]); scheduleRefresh(); }
     else if (k === 'theme') { var i = THEME_IDS.indexOf(s.theme); Store.setSetting(k, THEME_IDS[(i + 1) % THEME_IDS.length]); applyTheme(); if (section === 'home') renderHome(); }
     else if (k === 'liveFormat') Store.setSetting(k, s.liveFormat === 'ts' ? 'm3u8' : 'ts');
-    else if (k === 'engine') Store.setSetting(k, { auto: 'native', native: 'hlsjs', hlsjs: 'auto' }[s.engine]);
+    else if (k === 'engine') Store.setSetting(k, { shaka: 'auto', auto: 'native', native: 'hlsjs', hlsjs: 'shaka' }[s.engine] || 'shaka');
     else if (k === 'parental') { if (account.kids) { UI.toast(T('kids.locked'), 2500, '🔒'); return; } Store.setSetting(k, !s[k]); }
     else if (k === 'corners') { Store.setSetting(k, s.corners === 'square' ? 'round' : 'square'); applyTheme(); }
     else if (k === 'glow') { Store.setSetting(k, s.glow === false); applyTheme(); }

@@ -30,7 +30,7 @@ var Store = (function () {
   function setLastAccount(id) { set('lastAccount', id); }
 
   /* ---- settings ---- */
-  var DEFAULTS = { liveFormat: 'm3u8', engine: 'auto', parental: true, autostart: false, theme: 'aurora', tmdbKey: '', preview: true, lang: 'en', refreshHours: 6, layout: 'classic', designSystemVersion: 2, focusStyle: 'glow', largeUi: false, highContrast: false, liveGrid: false, ambient: true, weather: true, autoNext: true, accent: 'auto', pointer: 'click', corners: 'round', glow: true, wxMode: 'auto', wxUnit: 'c', adhan: true, adhanMethod: 'algeria', pictureMode: 'original', pictureBrightness: 100, pictureContrast: 100, pictureSaturation: 100, pictureTone: 0, pictureBlackLevel: 0, pictureGamma: 0, aspectRatio: 'fit' };
+  var DEFAULTS = { liveFormat: 'm3u8', engine: 'shaka', parental: true, autostart: false, theme: 'aurora', tmdbKey: '', preview: true, lang: 'en', refreshHours: 6, layout: 'classic', designSystemVersion: 2, focusStyle: 'glow', largeUi: false, highContrast: false, liveGrid: false, ambient: true, weather: true, autoNext: true, accent: 'auto', pointer: 'click', corners: 'round', glow: true, wxMode: 'auto', wxUnit: 'c', adhan: true, adhanMethod: 'algeria', pictureMode: 'original', pictureBrightness: 100, pictureContrast: 100, pictureSaturation: 100, pictureTone: 0, pictureBlackLevel: 0, pictureGamma: 0, aspectRatio: 'fit' };
   var THEME_MIGRATE = { dark: 'aurora' }, LAYOUT_MIGRATE = { viu: 'spotlight', ibo: 'trio', guidefirst: 'guide', sideRail: 'rail', commandcenter: 'command' };
   function settings() {
     var s = get('settings', {}), oldVisualSystem = !s.designSystemVersion;

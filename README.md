@@ -1,6 +1,6 @@
-# RGBTv — webOS TV source (v2.8.0)
+# RGBTv — webOS TV source (v2.8.1)
 
-Pure HTML5 web app for LG webOS (3.0+): ES5 JavaScript, legacy-safe CSS, native <video> + hls.js.
+Pure HTML5 web app for LG webOS 1.x–3.x: ES5 application JavaScript, legacy-safe CSS, one native <video> surface with capability-gated Shaka MSE, hls.js, and direct playback.
 
 ```
 RGBTv-webOS/
@@ -27,7 +27,8 @@ RGBTv-webOS/
 │     ├─ adhan.js            prayer times (AlAdhan API) — visual banner only
 │     ├─ tmdb.js             optional TMDB artwork/ratings
 │     ├─ avatars.js          profile avatars
-│     ├─ lib/hls.min.js      hls.js
+│     ├─ lib/shaka-player.compiled.js  Shaka Player 4.3.6 (MSE, Apache-2.0)
+│     ├─ lib/hls.min.js      hls.js fallback
 │     ├─ lib/qrcode.min.js   QR for "Add from phone"
 │     └─ app.js              boot, screens flow, key routing
 ├─ services/com.rgbtv.app.service/   Node.js Luna service (JS service, runs on the TV)
@@ -71,7 +72,7 @@ or simply `./build.sh tv`.
 - **Connection diagnostics** reports the selected provider, declared capabilities, cache footprint, last login timing and a user-triggered safe catalogue/playback-link check. It never starts a second stream, and it never displays credentials or a full stream URL.
 - Keep the package small: no bundled audio/video assets.
 
-## Playback Engine (v2.7.7)
+## Playback Engine (v2.8.1)
 
 Live playback uses one stable HTML5 `<video>` surface through a provider-neutral pipeline:
 
@@ -84,9 +85,27 @@ Xtream and Stalker return the same normalized source contract (`streamUrl`, stre
 
 The existing **Stats** panel (INFO / BLUE) is the developer diagnostics surface. It exposes safe metadata only—provider, redacted source origin, protocol, MIME, stream type, selected strategy, current state/event, HLS variant facts, HTTP response metadata when explicitly probed, retry count and time to first frame. Opening it requests only an opt-in 4 KiB Range probe after playback begins; normal playback performs neither a HEAD request nor a stream prefetch.
 
-For Stalker, `create_link` is required to produce a fresh URL. A failed or empty result is reported as `STREAM_RESOLUTION_ERROR` rather than falling back to a stale `cmd`. Same-origin links retain their active MAG headers/cookies/token in memory; credentials are deliberately not forwarded to a different CDN origin. HLS is native-first on capable webOS hardware, with one hls.js fallback only when native playback fails or source authentication requires it. Mixed audio-only/video HLS manifests are parsed from the real hls.js manifest and start on a video rendition; WebOS compatibility warnings are recorded in diagnostics.
+For Stalker, `create_link` is required to produce a fresh URL. A failed or empty result is reported as `STREAM_RESOLUTION_ERROR` rather than falling back to a stale `cmd`. Same-origin links retain their active MAG headers/cookies/token in memory; credentials are deliberately not forwarded to a different CDN origin. New installations prefer the capability-gated Shaka/MSE route for compatible HLS/DASH, then make one hls.js handoff for a failed HLS MSE route; existing **Auto** settings retain the original native-first policy. MPEG-TS/direct streams remain native. Mixed audio-only/video HLS manifests are parsed from the real hls.js manifest and start on a video rendition; WebOS compatibility warnings are recorded in diagnostics.
 
 Validation is automated with provider, resolver, state-machine, cancellation, buffering, HLS fallback, deadline and Stalker-session tests. Final device acceptance still requires testing the subscriber's actual streams on their target LG webOS version, because portal authorization and codec support cannot be proven from a development fixture.
+
+### Shaka + MSE route (v2.8.1)
+
+The packaged `shaka-player.compiled.js` is the **Shaka Player 4.3.6 compiled, non-UI build** (Apache-2.0). It is loaded before the application adapter, but not activated merely because the library exists. The player uses the existing `#video` element only after all of the following are true:
+
+1. The normalized source is HLS or DASH — MPEG-TS, MP4 and unknown/direct sources stay on HTML5.
+2. `MediaSource` exists and `shaka.Player.isBrowserSupported()` accepts the device after Shaka installs its own polyfills.
+3. The selected Player engine setting permits Shaka. New profiles default to **Shaka (MSE)**; an already stored **Auto** choice deliberately remains native-first to preserve its previous behavior.
+
+The engine setting cycles **Shaka (MSE) → Auto → Native → hls.js**. Auto keeps native HLS first, while Shaka mode has this finite ladder:
+
+```
+Shaka/MSE (compatible HLS/DASH) → hls.js/MSE (one failed-HLS handoff) → bounded manager recovery
+```
+
+If Shaka/hls.js capability is absent, direct/native HTML5 remains the fallback. DASH is attempted through Shaka where supported, otherwise through an advertised native DASH path; it is not forced through hls.js. The shared manager has an eight-second first-frame deadline and owns all recovery, so the adapters cannot create their own retry loops or bounce back to Shaka after an hls.js failure. Shaka teardown is serialized before any new source is attached, protecting the stable webOS video plane during rapid channel zaps.
+
+Shaka request filters and hls.js XHR setup apply per-stream headers only to the normalized media source origin. For Stalker, `Authorization`, Cookie/MAG and browser credential mode additionally require the resolver's `metadata.samePortal` proof. Signed or redirected CDN segment URLs receive none of those portal credentials. Shaka errors, including exposed HTTP status, go through the same `PlaybackErrorClassifier`, UI error surface, diagnostics and bounded Stalker refresh lifecycle as native/hls.js failures.
 
 ### Stalker resolver repair (v2.7.2)
 

@@ -140,6 +140,15 @@ function PlaybackErrorClassifier(raw, stream) {
   if (raw.hls && /codec|manifest|level|audio.*only/i.test(text)) return new PlaybackError('HLS_ERROR', 'The HLS playlist is incompatible with this TV', false, false, raw, status);
   if (raw.hls && raw.type === 'mediaError') return new PlaybackError('CODEC_ERROR', 'The TV decoder could not play this HLS variant', true, true, raw, status);
   if (raw.hls) return new PlaybackError('HLS_ERROR', 'HLS playback failed', true, true, raw, status, retryAfter);
+  /* Shaka reports fatal MSE errors through its own event. Normalize them here,
+     before the generic DASH branch, so they share the same finite recovery policy
+     and still retain real HTTP status values when Shaka exposes them. */
+  if (raw.shaka) {
+    if (raw.code === 'SHAKA_UNSUPPORTED' || /unsupported|media source|sourcebuffer|codec|manifest incompatible/i.test(text)) return new PlaybackError('WEBOS_COMPATIBILITY_ERROR', 'Shaka MSE is not supported by this TV or stream', false, false, raw, status);
+    if (Number(raw.category) === 1 || /network|segment|manifest.*(?:load|request)|http/i.test(text)) return new PlaybackError('NETWORK_ERROR', 'Network error while Shaka loaded this stream', true, true, raw, status, retryAfter);
+    if (Number(raw.category) === 6 || /drm|license|key system/i.test(text)) return new PlaybackError('WEBOS_COMPATIBILITY_ERROR', 'This protected stream is not supported by this TV', false, false, raw, status);
+    return new PlaybackError('SHAKA_ERROR', 'Shaka MSE playback failed', true, true, raw, status, retryAfter);
+  }
   if (raw.code === 'MIME_ERROR' || /mime|content[ -]?type/i.test(text)) return new PlaybackError('MIME_ERROR', 'The stream returned an unsupported media type', false, false, raw, status);
   if (raw.code === 'CORS_ERROR' || /cors|cross.origin|network\/cors/i.test(text)) return new PlaybackError('CORS_ERROR', 'The stream server rejected this TV client request', false, false, raw, status);
   if (raw.nativeCode === 2 || /network|offline|connection|dns|failed to fetch/i.test(text)) return new PlaybackError('NETWORK_ERROR', 'Network error while loading stream', true, true, raw, status, retryAfter);
@@ -297,7 +306,9 @@ var PlaybackManager = (function () {
     this.sessionId = 0; this.requestId = 0; this.state = STATES.IDLE; this.current = null; this.options = null; this.stream = null; this.engine = 'native';
     this.abortController = null; this.startedAt = 0; this.lastProgress = 0; this.lastCurrentTime = -1; this.lastCurrentTimeAt = 0; this.hasMetadata = false; this.userPaused = false; this.mediaRecovered = false; this.hlsFallbackTried = false; this.networkOffline = false;
     this.metrics = new PlaybackMetrics(); this.circuit = new PlaybackCircuitBreaker(); this.streamFingerprint = ''; this.sameSourceReloadTried = false; this.lastError = null; this.providerType = ''; this.tokenRefreshTried = false;
-    this.resolveTimer = null; this.startTimer = null; this.timeouts = { resolve: Number(options.resolveTimeout) || 45000, start: Number(options.startTimeout) || 30000 };
+    /* Eight seconds gives a visible, deterministic first-frame result without
+       masking stalled native, Shaka or hls.js startup behind a spinner. */
+    this.resolveTimer = null; this.startTimer = null; this.timeouts = { resolve: Number(options.resolveTimeout) || 45000, start: Number(options.startTimeout) || 8000 };
     var self = this;
     this.buffer = new SmartBufferManager(function (detail) {
       if (!self.current || self.userPaused || self.state === STATES.RETRYING || self.state === STATES.ERROR || self.state === STATES.STOPPING) return;
@@ -409,10 +420,10 @@ var PlaybackManager = (function () {
         self._clearDeadline('resolve');
         var priorFingerprint = self.streamFingerprint, nextFingerprint = streamFingerprint(stream), unchanged = !!priorFingerprint && priorFingerprint === nextFingerprint;
         self.stream = stream; self.streamFingerprint = nextFingerprint; self.providerType = self.options && self.options.provider || stream.provider || self.providerType; if (unchanged) self.metrics.sameStreamResolutions++;
-        if (initial) self.engine = 'native'; self.mediaRecovered = false;
+        self.mediaRecovered = false;
         self.metrics.streamResolveTime = Math.max(0, Date.now() - self.metrics.streamResolveStartedAt);
         self.metrics.source(stream, { streamUrl: redactedSource(stream.url) }); self.metrics.event('stream_resolved');
-        if (stream.type === 'dash' && (!self.adapter || !self.adapter.canPlayDash || !self.adapter.canPlayDash(stream))) {
+        if (stream.type === 'dash' && (!self.adapter || (!self.adapter.canPlayDash || !self.adapter.canPlayDash(stream)) && (!self.adapter.canUseShaka || !self.adapter.canUseShaka(stream)))) {
           self.fail(new PlaybackError('WEBOS_COMPATIBILITY_ERROR', 'DASH is not supported by this TV playback engine', false, false, null), session); return null;
         }
         self._setState(STATES.STREAM_RESOLVED, { initial: !!initial, sourceChanged: !unchanged });
@@ -427,10 +438,17 @@ var PlaybackManager = (function () {
         }
         self.onSource(stream, session, { initial: !!initial, resumeAt: resumeAt || 0 });
         self._setState(STATES.PREPARING_PLAYER, { source: true, sourceChanged: !unchanged, initial: !!initial, retry: !initial, attempt: self.recovery.attempt });
-        /* Once a native HLS handoff succeeded, recover with that selected engine
-           rather than bouncing back and forth between two decoders. */
-        var engine = self.engine === 'hls' && self.hlsFallbackTried && stream.type === 'hls' ? 'hls' : 'native';
-        self.engine = engine; self.metrics.strategy = engine; self.metrics.sourceAssignedAt = Date.now(); self.metrics.event('preparing_player');
+        /* The adapter chooses Shaka only when MSE/browser support is safe. Once
+           an engine is selected, retries retain it; a controlled fallback changes
+           the engine at most once and never cycles back to the earlier decoder. */
+        var engine = self.engine;
+        if (initial) {
+          engine = 'native';
+          if (self.adapter && self.adapter.selectEngine) { try { engine = self.adapter.selectEngine(stream) || 'native'; } catch (selectError) { engine = 'native'; } }
+        }
+        if (engine !== 'native' && engine !== 'hls' && engine !== 'shaka') engine = 'native';
+        self.engine = engine;
+        self.metrics.strategy = engine; self.metrics.sourceAssignedAt = Date.now(); self.metrics.event('preparing_player');
         self._armDeadline('start', session, requestId); self._inspect(stream, session, requestId);
         if (self.adapter && self.adapter.load) self.adapter.load(stream, session, engine);
         return stream;
@@ -455,15 +473,18 @@ var PlaybackManager = (function () {
         var blocked = new PlaybackError('CIRCUIT_OPEN', 'This channel is temporarily paused after repeated failures. Please try again shortly.', false, false, error);
         this.metrics.lastErrorCode = blocked.code; this._clearDeadlines(); this.recovery.cancel(); this._setState(STATES.ERROR, { error: blocked, circuitOpen: true }); this.onError(blocked, this.recovery.attempt, this.recovery.maxAttempts); this._log('Circuit opened', { error: error.code }); return false;
       }
-      /* HLS has one controlled native-to-hls.js handover. It is an engine change,
-         not a retry and cannot cycle back to native for the same session. */
+      /* The capability-gated ladder is finite: Shaka/MSE may hand an HLS stream
+         to hls.js exactly once; native HLS may also hand to hls.js exactly once.
+         MPEG-TS/direct streams never enter this MSE branch and no path goes back
+         to Shaka, so a failure cannot cause an engine-switch loop. */
       /* MAG create_link endpoints are frequently opaque PHP paths with no
          .m3u8 suffix. A native SRC_NOT_SUPPORTED result is the decisive signal:
          make one hls.js attempt for an unknown live source rather than denying a
          valid HLS stream solely because its signed URL lacks an extension. */
-      if (this.stream && (this.stream.type === 'hls' || (this.stream.type === 'unknown' && this.stream.metadata && this.stream.metadata.live)) && this.engine === 'native' && !this.hlsFallbackTried && this.adapter && this.adapter.canUseHls && this.adapter.canUseHls()) {
+      if (this.stream && (this.stream.type === 'hls' || (this.stream.type === 'unknown' && this.stream.metadata && this.stream.metadata.live)) && (this.engine === 'native' || this.engine === 'shaka') && !this.hlsFallbackTried && this.adapter && this.adapter.canUseHls && this.adapter.canUseHls() && (this.engine === 'shaka' || error.code !== 'AUTHENTICATION_ERROR' && error.code !== 'HTTP_ERROR')) {
+        var fromEngine = this.engine;
         this.hlsFallbackTried = true; this.engine = 'hls'; this.metrics.strategy = 'hls'; this.hasMetadata = false; this.lastProgress = Date.now();
-        this._setState(STATES.PREPARING_PLAYER, { fallback: true }); this._log('Native HLS fallback');
+        this._setState(STATES.PREPARING_PLAYER, { fallback: true, fromEngine: fromEngine }); this._log('HLS MSE fallback', { fromEngine: fromEngine });
         this._armDeadline('start', session, this.requestId); this.adapter.load(this.stream, session, 'hls'); return true;
       }
       /* hls.js offers one decoder-specific recovery. Further media errors use the
