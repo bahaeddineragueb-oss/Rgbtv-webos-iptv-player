@@ -463,14 +463,18 @@ var App = (function () {
       if (!alive()) return; lv = prepareLiveList(lv || []);
       U.$('.t-sub', tLive).textContent = T('hub.live.s', { n: lv.length }); setTilePosters(tLive, lv.filter(function (x) { return x.logo; }).slice(0, 3).map(function (x) { return { src: x.logo, logo: true }; }));
       var favLive = favs.filter(function (f) { return f.type === 'live' && f.logo; }); if (favLive.length) setTilePosters(tFav, favLive.slice(0, 3).map(function (x) { return { src: x.logo, logo: true }; }));
+      /* A MAG portal can expose tens of thousands of VOD/Series records. Do not
+         start those catalogue scans merely to decorate Home: they compete with
+         the first live page/create_link and are loaded on demand in their tabs. */
+      if (provider && provider.type === 'stalker') { U.$('.t-sub', tMov).textContent = '—'; U.$('.t-sub', tSer).textContent = '—'; return null; }
       return provider.vodStreams().catch(function () { return []; });
     }).then(function (m) {
-      if (!alive()) return; m = (m || []).filter(function (x) { return !bad[x.catId]; }); var latest = m.slice().sort(function (a, b) { return (b.added || 0) - (a.added || 0); });
+      if (!alive() || provider && provider.type === 'stalker') return; m = (m || []).filter(function (x) { return !bad[x.catId]; }); var latest = m.slice().sort(function (a, b) { return (b.added || 0) - (a.added || 0); });
       U.$('.t-sub', tMov).textContent = T('hub.movies.s', { n: m.length }); setTilePosters(tMov, latest.filter(function (x) { return x.poster; }).slice(0, 3).map(function (x) { return { src: x.poster }; }));
       var bgM = latest.filter(function (x) { return x.backdrop || x.poster; })[0]; if (bgM) U.$('.t-bg', tMov).style.backgroundImage = 'url("' + (bgM.backdrop || bgM.poster) + '")';
       return provider.seriesList().catch(function () { return []; });
     }).then(function (sl) {
-      if (!alive()) return; sl = (sl || []).filter(function (x) { return !bad[x.catId]; }); var latest = sl.slice().sort(function (a, b) { return (b.added || 0) - (a.added || 0); });
+      if (!alive() || provider && provider.type === 'stalker') return; sl = (sl || []).filter(function (x) { return !bad[x.catId]; }); var latest = sl.slice().sort(function (a, b) { return (b.added || 0) - (a.added || 0); });
       U.$('.t-sub', tSer).textContent = T('hub.series.s', { n: sl.length }); setTilePosters(tSer, latest.filter(function (x) { return x.poster; }).slice(0, 3).map(function (x) { return { src: x.poster }; }));
       var bgS = latest.filter(function (x) { return x.backdrop || x.poster; })[0]; if (bgS) U.$('.t-bg', tSer).style.backgroundImage = 'url("' + (bgS.backdrop || bgS.poster) + '")';
       var favV = favs.filter(function (f) { return f.type !== 'live' && f.poster; }); if (favV.length) setTilePosters(tFav, favV.slice(0, 3).map(function (x) { return { src: x.poster }; }));

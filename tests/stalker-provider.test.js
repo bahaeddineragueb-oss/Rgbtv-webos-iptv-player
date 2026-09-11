@@ -18,7 +18,7 @@ function pageOf(url) { return Number(new URL(url).searchParams.get('p') || 1); }
 function freshProvider(reply, accountPatch) {
   var calls = [], cache = {}, getJSON = reply || function () { return Promise.resolve({ data: { js: { data: [] } }, status: 200, headers: {} }); };
   var context = {
-    console: console, Promise: Promise, Date: Date, setInterval: function () { return 1; }, clearInterval: function () {},
+    console: console, Promise: Promise, Date: Date, setTimeout: setTimeout, clearTimeout: clearTimeout, setInterval: function () { return 1; }, clearInterval: function () {},
     window: {},
     I18n: { t: function (key) { return key; } },
     Store: {
@@ -83,6 +83,8 @@ async function testOnePageForLargeCatalogues() {
     var h = freshProvider(function (url) {
       assert.strictEqual(actionOf(url), 'get_ordered_list');
       assert.strictEqual(new URL(url).searchParams.get('genre'), '*', 'All Channels uses the server wildcard');
+      assert.strictEqual(new URL(url).searchParams.get('page_size'), '100', 'large Stalker catalogues request a bounded server page size');
+      assert.strictEqual(new URL(url).searchParams.get('limit'), '100', 'legacy portals receive the equivalent bounded limit hint');
       return Promise.resolve(meta({ js: { data: [channel(1), channel(2)], total_items: total, max_page_items: 100 } }));
     });
     var page = await h.provider.livePage(null, 1);
@@ -120,6 +122,21 @@ async function testPaginationAndExplicitLegacyFallback() {
   var blank = await empty.provider.livePage('empty', 1);
   assert.strictEqual(blank.items.length, 0);
   assert.strictEqual(empty.calls.length, 1, 'a real empty genre must never fall back to get_all_channels');
+}
+
+async function testLargeLegacyCatalogueMappingYields() {
+  var rows = [], i;
+  for (i = 1; i <= 225; i++) rows.push(channel(i));
+  var h = freshProvider(function (url) {
+    if (actionOf(url) === 'get_ordered_list') return Promise.resolve(meta({ js: { error: 'Unknown action get_ordered_list' } }));
+    if (actionOf(url) === 'get_all_channels') return Promise.resolve(meta({ js: { channels: rows } }));
+    throw new Error('unexpected action');
+  });
+  var page = await h.provider.livePage(null, 1);
+  assert.strictEqual(page.legacy, true, 'an explicitly unsupported page API retains the compatibility catalogue path');
+  assert.strictEqual(page.items.length, 100, 'a large legacy response is exposed as a bounded first page');
+  assert.strictEqual(page.total, 225, 'all legacy channels remain available through progressive local slices');
+  assert.strictEqual(page.hasMore, true, 'subsequent legacy pages remain reachable without refetching the giant response');
 }
 
 async function testQueueDedupe429AndSingleRefresh() {
@@ -242,6 +259,7 @@ async function testLoadedIndexSearch() {
   await testEnvelopeVariantsAndNormalizer();
   await testOnePageForLargeCatalogues();
   await testPaginationAndExplicitLegacyFallback();
+  await testLargeLegacyCatalogueMappingYields();
   await testQueueDedupe429AndSingleRefresh();
   await testPlaybackPriorityAndHandshakeCompatibility();
   await testStalkerStreamContract();

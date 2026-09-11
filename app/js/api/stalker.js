@@ -23,6 +23,23 @@ function stalkerRows(payload) {
   return row || [];
 }
 function stalkerNumber(value) { value = Number(value); return isFinite(value) && value >= 0 ? value : 0; }
+/* A portal should return one ITV page, but several older deployments silently
+   return their whole catalogue. Map in short slices so a 20k-channel response
+   cannot freeze the webOS UI thread while the Live list is being prepared. */
+var STALKER_LIVE_PAGE_SIZE = 100, STALKER_MAP_CHUNK_SIZE = 100;
+function stalkerMapLiveRows(provider, rows, fallbackCat, positionOffset) {
+  rows = Array.isArray(rows) ? rows : [];
+  return new Promise(function (resolve) {
+    var out = [], at = 0, offset = Number(positionOffset) || 0;
+    function next() {
+      var end = Math.min(at + STALKER_MAP_CHUNK_SIZE, rows.length);
+      while (at < end) { out.push(provider._mapLiveChannel(rows[at], fallbackCat, offset + at + 1)); at++; }
+      if (at < rows.length) { setTimeout(next, 0); return; }
+      resolve(out);
+    }
+    next();
+  });
+}
 function stalkerCancelledError() { var e = new Error('Playback request cancelled'); e.name = 'AbortError'; e.code = 'USER_CANCELLED'; return e; }
 function stalkerPageInfo(payload, rows, page) {
   var boxes = [{ value: payload, depth: 0 }], seen = [], total = 0, size = 0, returnedPage = Number(page) || 1, entry, box, keys, i;
@@ -405,10 +422,12 @@ StalkerProvider.prototype = {
     /* Only a portal that explicitly rejects the documented paged ITV action uses
        this compatibility endpoint. It is never touched by paginated portals. */
     return this._call({ type: 'itv', action: 'get_all_channels' }).then(function (reply) {
-      var rows = stalkerRows(reply), list = rows.map(function (row, index) { return self._mapLiveChannel(row, '', index + 1); });
-      self._mem.legacyLive = list; self._rememberAllLive(list);
-      stalkerDebug('Legacy ITV catalogue', { rows: rows.length, mapped: list.length });
-      return self._legacySlice(catId, page, pageSize);
+      var rows = stalkerRows(reply);
+      return stalkerMapLiveRows(self, rows, '', 0).then(function (list) {
+        self._mem.legacyLive = list; self._rememberAllLive(list);
+        stalkerDebug('Legacy ITV catalogue', { rows: rows.length, mapped: list.length });
+        return self._legacySlice(catId, page, pageSize);
+      });
     });
   },
   _legacySlice: function (catId, page, pageSize) {
@@ -423,24 +442,25 @@ StalkerProvider.prototype = {
   livePage: function (catId, page) {
     var self = this, key = this._pageKey(catId, page), cached = this._livePages[key] || (Number(page) <= 2 && Store.cacheGet(this.acc.id, 'stalker_live_page_' + key, 6 * 3600e3));
     if (cached) return Promise.resolve(cached);
-    return this._call({ type: 'itv', action: 'get_ordered_list', genre: catId == null ? '*' : String(catId), force_ch_link_check: 0, fav: 0, sortby: 'number', hd: 0, p: Number(page) || 1 }).then(function (reply) {
-      var rows = stalkerRows(reply), info, items = [], seen = {}, item;
+    return this._call({ type: 'itv', action: 'get_ordered_list', genre: catId == null ? '*' : String(catId), force_ch_link_check: 0, fav: 0, sortby: 'number', hd: 0, p: Number(page) || 1, page_size: STALKER_LIVE_PAGE_SIZE, limit: STALKER_LIVE_PAGE_SIZE }).then(function (reply) {
+      var rows = stalkerRows(reply), info, items = [], seen = {};
       if (!rows.length && self._unsupportedPageReply(reply)) return self._legacyLivePage(catId, page);
       info = stalkerPageInfo(reply, rows, page);
-      rows.forEach(function (row, index) {
-        item = self._mapLiveChannel(row, catId, ((info.page - 1) * info.pageSize) + index + 1);
-        /* A few portals repeat the last record at a page boundary. Keep every
-           distinct channel but never insert the repeated record twice. */
-        if (!seen[item.id]) { seen[item.id] = 1; items.push(item); }
+      return stalkerMapLiveRows(self, rows, catId, (info.page - 1) * info.pageSize).then(function (mapped) {
+        mapped.forEach(function (item) {
+          /* A few portals repeat the last record at a page boundary. Keep every
+             distinct channel but never insert the repeated record twice. */
+          if (!seen[item.id]) { seen[item.id] = 1; items.push(item); }
+        });
+        var result = { items: items, page: info.page, pageSize: info.pageSize, total: info.total, hasMore: info.hasMore, legacy: false };
+        self._livePages[key] = result;
+        if (info.page <= 2) Store.cacheSet(self.acc.id, 'stalker_live_page_' + key, result);
+        /* This is an in-memory search index of pages the viewer has actually seen,
+           including category-filtered pages. It is not written as one giant cache. */
+        self._rememberAllLive(items); if (catId == null && info.total) self._allLive.total = info.total;
+        stalkerDebug('Channel page ' + info.page, { received: rows.length, mapped: items.length, total: info.total || 'unknown', pageSize: info.pageSize, category: catId == null ? 'all' : 'selected' });
+        return result;
       });
-      var result = { items: items, page: info.page, pageSize: info.pageSize, total: info.total, hasMore: info.hasMore, legacy: false };
-      self._livePages[key] = result;
-      if (info.page <= 2) Store.cacheSet(self.acc.id, 'stalker_live_page_' + key, result);
-      /* This is an in-memory search index of pages the viewer has actually seen,
-         including category-filtered pages. It is not written as one giant cache. */
-      self._rememberAllLive(items); if (catId == null && info.total) self._allLive.total = info.total;
-      stalkerDebug('Channel page ' + info.page, { received: rows.length, mapped: items.length, total: info.total || 'unknown', pageSize: info.pageSize, category: catId == null ? 'all' : 'selected' });
-      return result;
     });
   },
   /* Legacy provider callers get only the first page. The Live controller below
